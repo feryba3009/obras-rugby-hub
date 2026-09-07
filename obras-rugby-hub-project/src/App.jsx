@@ -101,7 +101,7 @@ function StatCard({ label, value, tone }) {
 // Datos reales · URBA · Torneo Desarrollo 2026 (urba.org.ar/fixture)
 let POSICIONES = { superior: [], intermedia: [] };
 let FIXTURE = { superior: [], intermedia: [] };
-let PROXIMOS_SUPERIOR = [];
+let PROXIMOS = { superior: [], intermedia: [] };
 
 const DBDATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 function dbDateToDisplay(d) {
@@ -125,7 +125,7 @@ async function cargarCalendario() {
 
   const { data: partidoRows, error: errPart } = await supabase
     .from("partidos")
-    .select("categoria_id, fecha_numero, fecha, condicion, goles_favor, goles_contra, resultado, equipos_rivales(nombre)")
+    .select("id, categoria_id, fecha_numero, fecha, condicion, goles_favor, goles_contra, resultado, veo_link, informe, equipos_rivales(nombre)")
     .order("fecha_numero");
   if (errPart) console.error("Error cargando partidos:", errPart);
 
@@ -143,6 +143,7 @@ async function cargarCalendario() {
     FIXTURE[claveCat] = partidosCat
       .filter((r) => r.resultado !== "Próximo")
       .map((r) => ({
+        id: r.id,
         fecha: r.fecha_numero,
         date: dbDateToDisplay(r.fecha),
         rival: r.equipos_rivales?.nombre,
@@ -150,19 +151,30 @@ async function cargarCalendario() {
         gf: r.goles_favor,
         gc: r.goles_contra,
         res: r.resultado,
+        veoLink: r.veo_link,
+        informe: r.informe,
       }));
 
-    if (claveCat === "superior") {
-      PROXIMOS_SUPERIOR = partidosCat
-        .filter((r) => r.resultado === "Próximo")
-        .map((r) => ({
-          fecha: r.fecha_numero,
-          date: dbDateToDisplay(r.fecha),
-          rival: r.equipos_rivales?.nombre,
-          cond: r.condicion,
-        }));
-    }
+    PROXIMOS[claveCat] = partidosCat
+      .filter((r) => r.resultado === "Próximo")
+      .map((r) => ({
+        id: r.id,
+        fecha: r.fecha_numero,
+        date: dbDateToDisplay(r.fecha),
+        rival: r.equipos_rivales?.nombre,
+        cond: r.condicion,
+      }));
   }
+}
+
+// Guarda el resultado de un partido próximo (lo carga Cuerpo técnico / Manager) y lo pasa a jugado.
+async function guardarResultadoPartido(partidoId, gf, gc) {
+  let res = "Empate";
+  if (gf > gc) res = "Ganado";
+  else if (gf < gc) res = "Perdido";
+  const { error } = await supabase.from("partidos").update({ goles_favor: gf, goles_contra: gc, resultado: res }).eq("id", partidoId);
+  if (error) console.error("Error guardando resultado:", error);
+  return !error;
 }
 
 function resultTag(res) {
@@ -350,10 +362,15 @@ function etiquetaDias(dateStr) {
   return `hace ${-diff} día${diff === -1 ? "" : "s"}`;
 }
 
-function CalendarioPage() {
+function CalendarioPage({ perfil }) {
   const [cat, setCat] = useState("superior");
+  const [, forceUpdate] = useState(0);
+  const [cargandoResultado, setCargandoResultado] = useState(false);
+  const [gf, setGf] = useState("");
+  const [gc, setGc] = useState("");
+
   const fixture = FIXTURE[cat];
-  const proximos = cat === "superior" ? PROXIMOS_SUPERIOR : [];
+  const proximos = PROXIMOS[cat];
   const ultimo = fixture[fixture.length - 1];
   const proximo = proximos[0];
 
@@ -369,6 +386,18 @@ function CalendarioPage() {
     { ganados: 0, perdidos: 0, empatados: 0, favor: 0, contra: 0 }
   );
   const diferencia = record.favor - record.contra;
+
+  async function guardar() {
+    if (gf === "" || gc === "") return;
+    const ok = await guardarResultadoPartido(proximo.id, Number(gf), Number(gc));
+    if (ok) {
+      await cargarCalendario();
+      setCargandoResultado(false);
+      setGf("");
+      setGc("");
+      forceUpdate((n) => n + 1);
+    }
+  }
 
   return (
     <div>
@@ -386,7 +415,10 @@ function CalendarioPage() {
         ].map((t) => (
           <button
             key={t.key}
-            onClick={() => setCat(t.key)}
+            onClick={() => {
+              setCat(t.key);
+              setCargandoResultado(false);
+            }}
             style={{
               ...pillButton,
               border: "1px solid " + (cat === t.key ? "#f2c230" : "#2a2a2c"),
@@ -401,7 +433,17 @@ function CalendarioPage() {
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 20 }}>
         <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 300px" }}>
-          <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.5, marginBottom: 10 }}>PRÓXIMO PARTIDO</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <span style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.5 }}>PRÓXIMO PARTIDO</span>
+            {proximo && puedeGestionar(perfil) && !cargandoResultado && (
+              <button
+                onClick={() => setCargandoResultado(true)}
+                style={{ background: "transparent", border: "none", color: "#f2c230", fontSize: 11.5, cursor: "pointer" }}
+              >
+                Cargar resultado
+              </button>
+            )}
+          </div>
           {proximo ? (
             <>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
@@ -412,6 +454,32 @@ function CalendarioPage() {
               <div style={{ fontSize: 12, color: "#8f8f8c" }}>
                 Fecha {proximo.fecha} · {proximo.cond} · {proximo.date}
               </div>
+              {cargandoResultado && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+                  <input
+                    value={gf}
+                    onChange={(e) => setGf(e.target.value.replace(/\D/g, ""))}
+                    placeholder="Obras"
+                    style={{ ...editInputStyle, width: 60, borderBottom: "1px solid #2a2a2c", textAlign: "center" }}
+                  />
+                  <span style={{ color: "#6b6b68" }}>—</span>
+                  <input
+                    value={gc}
+                    onChange={(e) => setGc(e.target.value.replace(/\D/g, ""))}
+                    placeholder={proximo.rival}
+                    style={{ ...editInputStyle, width: 60, borderBottom: "1px solid #2a2a2c", textAlign: "center" }}
+                  />
+                  <button onClick={guardar} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none", fontSize: 12 }}>
+                    Guardar
+                  </button>
+                  <button
+                    onClick={() => setCargandoResultado(false)}
+                    style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c", fontSize: 12 }}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
             </>
           ) : (
             <div style={{ fontSize: 12.5, color: "#6b6b68" }}>Sin próximo partido confirmado.</div>
@@ -1166,15 +1234,19 @@ function TitularPill({ slot, editMode, onChangeJugador }) {
 }
 
 function SuplentePill({ slot, editMode, onChangeJugador, onChangePuesto }) {
+  const vacante = !slot.jugadorId;
   return (
-    <div style={{ ...pillStyle, padding: "6px 16px 6px 10px" }}>
+    <div style={{ ...pillStyle, padding: "6px 16px 6px 10px", opacity: vacante && !editMode ? 0.55 : 1 }}>
       <span style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#f2c230", fontSize: 13, minWidth: 14, textAlign: "center" }}>
         {slot.numero}
       </span>
       <AvatarPlaceholder />
       <div style={{ display: "flex", flexDirection: "column" }}>
         {editMode ? (
-          <select value={slot.jugadorId} onChange={(e) => onChangeJugador(e.target.value)} style={pillSelectStyle}>
+          <select value={slot.jugadorId || ""} onChange={(e) => onChangeJugador(e.target.value)} style={pillSelectStyle}>
+            <option value="" style={{ background: "#141415", color: "#8f8f8c" }}>
+              — Vacante —
+            </option>
             {jugadoresPara(slot.puesto).map((p) => (
               <option key={p.id} value={p.id} style={{ background: "#141415" }}>
                 {p.id}
@@ -1182,7 +1254,9 @@ function SuplentePill({ slot, editMode, onChangeJugador, onChangePuesto }) {
             ))}
           </select>
         ) : (
-          <span style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, whiteSpace: "nowrap" }}>{slot.jugadorId}</span>
+          <span style={{ fontSize: 13, color: vacante ? "#6b6b68" : "#f5f4f0", fontStyle: vacante ? "italic" : "normal", fontWeight: 500, whiteSpace: "nowrap" }}>
+            {vacante ? "Vacante" : slot.jugadorId}
+          </span>
         )}
         {editMode ? (
           <input
@@ -1515,10 +1589,11 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
   );
 }
 
-function PlantelCompletoPage() {
+function PlantelCompletoPage({ perfil }) {
   const [jugadores, setJugadores] = useState(POOL);
   const [editMode, setEditMode] = useState(false);
   const [seleccionadoId, setSeleccionadoId] = useState(null);
+  const puede = puedeGestionar(perfil);
 
   const CAMPO_DB = { posicionAlternativa: "posicion_alternativa", posicionEmergencia: "posicion_emergencia", apto: "apto" };
 
@@ -1558,6 +1633,19 @@ function PlantelCompletoPage() {
         .eq("descripcion", texto)
         .then(({ error }) => error && console.error("Error borrando historial", error));
     }
+  }
+
+  function eliminarJugador(id) {
+    const jugador = jugadores.find((j) => j.id === id);
+    if (!jugador) return;
+    if (!window.confirm(`¿Eliminar a ${id} del plantel? Esta acción no se puede deshacer.`)) return;
+    setJugadores((prev) => prev.filter((j) => j.id !== id));
+    POOL = POOL.filter((j) => j.id !== id);
+    supabase
+      .from("jugadores")
+      .delete()
+      .eq("id", jugador.dbId)
+      .then(({ error }) => error && console.error("Error eliminando jugador", error));
   }
 
   const seleccionado = jugadores.find((j) => j.id === seleccionadoId);
@@ -1609,6 +1697,7 @@ function PlantelCompletoPage() {
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Emergencia</th>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Apto</th>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Estado médico</th>
+              {editMode && puede && <th style={{ fontWeight: 400, padding: "8px 10px" }}></th>}
             </tr>
           </thead>
           <tbody>
@@ -1684,6 +1773,16 @@ function PlantelCompletoPage() {
                     </div>
                   )}
                 </td>
+                {editMode && puede && (
+                  <td style={{ padding: "9px 10px" }}>
+                    <button
+                      onClick={() => eliminarJugador(j.id)}
+                      style={{ background: "transparent", border: "1px solid #4a2320", color: "#e0665c", borderRadius: 5, fontSize: 11, padding: "4px 8px", cursor: "pointer" }}
+                    >
+                      Eliminar
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -1750,17 +1849,111 @@ function gpsMetricasEntrenamiento(nombre, dia) {
   };
 }
 
-function GpsPartidos() {
+async function cargarGpsPartido(partidoId) {
+  const { data, error } = await supabase.from("gps_datos").select("*, jugadores(nombre)").eq("partido_id", partidoId);
+  if (error) {
+    console.error("Error cargando GPS del partido:", error);
+    return {};
+  }
+  const porNombre = {};
+  (data || []).forEach((r) => {
+    if (r.jugadores?.nombre) {
+      porNombre[r.jugadores.nombre] = { min: r.minutos, distancia: r.distancia, altaInt: r.alta_int, acc: r.acc, dec: r.dec, velMax: r.vel_max };
+    }
+  });
+  return porNombre;
+}
+
+function ImportarGps({ partidoId, onImportado }) {
+  const [abierto, setAbierto] = useState(false);
+  const [texto, setTexto] = useState("");
+  const [msg, setMsg] = useState("");
+
+  async function importar() {
+    const filas = texto
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => l.split(/[,\t]/).map((c) => c.trim()));
+
+    let ok = 0;
+    let noEncontrados = [];
+    for (const [nombre, min, distancia, altaInt, acc, dec, velMax] of filas) {
+      const jugador = POOL.find((j) => j.id.toLowerCase() === (nombre || "").toLowerCase());
+      if (!jugador) {
+        if (nombre) noEncontrados.push(nombre);
+        continue;
+      }
+      const { error } = await supabase.from("gps_datos").upsert(
+        {
+          partido_id: partidoId,
+          jugador_id: jugador.dbId,
+          minutos: Number(min) || null,
+          distancia: Number(distancia) || null,
+          alta_int: Number(altaInt) || null,
+          acc: Number(acc) || null,
+          dec: Number(dec) || null,
+          vel_max: Number(velMax) || null,
+        },
+        { onConflict: "partido_id,jugador_id" }
+      );
+      if (!error) ok++;
+    }
+    setMsg(`Importadas ${ok} filas.` + (noEncontrados.length ? ` No encontrados: ${noEncontrados.join(", ")}` : ""));
+    onImportado();
+  }
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      {!abierto ? (
+        <button onClick={() => setAbierto(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}>
+          + Importar datos de GPS
+        </button>
+      ) : (
+        <div style={{ ...cardStyle, padding: "16px 18px" }}>
+          <div style={{ fontSize: 12.5, color: "#c9c9c6", marginBottom: 8 }}>
+            Pegá una fila por jugador: <b>Nombre, Minutos, Distancia, Alta int., ACC, DEC, Vel máx</b> (separado por coma o tab).
+          </div>
+          <textarea
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            rows={6}
+            placeholder="Lautaro Beresi, 80, 6200, 320, 22, 18, 28.4"
+            style={{ ...inputStyle, fontFamily: "monospace", fontSize: 12 }}
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button onClick={importar} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+              Importar
+            </button>
+            <button onClick={() => setAbierto(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+              Cerrar
+            </button>
+          </div>
+          {msg && <div style={{ fontSize: 11.5, color: "#8f8f8c", marginTop: 8 }}>{msg}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GpsPartidos({ perfil }) {
   const partidos = FIXTURE.superior;
   const [fecha, setFecha] = useState(partidos[partidos.length - 1].fecha);
   const partido = partidos.find((p) => p.fecha === fecha) || partidos[partidos.length - 1];
+  const [gpsReal, setGpsReal] = useState({});
+
+  useEffect(() => {
+    if (partido.id) cargarGpsPartido(partido.id).then(setGpsReal);
+  }, [partido.id]);
 
   // Solo 15 chalecos GPS disponibles en el club — se los pone el XV titular.
+  // Si hay datos reales importados para un jugador, se usan esos; si no, se completa con datos de referencia.
   const jugadores = jugadoresConGps().map((s) => ({
     ...s,
-    ...gpsMetricas(s.jugadorId, fecha),
+    ...(gpsReal[s.jugadorId] || gpsMetricas(s.jugadorId, fecha)),
   }));
   const todos = jugadores;
+  const hayDatosReales = Object.keys(gpsReal).length > 0;
 
   const top = (campo, n = 5) => [...todos].sort((a, b) => b[campo] - a[campo]).slice(0, n);
 
@@ -1776,6 +1969,14 @@ function GpsPartidos() {
       </div>
 
       <MatchSelector partidos={partidos} fecha={fecha} onSelect={setFecha} />
+
+      {puedeGestionar(perfil) && <ImportarGps partidoId={partido.id} onImportado={() => cargarGpsPartido(partido.id).then(setGpsReal)} />}
+
+      <div style={{ fontSize: 11, color: hayDatosReales ? "#5fbf7a" : "#6b6b68", marginBottom: 16 }}>
+        {hayDatosReales
+          ? "✓ Mostrando datos reales importados para los jugadores cargados (el resto usa datos de referencia)."
+          : "Todavía no se importaron datos de GPS para este partido — se muestran valores de referencia."}
+      </div>
 
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
         <StatCard label="Ball in play (min)" value={ballInPlay} tone="ok" />
@@ -1903,7 +2104,7 @@ function GpsEntrenamientos() {
   );
 }
 
-function GpsPage() {
+function GpsPage({ perfil }) {
   const [vista, setVista] = useState("partidos");
 
   return (
@@ -1935,7 +2136,7 @@ function GpsPage() {
         ))}
       </div>
 
-      {vista === "partidos" ? <GpsPartidos /> : <GpsEntrenamientos />}
+      {vista === "partidos" ? <GpsPartidos perfil={perfil} /> : <GpsEntrenamientos />}
     </div>
   );
 }
@@ -1975,7 +2176,7 @@ function generarEventos(partido, categoria) {
   return eventos.sort((a, b) => a.minNum - b.minNum);
 }
 
-function VeoPage() {
+function VeoPage({ perfil }) {
   const [categoria, setCategoria] = useState("Superior");
   const partidos = FIXTURE[categoria.toLowerCase()];
   const [fecha, setFecha] = useState(partidos[partidos.length - 1].fecha);
@@ -1987,10 +2188,24 @@ function VeoPage() {
   const lineBreaks = 2 + (seed % 5);
   const turnovers = 3 + ((seed * 2) % 6);
 
+  const [editandoLink, setEditandoLink] = useState(false);
+  const [linkInput, setLinkInput] = useState("");
+  const [, forzar] = useState(0);
+
   function cambiarCategoria(c) {
     setCategoria(c);
     const nuevaLista = FIXTURE[c.toLowerCase()];
     setFecha(nuevaLista[nuevaLista.length - 1].fecha);
+    setEditandoLink(false);
+  }
+
+  async function guardarLink() {
+    const { error } = await supabase.from("partidos").update({ veo_link: linkInput }).eq("id", partido.id);
+    if (!error) {
+      partido.veoLink = linkInput;
+      setEditandoLink(false);
+      forzar((n) => n + 1);
+    }
   }
 
   return (
@@ -2022,9 +2237,57 @@ function VeoPage() {
 
       <MatchSelector partidos={partidos} fecha={fecha} onSelect={setFecha} />
 
-      <div style={{ ...cardStyle, padding: "40px 20px", textAlign: "center", marginBottom: 20, background: "#101011" }}>
-        <div style={{ fontSize: 13, color: "#6b6b68" }}>▶ Video completo del partido</div>
-        <div style={{ fontSize: 11, color: "#6b6b68", marginTop: 6 }}>(se integra con el link que exporta VEO)</div>
+      <div style={{ ...cardStyle, padding: "24px 20px", textAlign: "center", marginBottom: 20, background: "#101011" }}>
+        {editandoLink ? (
+          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+            <input
+              value={linkInput}
+              onChange={(e) => setLinkInput(e.target.value)}
+              placeholder="Pegá el link que exporta VEO para este partido"
+              style={{ ...editInputStyle, borderBottom: "1px solid #2a2a2c", width: 320 }}
+            />
+            <button onClick={guardarLink} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+              Guardar
+            </button>
+            <button onClick={() => setEditandoLink(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+              Cancelar
+            </button>
+          </div>
+        ) : partido.veoLink ? (
+          <div>
+            <a href={partido.veoLink} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: "#f2c230" }}>
+              ▶ Ver video completo del partido
+            </a>
+            {puedeGestionar(perfil) && (
+              <div style={{ marginTop: 10 }}>
+                <button
+                  onClick={() => {
+                    setLinkInput(partido.veoLink || "");
+                    setEditandoLink(true);
+                  }}
+                  style={{ background: "transparent", border: "none", color: "#6b6b68", fontSize: 11, cursor: "pointer" }}
+                >
+                  Cambiar link
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 13, color: "#6b6b68" }}>Todavía no se importó el video de este partido.</div>
+            {puedeGestionar(perfil) && (
+              <button
+                onClick={() => {
+                  setLinkInput("");
+                  setEditandoLink(true);
+                }}
+                style={{ ...pillButton, marginTop: 10, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}
+              >
+                + Importar link de VEO
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
@@ -2303,11 +2566,23 @@ function statsJugadorBase(nombre, fecha) {
   };
 }
 
-function InformePartidoPage() {
+const STATS_VACIO = () => ({
+  scrum: { ganados: 0, perdidos: 0, robados: 0, delRival: 0 },
+  line: { ganados: 0, perdidos: 0, robados: 0, torcidas: 0, delRival: 0 },
+  desfavorables: { penalesEnContra: 0, perdidasContacto: 0, perdidasRucks: 0, perdidasInfracciones: 0, perdidasMalPase: 0 },
+  favorables: { penalesAFavor: 0, pelotasRecuperadas: 0, quiebresAtaque: 0, tacklesTotales: 0, quiebreQueTerminaEnTry: 0 },
+});
+
+function InformePartidoPage({ perfil }) {
   const partidos = FIXTURE.superior;
   const [fecha, setFecha] = useState(partidos[partidos.length - 1].fecha);
   const partido = partidos.find((p) => p.fecha === fecha) || partidos[partidos.length - 1];
-  const stats = statsPartido(partido);
+  const [editando, setEditando] = useState(false);
+  const [borrador, setBorrador] = useState(null);
+  const [, forzar] = useState(0);
+
+  const stats = partido.informe || statsPartido(partido);
+  const esReal = !!partido.informe;
   const tries = generarTries(partido);
   const totalPerdidas = Object.values(stats.desfavorables).reduce((a, b) => a + b, 0) - stats.desfavorables.penalesEnContra;
 
@@ -2327,59 +2602,158 @@ function InformePartidoPage() {
     return { ...s, ...base, quiebres, qbreXTry, accPos };
   });
 
+  function empezarEdicion() {
+    setBorrador(JSON.parse(JSON.stringify(partido.informe || STATS_VACIO())));
+    setEditando(true);
+  }
+  function cambiarCampo(seccion, campo, valor) {
+    setBorrador((prev) => ({ ...prev, [seccion]: { ...prev[seccion], [campo]: Number(valor.replace(/\D/g, "")) || 0 } }));
+  }
+  async function guardarInforme() {
+    const { error } = await supabase.from("partidos").update({ informe: borrador }).eq("id", partido.id);
+    if (!error) {
+      partido.informe = borrador;
+      setEditando(false);
+      forzar((n) => n + 1);
+    } else {
+      console.error("Error guardando informe:", error);
+    }
+  }
+
   const Fila = ({ label, value }) => (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12.5 }}>
       <span style={{ color: "#8f8f8c" }}>{label}</span>
       <span style={{ color: "#f5f4f0", fontWeight: 500 }}>{value}</span>
     </div>
   );
+  const FilaEditable = ({ label, seccion, campo }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", fontSize: 12.5 }}>
+      <span style={{ color: "#8f8f8c" }}>{label}</span>
+      <input
+        value={borrador[seccion][campo]}
+        onChange={(e) => cambiarCampo(seccion, campo, e.target.value)}
+        style={{ ...editInputStyle, width: 44, borderBottom: "1px solid #2a2a2c", textAlign: "right" }}
+      />
+    </div>
+  );
 
   return (
     <div>
-      <div style={{ marginBottom: 6 }}>
-        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Informe de partido</div>
-        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
-          Superior vs {partido.rival} ({partido.cond === "Local" ? "L" : "V"}) · {partido.gf}-{partido.gc} ·{" "}
-          {partido.date}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
+        <div>
+          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Informe de partido</div>
+          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
+            Superior vs {partido.rival} ({partido.cond === "Local" ? "L" : "V"}) · {partido.gf}-{partido.gc} ·{" "}
+            {partido.date}
+          </div>
         </div>
+        {puedeGestionar(perfil) &&
+          (editando ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={guardarInforme} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+                Guardar informe
+              </button>
+              <button onClick={() => setEditando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <button onClick={empezarEdicion} style={{ ...pillButton, background: "transparent", border: "1px solid #f2c230", color: "#f2c230" }}>
+              {esReal ? "Editar informe" : "Cargar informe"}
+            </button>
+          ))}
       </div>
 
       <MatchSelector partidos={partidos} fecha={fecha} onSelect={setFecha} />
 
+      {!esReal && !editando && (
+        <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 16 }}>
+          Todavía no se cargó el informe real de este partido — se muestran valores de referencia.
+        </div>
+      )}
+      {esReal && !editando && <div style={{ fontSize: 11, color: "#5fbf7a", marginBottom: 16 }}>✓ Informe cargado por el cuerpo técnico.</div>}
+
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
         <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
           <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 8, letterSpacing: 0.5 }}>SCRUM</div>
-          <Fila label="Ganados" value={stats.scrum.ganados} />
-          <Fila label="Perdidos" value={stats.scrum.perdidos} />
-          <Fila label="Robados" value={stats.scrum.robados} />
-          <Fila label="Del rival ganados" value={stats.scrum.delRival} />
+          {editando ? (
+            <>
+              <FilaEditable label="Ganados" seccion="scrum" campo="ganados" />
+              <FilaEditable label="Perdidos" seccion="scrum" campo="perdidos" />
+              <FilaEditable label="Robados" seccion="scrum" campo="robados" />
+              <FilaEditable label="Del rival ganados" seccion="scrum" campo="delRival" />
+            </>
+          ) : (
+            <>
+              <Fila label="Ganados" value={stats.scrum.ganados} />
+              <Fila label="Perdidos" value={stats.scrum.perdidos} />
+              <Fila label="Robados" value={stats.scrum.robados} />
+              <Fila label="Del rival ganados" value={stats.scrum.delRival} />
+            </>
+          )}
         </div>
         <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
           <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 8, letterSpacing: 0.5 }}>LINE-OUT</div>
-          <Fila label="Ganados" value={stats.line.ganados} />
-          <Fila label="Perdidos" value={stats.line.perdidos} />
-          <Fila label="Robados" value={stats.line.robados} />
-          <Fila label="Torcidas" value={stats.line.torcidas} />
-          <Fila label="Del rival ganados" value={stats.line.delRival} />
+          {editando ? (
+            <>
+              <FilaEditable label="Ganados" seccion="line" campo="ganados" />
+              <FilaEditable label="Perdidos" seccion="line" campo="perdidos" />
+              <FilaEditable label="Robados" seccion="line" campo="robados" />
+              <FilaEditable label="Torcidas" seccion="line" campo="torcidas" />
+              <FilaEditable label="Del rival ganados" seccion="line" campo="delRival" />
+            </>
+          ) : (
+            <>
+              <Fila label="Ganados" value={stats.line.ganados} />
+              <Fila label="Perdidos" value={stats.line.perdidos} />
+              <Fila label="Robados" value={stats.line.robados} />
+              <Fila label="Torcidas" value={stats.line.torcidas} />
+              <Fila label="Del rival ganados" value={stats.line.delRival} />
+            </>
+          )}
         </div>
         <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
           <div style={{ fontSize: 11, color: "#e0665c", marginBottom: 8, letterSpacing: 0.5 }}>DESFAVORABLES</div>
-          <Fila label="Penales en contra" value={stats.desfavorables.penalesEnContra} />
-          <Fila label="Pérdidas en contacto" value={stats.desfavorables.perdidasContacto} />
-          <Fila label="Pérdidas en rucks" value={stats.desfavorables.perdidasRucks} />
-          <Fila label="Pérdidas x infracciones" value={stats.desfavorables.perdidasInfracciones} />
-          <Fila label="Pérdidas x mal pase" value={stats.desfavorables.perdidasMalPase} />
-          <div style={{ borderTop: "1px solid #232324", marginTop: 6, paddingTop: 6 }}>
-            <Fila label="Total pérdidas" value={totalPerdidas} />
-          </div>
+          {editando ? (
+            <>
+              <FilaEditable label="Penales en contra" seccion="desfavorables" campo="penalesEnContra" />
+              <FilaEditable label="Pérdidas en contacto" seccion="desfavorables" campo="perdidasContacto" />
+              <FilaEditable label="Pérdidas en rucks" seccion="desfavorables" campo="perdidasRucks" />
+              <FilaEditable label="Pérdidas x infracciones" seccion="desfavorables" campo="perdidasInfracciones" />
+              <FilaEditable label="Pérdidas x mal pase" seccion="desfavorables" campo="perdidasMalPase" />
+            </>
+          ) : (
+            <>
+              <Fila label="Penales en contra" value={stats.desfavorables.penalesEnContra} />
+              <Fila label="Pérdidas en contacto" value={stats.desfavorables.perdidasContacto} />
+              <Fila label="Pérdidas en rucks" value={stats.desfavorables.perdidasRucks} />
+              <Fila label="Pérdidas x infracciones" value={stats.desfavorables.perdidasInfracciones} />
+              <Fila label="Pérdidas x mal pase" value={stats.desfavorables.perdidasMalPase} />
+              <div style={{ borderTop: "1px solid #232324", marginTop: 6, paddingTop: 6 }}>
+                <Fila label="Total pérdidas" value={totalPerdidas} />
+              </div>
+            </>
+          )}
         </div>
         <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
           <div style={{ fontSize: 11, color: "#5fbf7a", marginBottom: 8, letterSpacing: 0.5 }}>FAVORABLES</div>
-          <Fila label="Penales a favor" value={stats.favorables.penalesAFavor} />
-          <Fila label="Pelotas recuperadas" value={stats.favorables.pelotasRecuperadas} />
-          <Fila label="Quiebres en ataque" value={stats.favorables.quiebresAtaque} />
-          <Fila label="Tackles totales" value={stats.favorables.tacklesTotales} />
-          <Fila label="Quiebre que termina en try" value={stats.favorables.quiebreQueTerminaEnTry} />
+          {editando ? (
+            <>
+              <FilaEditable label="Penales a favor" seccion="favorables" campo="penalesAFavor" />
+              <FilaEditable label="Pelotas recuperadas" seccion="favorables" campo="pelotasRecuperadas" />
+              <FilaEditable label="Quiebres en ataque" seccion="favorables" campo="quiebresAtaque" />
+              <FilaEditable label="Tackles totales" seccion="favorables" campo="tacklesTotales" />
+              <FilaEditable label="Quiebre que termina en try" seccion="favorables" campo="quiebreQueTerminaEnTry" />
+            </>
+          ) : (
+            <>
+              <Fila label="Penales a favor" value={stats.favorables.penalesAFavor} />
+              <Fila label="Pelotas recuperadas" value={stats.favorables.pelotasRecuperadas} />
+              <Fila label="Quiebres en ataque" value={stats.favorables.quiebresAtaque} />
+              <Fila label="Tackles totales" value={stats.favorables.tacklesTotales} />
+              <Fila label="Quiebre que termina en try" value={stats.favorables.quiebreQueTerminaEnTry} />
+            </>
+          )}
         </div>
       </div>
 
@@ -2511,7 +2885,7 @@ function ReporteIndividualPage() {
   );
 }
 
-function ReportesPage() {
+function ReportesPage({ perfil }) {
   const [vista, setVista] = useState(null);
 
   if (vista) {
@@ -2524,7 +2898,7 @@ function ReportesPage() {
         >
           ← Reportes
         </button>
-        <Componente />
+        <Componente perfil={perfil} />
       </div>
     );
   }
@@ -2613,26 +2987,149 @@ function wellnessDeterministico(nombre) {
   return { estres: val(3), sueno: val(5), doms: val(7), fatiga: val(11) };
 }
 
-function WellnessPage() {
-  const jugadoresActivos = POOL.filter((j) => j.estado !== "Lesionado");
-  const respuestas = jugadoresActivos.map((j) => {
-    const w = wellnessDeterministico(j.id);
-    const readiness = w.estres + w.sueno + w.doms + w.fatiga;
-    return { ...j, ...w, readiness };
-  });
+function hoyISO() {
+  return new Date().toISOString().slice(0, 10);
+}
 
-  const promedio = (respuestas.reduce((a, r) => a + r.readiness, 0) / respuestas.length).toFixed(1);
-  const aMirar = respuestas.filter((r) => r.readiness <= 16);
+async function abrirWellnessHoy(perfilId) {
+  const { error } = await supabase
+    .from("wellness_ventanas")
+    .upsert({ fecha: hoyISO(), abierta: true, abierta_por: perfilId, abierta_en: new Date().toISOString() });
+  if (error) console.error("Error abriendo wellness:", error);
+  return !error;
+}
+async function cerrarWellnessHoy() {
+  const { error } = await supabase.from("wellness_ventanas").update({ abierta: false }).eq("fecha", hoyISO());
+  if (error) console.error("Error cerrando wellness:", error);
+  return !error;
+}
+
+function FormularioWellness({ jugadorDbId, onEnviado }) {
+  const [estres, setEstres] = useState(4);
+  const [sueno, setSueno] = useState(4);
+  const [doms, setDoms] = useState(4);
+  const [fatiga, setFatiga] = useState(4);
+  const [enviando, setEnviando] = useState(false);
+
+  async function enviar() {
+    setEnviando(true);
+    const { error } = await supabase
+      .from("wellness_respuestas")
+      .upsert({ jugador_id: jugadorDbId, fecha: hoyISO(), estres, sueno, doms, fatiga });
+    setEnviando(false);
+    if (!error) onEnviado();
+    else console.error("Error enviando wellness:", error);
+  }
+
+  const Campo = ({ label, value, onChange }) => (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#c9c9c6", marginBottom: 6 }}>
+        <span>{label}</span>
+        <span style={{ color: "#f2c230", fontWeight: 600 }}>{value}/7</span>
+      </div>
+      <input type="range" min={1} max={7} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ width: "100%" }} />
+    </div>
+  );
+
+  return (
+    <div style={{ ...cardStyle, padding: "18px", marginBottom: 24, border: "1px solid #f2c230" }}>
+      <div style={{ fontSize: 14, color: "#f2c230", fontWeight: 600, marginBottom: 14 }}>🟡 Completá tu wellness de hoy</div>
+      <Campo label="Estrés" value={estres} onChange={setEstres} />
+      <Campo label="Sueño" value={sueno} onChange={setSueno} />
+      <Campo label="DOMS (dolor muscular)" value={doms} onChange={setDoms} />
+      <Campo label="Fatiga" value={fatiga} onChange={setFatiga} />
+      <button onClick={enviar} disabled={enviando} style={{ ...buttonStyle, width: "auto", padding: "9px 20px", marginTop: 4 }}>
+        {enviando ? "Enviando…" : "Enviar"}
+      </button>
+    </div>
+  );
+}
+
+function WellnessPage({ perfil }) {
+  const [ventana, setVentana] = useState(null);
+  const [respuestas, setRespuestas] = useState([]);
+  const [yaRespondio, setYaRespondio] = useState(false);
+  const [cargando, setCargando] = useState(true);
+
+  async function recargar() {
+    setCargando(true);
+    const [{ data: v }, { data: r }] = await Promise.all([
+      supabase.from("wellness_ventanas").select("*").eq("fecha", hoyISO()).maybeSingle(),
+      supabase.from("wellness_respuestas").select("*, jugadores(nombre)").eq("fecha", hoyISO()),
+    ]);
+    setVentana(v || null);
+    setRespuestas(r || []);
+    if (perfil?.rol === "Jugador" && perfil.jugador_id) {
+      setYaRespondio((r || []).some((x) => x.jugador_id === perfil.jugador_id));
+    }
+    setCargando(false);
+  }
+
+  useEffect(() => {
+    recargar();
+  }, []);
+
+  const conReadiness = respuestas.map((r) => ({
+    nombre: r.jugadores?.nombre || "—",
+    estres: r.estres,
+    sueno: r.sueno,
+    doms: r.doms,
+    fatiga: r.fatiga,
+    readiness: r.estres + r.sueno + r.doms + r.fatiga,
+  }));
+  const promedio = conReadiness.length ? (conReadiness.reduce((a, r) => a + r.readiness, 0) / conReadiness.length).toFixed(1) : "—";
+  const aMirar = conReadiness.filter((r) => r.readiness <= 16);
+
+  if (cargando) return <div style={{ color: "#8f8f8c", fontSize: 13 }}>Cargando…</div>;
 
   return (
     <div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Wellness</div>
-        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>Encuesta diaria · la completa cada jugador</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Wellness</div>
+          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>Encuesta diaria · la completa cada jugador</div>
+        </div>
+        {puedeGestionar(perfil) &&
+          (ventana?.abierta ? (
+            <button
+              onClick={async () => {
+                await cerrarWellnessHoy();
+                recargar();
+              }}
+              style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}
+            >
+              Cerrar carga de hoy
+            </button>
+          ) : (
+            <button
+              onClick={async () => {
+                await abrirWellnessHoy(perfil.id);
+                recargar();
+              }}
+              style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}
+            >
+              Abrir wellness de hoy
+            </button>
+          ))}
       </div>
 
+      <div style={{ ...cardStyle, padding: "10px 16px", marginBottom: 20, borderLeft: "3px solid " + (ventana?.abierta ? "#5fbf7a" : "#6b6b68") }}>
+        <span style={{ fontSize: 12.5, color: ventana?.abierta ? "#5fbf7a" : "#8f8f8c" }}>
+          {ventana?.abierta ? "🟢 Carga del plantel: ABIERTA — los jugadores pueden completar su wellness." : "⚪ Carga del plantel: cerrada."}
+        </span>
+      </div>
+
+      {perfil?.rol === "Jugador" && ventana?.abierta && !yaRespondio && perfil.jugador_id && (
+        <FormularioWellness jugadorDbId={perfil.jugador_id} onEnviado={recargar} />
+      )}
+      {perfil?.rol === "Jugador" && ventana?.abierta && yaRespondio && (
+        <div style={{ ...cardStyle, padding: "14px 18px", marginBottom: 24, borderLeft: "3px solid #5fbf7a" }}>
+          <span style={{ fontSize: 13, color: "#5fbf7a" }}>✓ Ya completaste tu wellness de hoy.</span>
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
-        <StatCard label="Respondieron" value={respuestas.length} tone="ok" />
+        <StatCard label="Respondieron" value={conReadiness.length} tone="ok" />
         <StatCard label="Readiness equipo (/28)" value={promedio} tone="ok" />
         <StatCard label="A mirar" value={aMirar.length} tone={aMirar.length ? "warn" : "ok"} />
       </div>
@@ -2642,8 +3139,8 @@ function WellnessPage() {
           <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>A mirar · readiness bajo</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
             {aMirar.map((j) => (
-              <div key={j.id} style={{ ...cardStyle, borderLeft: "3px solid #f2c230", padding: "10px 14px", minWidth: 200 }}>
-                <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>{j.id}</div>
+              <div key={j.nombre} style={{ ...cardStyle, borderLeft: "3px solid #f2c230", padding: "10px 14px", minWidth: 200 }}>
+                <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>{j.nombre}</div>
                 <div style={{ fontSize: 11, color: "#8f8f8c", marginTop: 2 }}>Readiness {j.readiness}/28</div>
               </div>
             ))}
@@ -2651,38 +3148,42 @@ function WellnessPage() {
         </div>
       )}
 
-      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>Todas las respuestas</div>
+      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>Todas las respuestas de hoy</div>
       <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 700 }}>
-          <thead>
-            <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Readiness</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Estrés</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Sueño</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>DOMS</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Fatiga</th>
-            </tr>
-          </thead>
-          <tbody>
-            {respuestas.map((r) => (
-              <tr key={r.id} style={{ borderTop: "1px solid #232324" }}>
-                <td style={{ padding: "9px 10px", color: "#f5f4f0", fontWeight: 500, whiteSpace: "nowrap" }}>{r.id}</td>
-                <td style={{ padding: "9px 10px", color: r.readiness <= 16 ? "#f2c230" : "#c9c9c6" }}>{r.readiness}/28</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.estres}</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.sueno}</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.doms}</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.fatiga}</td>
+        {conReadiness.length === 0 ? (
+          <div style={{ padding: "14px 10px", color: "#6b6b68", fontSize: 12.5 }}>Todavía no hay respuestas hoy.</div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 700 }}>
+            <thead>
+              <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
+                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
+                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Readiness</th>
+                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Estrés</th>
+                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Sueño</th>
+                <th style={{ fontWeight: 400, padding: "8px 10px" }}>DOMS</th>
+                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Fatiga</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {conReadiness.map((r) => (
+                <tr key={r.nombre} style={{ borderTop: "1px solid #232324" }}>
+                  <td style={{ padding: "9px 10px", color: "#f5f4f0", fontWeight: 500, whiteSpace: "nowrap" }}>{r.nombre}</td>
+                  <td style={{ padding: "9px 10px", color: r.readiness <= 16 ? "#f2c230" : "#c9c9c6" }}>{r.readiness}/28</td>
+                  <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.estres}</td>
+                  <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.sueno}</td>
+                  <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.doms}</td>
+                  <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.fatiga}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
 }
 
-function EquiposPage() {
+function EquiposPage({ perfil }) {
   const [cat, setCat] = useState(null);
   const [lineups, setLineups] = useState(LINEUPS_INICIALES);
   const [editMode, setEditMode] = useState(false);
@@ -2724,9 +3225,11 @@ function EquiposPage() {
               Guardar cambios
             </button>
           ) : (
-            <button onClick={() => setEditMode(true)} style={{ ...pillButton, background: "transparent", border: "1px solid #f2c230", color: "#f2c230" }}>
-              Editar equipo
-            </button>
+            puedeGestionar(perfil) && (
+              <button onClick={() => setEditMode(true)} style={{ ...pillButton, background: "transparent", border: "1px solid #f2c230", color: "#f2c230" }}>
+                Editar equipo
+              </button>
+            )
           )}
         </div>
         <CanchaFormacion lineup={lineups[cat]} editMode={editMode} onChangeJugador={changeJugador} onChangePuesto={changePuesto} />
@@ -3415,6 +3918,11 @@ function HoyPage() {
 
 const ROLES_REGISTRO = ["Jugador", "Cuerpo técnico", "Manager", "Cuerpo médico"];
 
+// Gestión del plantel/partidos/formaciones: Cuerpo técnico y Manager.
+function puedeGestionar(perfil) {
+  return !!perfil && (perfil.rol === "Cuerpo técnico" || perfil.rol === "Manager");
+}
+
 function LoginPage() {
   const [modo, setModo] = useState("ingresar"); // "ingresar" | "registro"
   const [rol, setRol] = useState("Jugador");
@@ -3657,6 +4165,7 @@ export default function AppRoot() {
   const [sesion, setSesion] = useState(null); // null = todavía no se sabe, undefined-like inicial
   const [chequeandoSesion, setChequeandoSesion] = useState(true);
   const [datosListos, setDatosListos] = useState(false);
+  const [perfil, setPerfil] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -3672,14 +4181,20 @@ export default function AppRoot() {
   useEffect(() => {
     if (sesion) {
       setDatosListos(false);
-      cargarTodo().then(() => setDatosListos(true));
+      Promise.all([
+        cargarTodo(),
+        supabase.from("profiles").select("*").eq("auth_user_id", sesion.user.id).maybeSingle(),
+      ]).then(([, { data }]) => {
+        setPerfil(data || null);
+        setDatosListos(true);
+      });
     }
   }, [sesion]);
 
   if (chequeandoSesion) return <PantallaCarga />;
   if (!sesion) return <LoginPage />;
   if (!datosListos) return <PantallaCarga />;
-  return <ObrasHub />;
+  return <ObrasHub perfil={perfil} />;
 }
 
 const RESPONSIVE_CSS = `
@@ -3790,7 +4305,7 @@ function MasMenu({ onSelect, onClose, active }) {
   );
 }
 
-function ObrasHub() {
+function ObrasHub({ perfil }) {
   const [active, setActive] = useState("hoy");
   const [masAbierto, setMasAbierto] = useState(false);
   const [menuPref, setMenuPref] = useState("Automático");
@@ -3877,29 +4392,29 @@ function ObrasHub() {
         {active === "hoy" ? (
           <HoyPage />
         ) : active === "calendario" ? (
-          <CalendarioPage />
+          <CalendarioPage perfil={perfil} />
         ) : active === "sesion" ? (
           <SesionPage />
         ) : active === "gimnasio" ? (
           <GimnasioPage />
         ) : active === "plantel-completo" ? (
-          <PlantelCompletoPage />
+          <PlantelCompletoPage perfil={perfil} />
         ) : active === "equipos" ? (
-          <EquiposPage />
+          <EquiposPage perfil={perfil} />
         ) : active === "disponibilidad" ? (
           <DisponibilidadPage />
         ) : active === "evaluaciones" ? (
           <EvaluacionesPage />
         ) : active === "gps" ? (
-          <GpsPage />
+          <GpsPage perfil={perfil} />
         ) : active === "veo" ? (
-          <VeoPage />
+          <VeoPage perfil={perfil} />
         ) : active === "wellness" ? (
-          <WellnessPage />
+          <WellnessPage perfil={perfil} />
         ) : active === "rtp" ? (
           <RtpPage />
         ) : active === "reportes" ? (
-          <ReportesPage />
+          <ReportesPage perfil={perfil} />
         ) : active === CONFIG_ITEM.key ? (
           <ConfiguracionPage menuPref={menuPref} setMenuPref={setMenuPref} />
         ) : (
