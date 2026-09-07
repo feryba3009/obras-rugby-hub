@@ -178,6 +178,34 @@ async function guardarResultadoPartido(partidoId, gf, gc) {
   return !error;
 }
 
+// Agrega un partido nuevo al fixture. Si el rival no existe todavía en la base, lo crea de paso.
+async function agregarPartido({ categoriaNombre, fechaNumero, fecha, rivalNombre, condicion }) {
+  let { data: rival } = await supabase.from("equipos_rivales").select("id").eq("nombre", rivalNombre).maybeSingle();
+  if (!rival) {
+    const { data: nuevo, error: errRival } = await supabase.from("equipos_rivales").insert({ nombre: rivalNombre }).select("id").single();
+    if (errRival) {
+      console.error("Error creando rival:", errRival);
+      return false;
+    }
+    rival = nuevo;
+  }
+  const { error } = await supabase.from("partidos").insert({
+    categoria_id: CATEGORIA_IDS[categoriaNombre],
+    fecha_numero: fechaNumero,
+    fecha,
+    rival_id: rival.id,
+    condicion,
+    resultado: "Próximo",
+    temporada: "2026",
+  });
+  if (error) {
+    console.error("Error agregando partido:", error);
+    return false;
+  }
+  crearNotificacion("partido_agregado", `📅 Nuevo partido agendado: ${categoriaNombre} vs ${rivalNombre}.`, null);
+  return true;
+}
+
 function resultTag(res) {
   if (res === "Ganado") return { bg: "#111a12", color: "#5fbf7a" };
   if (res === "Perdido") return { bg: "#2a120f", color: "#e0665c" };
@@ -443,6 +471,11 @@ function CalendarioPage({ perfil }) {
   const [cargandoResultado, setCargandoResultado] = useState(false);
   const [gf, setGf] = useState("");
   const [gc, setGc] = useState("");
+  const [agregando, setAgregando] = useState(false);
+  const [nuevoRival, setNuevoRival] = useState("");
+  const [nuevaFecha, setNuevaFecha] = useState("");
+  const [nuevaDate, setNuevaDate] = useState("");
+  const [nuevaCond, setNuevaCond] = useState("Local");
 
   const fixture = FIXTURE[cat];
   const proximos = PROXIMOS[cat];
@@ -474,14 +507,78 @@ function CalendarioPage({ perfil }) {
     }
   }
 
+  async function guardarPartidoNuevo() {
+    if (!nuevoRival.trim() || !nuevaFecha || !nuevaDate) return;
+    const categoriaNombre = cat === "superior" ? "Superior" : "Intermedia";
+    const ok = await agregarPartido({
+      categoriaNombre,
+      fechaNumero: Number(nuevaFecha),
+      fecha: nuevaDate,
+      rivalNombre: nuevoRival.trim(),
+      condicion: nuevaCond,
+    });
+    if (ok) {
+      await cargarCalendario();
+      setAgregando(false);
+      setNuevoRival("");
+      setNuevaFecha("");
+      setNuevaDate("");
+      forceUpdate((n) => n + 1);
+    }
+  }
+
   return (
     <div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>📅 Calendario</div>
-        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
-          Fixture y posiciones · Desarrollo · URBA — datos reales (urba.org.ar)
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>📅 Calendario</div>
+          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
+            Fixture y posiciones · Desarrollo · URBA — datos reales (urba.org.ar)
+          </div>
         </div>
+        {puedeGestionar(perfil) && !agregando && (
+          <button onClick={() => setAgregando(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}>
+            + Agregar partido
+          </button>
+        )}
       </div>
+
+      {agregando && (
+        <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 20 }}>
+          <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>
+            Nuevo partido · {cat === "superior" ? "Superior" : "Intermedia"}
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <label style={labelStyle}>Fecha (número)</label>
+              <input value={nuevaFecha} onChange={(e) => setNuevaFecha(e.target.value.replace(/\D/g, ""))} style={{ ...inputStyle, width: 90 }} placeholder="19" />
+            </div>
+            <div>
+              <label style={labelStyle}>Día del partido</label>
+              <input type="date" value={nuevaDate} onChange={(e) => setNuevaDate(e.target.value)} style={{ ...inputStyle, width: 160 }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Rival</label>
+              <input value={nuevoRival} onChange={(e) => setNuevoRival(e.target.value)} style={{ ...inputStyle, width: 200 }} placeholder="Nombre del club" />
+            </div>
+            <div>
+              <label style={labelStyle}>Condición</label>
+              <select value={nuevaCond} onChange={(e) => setNuevaCond(e.target.value)} style={{ ...inputStyle, width: 130 }}>
+                <option style={{ background: "#0e0e0f" }}>Local</option>
+                <option style={{ background: "#0e0e0f" }}>Visitante</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <button onClick={guardarPartidoNuevo} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+              Guardar partido
+            </button>
+            <button onClick={() => setAgregando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         {[
@@ -3819,7 +3916,7 @@ function FilaEscudo({ rival, onSubido }) {
   );
 }
 
-function PanelEscudos() {
+function PanelEscudos({ perfil }) {
   const [rivales, setRivales] = useState([]);
   const [, forzar] = useState(0);
 
@@ -3830,6 +3927,15 @@ function PanelEscudos() {
   useEffect(() => {
     recargar();
   }, []);
+
+  if (!puedeGestionar(perfil)) {
+    return (
+      <div>
+        <ConfigTitulo>Escudos de rivales</ConfigTitulo>
+        <div style={{ fontSize: 12.5, color: "#8f8f8c" }}>Esta sección es solo para Cuerpo técnico y Manager.</div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -4118,7 +4224,7 @@ function ConfiguracionPage({ menuPref, setMenuPref, perfil }) {
     perfil: <PanelPerfil perfil={perfil} />,
     cuenta: <PanelCuenta perfil={perfil} />,
     staff: <PanelStaff />,
-    escudos: <PanelEscudos />,
+    escudos: <PanelEscudos perfil={perfil} />,
     apariencia: <PanelApariencia menuPref={menuPref} setMenuPref={setMenuPref} />,
     instalar: <PanelInstalar />,
     "gps-acwr": <PanelGpsAcwr />,
@@ -4560,6 +4666,60 @@ function PantallaCarga() {
   );
 }
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("Error atrapado por el ErrorBoundary:", error, info?.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div
+          style={{
+            minHeight: 400,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 14,
+            padding: 24,
+            fontFamily: "'Inter', sans-serif",
+            textAlign: "center",
+          }}
+        >
+          <span style={{ fontSize: 28 }}>⚠️</span>
+          <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 500 }}>Esta pantalla tuvo un problema.</div>
+          <div style={{ fontSize: 12, color: "#8f8f8c", maxWidth: 420 }}>
+            El resto del HUB sigue funcionando. Si podés, abrí la consola del navegador (F12), copiá el error en
+            rojo y pasámelo — así lo corrijo de raíz.
+          </div>
+          <div
+            style={{
+              fontSize: 10.5, color: "#e0665c", background: "#1c1c1d", padding: "8px 12px",
+              borderRadius: 6, maxWidth: 480, overflowWrap: "break-word", fontFamily: "monospace",
+            }}
+          >
+            {String(this.state.error?.message || this.state.error)}
+          </div>
+          <button
+            onClick={() => this.setState({ error: null }, this.props.onReset)}
+            style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none", marginTop: 6 }}
+          >
+            Volver a Hoy
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function AppRoot() {
   const [sesion, setSesion] = useState(null); // null = todavía no se sabe, undefined-like inicial
   const [chequeandoSesion, setChequeandoSesion] = useState(true);
@@ -4893,6 +5053,7 @@ function ObrasHub({ perfil }) {
             <CampanaNotificaciones perfil={perfil} />
           </div>
         )}
+        <ErrorBoundary key={active} onReset={() => setActive("hoy")}>
         {active === "hoy" ? (
           <HoyPage onNavigate={setActive} />
         ) : active === "calendario" ? (
@@ -4924,6 +5085,7 @@ function ObrasHub({ perfil }) {
         ) : (
           <Placeholder label={activeLabel} />
         )}
+        </ErrorBoundary>
       </div>
 
       {!mostrarSidebar && (
