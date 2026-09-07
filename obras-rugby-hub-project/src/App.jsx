@@ -3170,12 +3170,45 @@ function WellnessPage({ perfil }) {
 
   if (cargando) return <div style={{ color: "#8f8f8c", fontSize: 13 }}>Cargando…</div>;
 
+  const esJugador = perfil?.rol === "Jugador";
+
+  if (esJugador) {
+    return (
+      <div>
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Wellness</div>
+          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>Tu cuestionario de hoy, antes del estímulo.</div>
+        </div>
+
+        <div style={{ ...cardStyle, padding: "10px 16px", marginBottom: 20, borderLeft: "3px solid " + (ventana?.abierta ? "#5fbf7a" : "#6b6b68") }}>
+          <span style={{ fontSize: 12.5, color: ventana?.abierta ? "#5fbf7a" : "#8f8f8c" }}>
+            {ventana?.abierta ? "🟢 La carga de hoy está abierta." : "⚪ Todavía no se abrió la carga de hoy — esperá a que el cuerpo técnico la habilite."}
+          </span>
+        </div>
+
+        {ventana?.abierta && !yaRespondio && perfil.jugador_id && <FormularioWellness jugadorDbId={perfil.jugador_id} onEnviado={recargar} />}
+        {ventana?.abierta && yaRespondio && (
+          <div style={{ ...cardStyle, padding: "14px 18px", borderLeft: "3px solid #5fbf7a" }}>
+            <span style={{ fontSize: 13, color: "#5fbf7a" }}>✓ Ya completaste tu wellness de hoy.</span>
+          </div>
+        )}
+        {!perfil.jugador_id && (
+          <div style={{ ...cardStyle, padding: "14px 18px", borderLeft: "3px solid #e0665c" }}>
+            <span style={{ fontSize: 13, color: "#e0665c" }}>
+              Tu cuenta no está vinculada a ningún jugador del plantel — pedile al cuerpo técnico que lo revise.
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
           <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Wellness</div>
-          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>Encuesta diaria · la completa cada jugador</div>
+          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>Respuestas de hoy, agrupadas y analizadas.</div>
         </div>
         {puedeGestionar(perfil) &&
           (ventana?.abierta ? (
@@ -3206,15 +3239,6 @@ function WellnessPage({ perfil }) {
           {ventana?.abierta ? "🟢 Carga del plantel: ABIERTA — los jugadores pueden completar su wellness." : "⚪ Carga del plantel: cerrada."}
         </span>
       </div>
-
-      {perfil?.rol === "Jugador" && ventana?.abierta && !yaRespondio && perfil.jugador_id && (
-        <FormularioWellness jugadorDbId={perfil.jugador_id} onEnviado={recargar} />
-      )}
-      {perfil?.rol === "Jugador" && ventana?.abierta && yaRespondio && (
-        <div style={{ ...cardStyle, padding: "14px 18px", marginBottom: 24, borderLeft: "3px solid #5fbf7a" }}>
-          <span style={{ fontSize: 13, color: "#5fbf7a" }}>✓ Ya completaste tu wellness de hoy.</span>
-        </div>
-      )}
 
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
         <StatCard label="Respondieron" value={conReadiness.length} tone="ok" />
@@ -3327,7 +3351,7 @@ function EquiposPage({ perfil }) {
               Guardar cambios
             </button>
           ) : (
-            esEntrenador(perfil) && (
+            puedeGestionar(perfil) && (
               <button onClick={() => setEditMode(true)} style={{ ...pillButton, background: "transparent", border: "1px solid #f2c230", color: "#f2c230" }}>
                 Editar equipo
               </button>
@@ -4159,32 +4183,33 @@ function LoginPage() {
       return;
     }
     setCargando(true);
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) {
-      setCargando(false);
-      setMensaje(error.message);
-      return;
-    }
 
     const nombreFinal = rol === "Jugador" ? jugadorId : nombreCompleto;
     const jugadorDb = jugadoresLista.find((j) => j.nombre === jugadorId);
 
-    await supabase.from("profiles").insert({
-      auth_user_id: data.user?.id,
-      nombre: nombreFinal,
-      usuario,
-      rol,
-      jugador_id: rol === "Jugador" ? jugadorDb?.id : null,
+    // Mandamos todo como metadata del usuario: así el perfil se crea solo del lado del servidor
+    // (un trigger en la base), sin depender de que el navegador ya tenga sesión activa en este
+    // instante — que es justo lo que fallaba si el proyecto pide confirmar el email antes de entrar.
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          nombre: nombreFinal,
+          usuario,
+          rol,
+          jugador_id: rol === "Jugador" ? jugadorDb?.id || "" : "",
+          altura: rol === "Jugador" ? altura : "",
+          peso: rol === "Jugador" ? peso : "",
+        },
+      },
     });
-
-    if (rol === "Jugador" && jugadorDb) {
-      await supabase
-        .from("jugadores")
-        .update({ altura_cm: altura ? Number(altura) : null, peso_kg: peso ? Number(peso) : null })
-        .eq("id", jugadorDb.id);
+    setCargando(false);
+    if (error) {
+      setMensaje(error.message);
+      return;
     }
 
-    setCargando(false);
     if (!data.session) {
       setMensaje("¡Cuenta creada! Revisá tu email para confirmarla y después iniciá sesión.");
       setModo("ingresar");
