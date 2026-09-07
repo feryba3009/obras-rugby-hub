@@ -16,37 +16,37 @@ const NAV = [
   {
     group: "Semana",
     items: [
-      { key: "hoy", label: "Hoy" },
-      { key: "calendario", label: "Calendario" },
-      { key: "sesion", label: "Sesión del día" },
-      { key: "gimnasio", label: "Plan de gimnasio" },
+      { key: "hoy", label: "📅 Hoy" },
+      { key: "calendario", label: "🏆 Calendario" },
+      { key: "sesion", label: "🏉 Sesión del día" },
+      { key: "gimnasio", label: "🏋️ Plan de gimnasio" },
     ],
   },
   {
     group: "Plantel",
     items: [
-      { key: "plantel-completo", label: "Plantel completo" },
-      { key: "equipos", label: "Equipos" },
-      { key: "disponibilidad", label: "Disponibilidad" },
+      { key: "plantel-completo", label: "👥 Plantel completo" },
+      { key: "equipos", label: "🛡️ Equipos" },
+      { key: "disponibilidad", label: "🚦 Disponibilidad" },
     ],
   },
   {
     group: "Performance & readiness",
     items: [
-      { key: "wellness", label: "Wellness" },
-      { key: "evaluaciones", label: "Evaluaciones" },
-      { key: "gps", label: "GPS · Oliver Pro" },
-      { key: "veo", label: "VEO Cam" },
-      { key: "rtp", label: "Return to Play" },
+      { key: "wellness", label: "😴 Wellness" },
+      { key: "evaluaciones", label: "📊 Evaluaciones" },
+      { key: "gps", label: "📡 GPS · Oliver Pro" },
+      { key: "veo", label: "🎥 VEO Cam" },
+      { key: "rtp", label: "🩹 Return to Play" },
     ],
   },
   {
     group: "Análisis",
-    items: [{ key: "reportes", label: "Reportes" }],
+    items: [{ key: "reportes", label: "📈 Reportes" }],
   },
 ];
 
-const CONFIG_ITEM = { key: "configuracion", label: "Configuración" };
+const CONFIG_ITEM = { key: "configuracion", label: "⚙️ Configuración" };
 
 const RISK_ALERTS = [
   { level: "Alta", name: "Bautista Ferreyra", note: "Readiness muy bajo (z -3.1)" },
@@ -174,6 +174,7 @@ async function guardarResultadoPartido(partidoId, gf, gc) {
   else if (gf < gc) res = "Perdido";
   const { error } = await supabase.from("partidos").update({ goles_favor: gf, goles_contra: gc, resultado: res }).eq("id", partidoId);
   if (error) console.error("Error guardando resultado:", error);
+  else crearNotificacion("resultado_cargado", `🏉 Resultado cargado: Obras ${gf}-${gc}`, null);
   return !error;
 }
 
@@ -195,6 +196,18 @@ function teamInitials(name) {
   return letters;
 }
 
+// Colores distintos por rival, generados a partir del nombre — no son los escudos reales
+// de cada club (son marcas de terceros), pero cada rival queda visualmente reconocible.
+const COLORES_RIVAL = [
+  ["#7f1d1d", "#fca5a5"], ["#1e3a5f", "#93c5fd"], ["#14532d", "#86efac"],
+  ["#78350f", "#fcd34d"], ["#4c1d95", "#c4b5fd"], ["#164e63", "#67e8f9"],
+  ["#831843", "#f9a8d4"], ["#1e293b", "#cbd5e1"], ["#3f2d1a", "#d6a86a"],
+];
+function colorRival(name) {
+  const seed = [...name].reduce((a, c) => a + c.charCodeAt(0), 0);
+  return COLORES_RIVAL[seed % COLORES_RIVAL.length];
+}
+
 function TeamBadge({ name, size = 20 }) {
   const isObras = name === "Obras Sanitarias";
   if (isObras) {
@@ -206,26 +219,42 @@ function TeamBadge({ name, size = 20 }) {
       />
     );
   }
+  if (ESCUDOS_RIVALES[name]) {
+    return (
+      <img
+        src={ESCUDOS_RIVALES[name]}
+        alt={name}
+        style={{ width: size, height: size, objectFit: "contain", flexShrink: 0, marginRight: 8 }}
+      />
+    );
+  }
+  const [fondo, borde] = colorRival(name);
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        width: size,
-        height: size,
-        borderRadius: 5,
-        fontSize: size * 0.4,
-        fontWeight: 700,
-        fontFamily: "'Oswald', sans-serif",
-        background: "#2a2a2c",
-        color: "#c9c9c6",
-        flexShrink: 0,
-        marginRight: 8,
-      }}
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 26"
+      style={{ flexShrink: 0, marginRight: 8 }}
+      aria-label={name}
     >
-      {teamInitials(name)}
-    </span>
+      <path
+        d="M12 1 L22 4 V13 C22 19 17.5 23.5 12 25 C6.5 23.5 2 19 2 13 V4 Z"
+        fill={fondo}
+        stroke={borde}
+        strokeWidth="1"
+      />
+      <text
+        x="12"
+        y="15.5"
+        textAnchor="middle"
+        fontFamily="'Oswald', sans-serif"
+        fontWeight="700"
+        fontSize={size * 0.32}
+        fill={borde}
+      >
+        {teamInitials(name)}
+      </text>
+    </svg>
   );
 }
 
@@ -718,7 +747,7 @@ function GrupoTabla({ titulo, filas, editMode, onChange, onDelete, onAdd }) {
   );
 }
 
-function SesionPage() {
+function SesionPage({ perfil }) {
   const [sesiones, setSesiones] = useState(SESIONES_INICIALES);
   const [dia, setDia] = useState("Lunes");
   const [editMode, setEditMode] = useState(false);
@@ -766,7 +795,12 @@ function SesionPage() {
               Editar
             </button>
           )}
-          <button style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>Avisar al staff</button>
+          <button
+            onClick={() => crearNotificacion("sesion_planificada", `🏉 Sesión del ${dia.toLowerCase()} planificada — revisala.`, null, perfil?.id)}
+            style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}
+          >
+            Avisar al staff
+          </button>
         </div>
       </div>
 
@@ -2245,6 +2279,7 @@ function VeoPage({ perfil }) {
       partido.veoLink = linkInput;
       setEditandoLink(false);
       forzar((n) => n + 1);
+      crearNotificacion("video_partido", `🎥 Video de ${categoria} vs ${partido.rival} ya está disponible.`, null, perfil?.id);
     }
   }
 
@@ -2655,6 +2690,7 @@ function InformePartidoPage({ perfil }) {
       partido.informe = borrador;
       setEditando(false);
       forzar((n) => n + 1);
+      crearNotificacion("informe_partido", `📈 Informe de partido vs ${partido.rival} cargado.`, null, perfil?.id);
     } else {
       console.error("Error guardando informe:", error);
     }
@@ -2676,6 +2712,9 @@ function InformePartidoPage({ perfil }) {
       />
     </div>
   );
+
+  const [tab, setTab] = useState("obtencion");
+  const pelotasPropias = stats.scrum.ganados + stats.line.ganados;
 
   return (
     <div>
@@ -2713,151 +2752,191 @@ function InformePartidoPage({ perfil }) {
       )}
       {esReal && !editando && <div style={{ fontSize: 11, color: "#5fbf7a", marginBottom: 16 }}>✓ Informe cargado por el cuerpo técnico.</div>}
 
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
-        <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
-          <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 8, letterSpacing: 0.5 }}>SCRUM</div>
-          {editando ? (
-            <>
-              <FilaEditable label="Ganados" seccion="scrum" campo="ganados" />
-              <FilaEditable label="Perdidos" seccion="scrum" campo="perdidos" />
-              <FilaEditable label="Robados" seccion="scrum" campo="robados" />
-              <FilaEditable label="Del rival ganados" seccion="scrum" campo="delRival" />
-            </>
-          ) : (
-            <>
-              <Fila label="Ganados" value={stats.scrum.ganados} />
-              <Fila label="Perdidos" value={stats.scrum.perdidos} />
-              <Fila label="Robados" value={stats.scrum.robados} />
-              <Fila label="Del rival ganados" value={stats.scrum.delRival} />
-            </>
-          )}
-        </div>
-        <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
-          <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 8, letterSpacing: 0.5 }}>LINE-OUT</div>
-          {editando ? (
-            <>
-              <FilaEditable label="Ganados" seccion="line" campo="ganados" />
-              <FilaEditable label="Perdidos" seccion="line" campo="perdidos" />
-              <FilaEditable label="Robados" seccion="line" campo="robados" />
-              <FilaEditable label="Torcidas" seccion="line" campo="torcidas" />
-              <FilaEditable label="Del rival ganados" seccion="line" campo="delRival" />
-            </>
-          ) : (
-            <>
-              <Fila label="Ganados" value={stats.line.ganados} />
-              <Fila label="Perdidos" value={stats.line.perdidos} />
-              <Fila label="Robados" value={stats.line.robados} />
-              <Fila label="Torcidas" value={stats.line.torcidas} />
-              <Fila label="Del rival ganados" value={stats.line.delRival} />
-            </>
-          )}
-        </div>
-        <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
-          <div style={{ fontSize: 11, color: "#e0665c", marginBottom: 8, letterSpacing: 0.5 }}>DESFAVORABLES</div>
-          {editando ? (
-            <>
-              <FilaEditable label="Penales en contra" seccion="desfavorables" campo="penalesEnContra" />
-              <FilaEditable label="Pérdidas en contacto" seccion="desfavorables" campo="perdidasContacto" />
-              <FilaEditable label="Pérdidas en rucks" seccion="desfavorables" campo="perdidasRucks" />
-              <FilaEditable label="Pérdidas x infracciones" seccion="desfavorables" campo="perdidasInfracciones" />
-              <FilaEditable label="Pérdidas x mal pase" seccion="desfavorables" campo="perdidasMalPase" />
-            </>
-          ) : (
-            <>
-              <Fila label="Penales en contra" value={stats.desfavorables.penalesEnContra} />
-              <Fila label="Pérdidas en contacto" value={stats.desfavorables.perdidasContacto} />
-              <Fila label="Pérdidas en rucks" value={stats.desfavorables.perdidasRucks} />
-              <Fila label="Pérdidas x infracciones" value={stats.desfavorables.perdidasInfracciones} />
-              <Fila label="Pérdidas x mal pase" value={stats.desfavorables.perdidasMalPase} />
-              <div style={{ borderTop: "1px solid #232324", marginTop: 6, paddingTop: 6 }}>
-                <Fila label="Total pérdidas" value={totalPerdidas} />
-              </div>
-            </>
-          )}
-        </div>
-        <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
-          <div style={{ fontSize: 11, color: "#5fbf7a", marginBottom: 8, letterSpacing: 0.5 }}>FAVORABLES</div>
-          {editando ? (
-            <>
-              <FilaEditable label="Penales a favor" seccion="favorables" campo="penalesAFavor" />
-              <FilaEditable label="Pelotas recuperadas" seccion="favorables" campo="pelotasRecuperadas" />
-              <FilaEditable label="Quiebres en ataque" seccion="favorables" campo="quiebresAtaque" />
-              <FilaEditable label="Tackles totales" seccion="favorables" campo="tacklesTotales" />
-              <FilaEditable label="Quiebre que termina en try" seccion="favorables" campo="quiebreQueTerminaEnTry" />
-            </>
-          ) : (
-            <>
-              <Fila label="Penales a favor" value={stats.favorables.penalesAFavor} />
-              <Fila label="Pelotas recuperadas" value={stats.favorables.pelotasRecuperadas} />
-              <Fila label="Quiebres en ataque" value={stats.favorables.quiebresAtaque} />
-              <Fila label="Tackles totales" value={stats.favorables.tacklesTotales} />
-              <Fila label="Quiebre que termina en try" value={stats.favorables.quiebreQueTerminaEnTry} />
-            </>
-          )}
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
+        <StatCard label="Pelotas propias ganadas" value={pelotasPropias} tone="ok" />
+        <StatCard label="Tackles totales" value={stats.favorables.tacklesTotales} tone="ok" />
+        <StatCard label="Total pérdidas" value={totalPerdidas} tone="danger" />
+        <StatCard label="Quiebres en ataque" value={stats.favorables.quiebresAtaque} tone="ok" />
       </div>
 
-      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>Puntos del partido</div>
-      <div style={{ ...cardStyle, padding: "8px 16px", marginBottom: 24 }}>
-        {tries.map((t, i) => (
-          <div key={i} style={{ padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #232324" }}>
-            <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 3 }}>
-              <span style={{ ...tagStyle, background: t.equipo === "Obras" ? "#111a12" : "#2a120f", color: t.equipo === "Obras" ? "#5fbf7a" : "#e0665c" }}>
-                {t.equipo}
-              </span>
-              <span style={{ fontSize: 12, color: "#8f8f8c" }}>{t.origen}</span>
-              <span style={{ fontSize: 12, color: "#f2c230", fontFamily: "'Oswald', sans-serif", fontWeight: 600 }}>
-                {t.pts} pts
-              </span>
-            </div>
-            <div style={{ fontSize: 12, color: "#c9c9c6" }}>{t.obs}</div>
-          </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+        {[
+          { key: "obtencion", label: "Obtención" },
+          { key: "situaciones", label: "Situaciones" },
+          { key: "puntos", label: "Puntos del partido" },
+          { key: "planilla", label: "Planilla por jugador" },
+        ].map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            style={{
+              ...pillButton,
+              border: "1px solid " + (tab === t.key ? "#f2c230" : "#2a2a2c"),
+              background: tab === t.key ? "#1d1a0c" : "transparent",
+              color: tab === t.key ? "#f2c230" : "#c9c9c6",
+            }}
+          >
+            {t.label}
+          </button>
         ))}
       </div>
 
-      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 4 }}>Planilla por jugador</div>
-      <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 12 }}>
-        ACC++ = recuperadas + quiebres + tackles positivos · PK = penales en contra cometidos
-      </div>
-      <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 820 }}>
-          <thead>
-            <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>N°</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Recuperadas</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Tackles positivos</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>ACC++</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>PK</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Quiebres</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Qbre x try</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Tackles</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Errados</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jugadores.map((j) => (
-              <tr key={j.numero} style={{ borderTop: "1px solid #232324" }}>
-                <td style={{ padding: "8px 10px", color: "#8f8f8c" }}>{j.numero}</td>
-                <td style={{ padding: "8px 10px", color: "#f5f4f0", fontWeight: 500, whiteSpace: "nowrap" }}>{j.jugadorId}</td>
-                <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.recuperadas}</td>
-                <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.tacklesPositivos}</td>
-                <td style={{ padding: "8px 10px", color: "#f2c230", fontWeight: 600 }}>{j.accPos}</td>
-                <td style={{ padding: "8px 10px", color: j.pk ? "#e0665c" : "#c9c9c6" }}>{j.pk}</td>
-                <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.quiebres}</td>
-                <td style={{ padding: "8px 10px", color: j.qbreXTry ? "#5fbf7a" : "#c9c9c6", fontWeight: j.qbreXTry ? 600 : 400 }}>
-                  {j.qbreXTry}
-                </td>
-                <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.tackles}</td>
-                <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.errados}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div style={{ fontSize: 10.5, color: "#6b6b68", marginTop: 10 }}>
-        Datos de la planilla de seguimiento cargados por el staff durante el partido — solo para el XV que usa GPS.
-      </div>
+      {tab === "obtencion" && (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
+            <div style={{ fontSize: 12, color: "#8f8f8c", marginBottom: 10, letterSpacing: 0.5 }}>SCRUM</div>
+            {editando ? (
+              <>
+                <FilaEditable label="Ganados" seccion="scrum" campo="ganados" />
+                <FilaEditable label="Perdidos" seccion="scrum" campo="perdidos" />
+                <FilaEditable label="Robados" seccion="scrum" campo="robados" />
+                <FilaEditable label="Del rival ganados" seccion="scrum" campo="delRival" />
+              </>
+            ) : (
+              <>
+                <Fila label="Ganados" value={stats.scrum.ganados} />
+                <Fila label="Perdidos" value={stats.scrum.perdidos} />
+                <Fila label="Robados" value={stats.scrum.robados} />
+                <Fila label="Del rival ganados" value={stats.scrum.delRival} />
+              </>
+            )}
+          </div>
+          <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
+            <div style={{ fontSize: 12, color: "#8f8f8c", marginBottom: 10, letterSpacing: 0.5 }}>LINE-OUT</div>
+            {editando ? (
+              <>
+                <FilaEditable label="Ganados" seccion="line" campo="ganados" />
+                <FilaEditable label="Perdidos" seccion="line" campo="perdidos" />
+                <FilaEditable label="Robados" seccion="line" campo="robados" />
+                <FilaEditable label="Torcidas" seccion="line" campo="torcidas" />
+                <FilaEditable label="Del rival ganados" seccion="line" campo="delRival" />
+              </>
+            ) : (
+              <>
+                <Fila label="Ganados" value={stats.line.ganados} />
+                <Fila label="Perdidos" value={stats.line.perdidos} />
+                <Fila label="Robados" value={stats.line.robados} />
+                <Fila label="Torcidas" value={stats.line.torcidas} />
+                <Fila label="Del rival ganados" value={stats.line.delRival} />
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === "situaciones" && (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
+            <div style={{ fontSize: 12, color: "#5fbf7a", marginBottom: 10, letterSpacing: 0.5 }}>FAVORABLES</div>
+            {editando ? (
+              <>
+                <FilaEditable label="Penales a favor" seccion="favorables" campo="penalesAFavor" />
+                <FilaEditable label="Pelotas recuperadas" seccion="favorables" campo="pelotasRecuperadas" />
+                <FilaEditable label="Quiebres en ataque" seccion="favorables" campo="quiebresAtaque" />
+                <FilaEditable label="Tackles totales" seccion="favorables" campo="tacklesTotales" />
+                <FilaEditable label="Quiebre que termina en try" seccion="favorables" campo="quiebreQueTerminaEnTry" />
+              </>
+            ) : (
+              <>
+                <Fila label="Penales a favor" value={stats.favorables.penalesAFavor} />
+                <Fila label="Pelotas recuperadas" value={stats.favorables.pelotasRecuperadas} />
+                <Fila label="Quiebres en ataque" value={stats.favorables.quiebresAtaque} />
+                <Fila label="Tackles totales" value={stats.favorables.tacklesTotales} />
+                <Fila label="Quiebre que termina en try" value={stats.favorables.quiebreQueTerminaEnTry} />
+              </>
+            )}
+          </div>
+          <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
+            <div style={{ fontSize: 12, color: "#e0665c", marginBottom: 10, letterSpacing: 0.5 }}>DESFAVORABLES</div>
+            {editando ? (
+              <>
+                <FilaEditable label="Penales en contra" seccion="desfavorables" campo="penalesEnContra" />
+                <FilaEditable label="Pérdidas en contacto" seccion="desfavorables" campo="perdidasContacto" />
+                <FilaEditable label="Pérdidas en rucks" seccion="desfavorables" campo="perdidasRucks" />
+                <FilaEditable label="Pérdidas x infracciones" seccion="desfavorables" campo="perdidasInfracciones" />
+                <FilaEditable label="Pérdidas x mal pase" seccion="desfavorables" campo="perdidasMalPase" />
+              </>
+            ) : (
+              <>
+                <Fila label="Penales en contra" value={stats.desfavorables.penalesEnContra} />
+                <Fila label="Pérdidas en contacto" value={stats.desfavorables.perdidasContacto} />
+                <Fila label="Pérdidas en rucks" value={stats.desfavorables.perdidasRucks} />
+                <Fila label="Pérdidas x infracciones" value={stats.desfavorables.perdidasInfracciones} />
+                <Fila label="Pérdidas x mal pase" value={stats.desfavorables.perdidasMalPase} />
+                <div style={{ borderTop: "1px solid #232324", marginTop: 6, paddingTop: 6 }}>
+                  <Fila label="Total pérdidas" value={totalPerdidas} />
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === "puntos" && (
+        <div style={{ ...cardStyle, padding: "8px 16px" }}>
+          {tries.map((t, i) => (
+            <div key={i} style={{ padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #232324" }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 3 }}>
+                <span style={{ ...tagStyle, background: t.equipo === "Obras" ? "#111a12" : "#2a120f", color: t.equipo === "Obras" ? "#5fbf7a" : "#e0665c" }}>
+                  {t.equipo}
+                </span>
+                <span style={{ fontSize: 12, color: "#8f8f8c" }}>{t.origen}</span>
+                <span style={{ fontSize: 12, color: "#f2c230", fontFamily: "'Oswald', sans-serif", fontWeight: 600 }}>
+                  {t.pts} pts
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: "#c9c9c6" }}>{t.obs}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === "planilla" && (
+        <div>
+          <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 12 }}>
+            ACC++ = recuperadas + quiebres + tackles positivos · PK = penales en contra cometidos
+          </div>
+          <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 820 }}>
+              <thead>
+                <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
+                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>N°</th>
+                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
+                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Recuperadas</th>
+                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Tackles positivos</th>
+                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>ACC++</th>
+                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>PK</th>
+                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Quiebres</th>
+                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Qbre x try</th>
+                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Tackles</th>
+                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Errados</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jugadores.map((j) => (
+                  <tr key={j.numero} style={{ borderTop: "1px solid #232324" }}>
+                    <td style={{ padding: "8px 10px", color: "#8f8f8c" }}>{j.numero}</td>
+                    <td style={{ padding: "8px 10px", color: "#f5f4f0", fontWeight: 500, whiteSpace: "nowrap" }}>{j.jugadorId}</td>
+                    <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.recuperadas}</td>
+                    <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.tacklesPositivos}</td>
+                    <td style={{ padding: "8px 10px", color: "#f2c230", fontWeight: 600 }}>{j.accPos}</td>
+                    <td style={{ padding: "8px 10px", color: j.pk ? "#e0665c" : "#c9c9c6" }}>{j.pk}</td>
+                    <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.quiebres}</td>
+                    <td style={{ padding: "8px 10px", color: j.qbreXTry ? "#5fbf7a" : "#c9c9c6", fontWeight: j.qbreXTry ? 600 : 400 }}>
+                      {j.qbreXTry}
+                    </td>
+                    <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.tackles}</td>
+                    <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.errados}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ fontSize: 10.5, color: "#6b6b68", marginTop: 10 }}>
+            Datos de la planilla de seguimiento cargados por el staff durante el partido — solo para el XV que usa GPS.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3036,6 +3115,7 @@ async function abrirWellnessHoy(perfilId) {
     .from("wellness_ventanas")
     .upsert({ fecha: hoyISO(), abierta: true, abierta_por: perfilId, abierta_en: new Date().toISOString() });
   if (error) console.error("Error abriendo wellness:", error);
+  else crearNotificacion("wellness_abierto", "🟡 Se abrió el wellness de hoy — completá el tuyo.", ["Jugador"], perfilId);
   return !error;
 }
 async function cerrarWellnessHoy() {
@@ -3347,7 +3427,13 @@ function EquiposPage({ perfil }) {
             <span style={{ fontSize: 13, color: "#8f8f8c" }}>{lineups[cat].length} activos</span>
           </div>
           {editMode ? (
-            <button onClick={() => setEditMode(false)} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+            <button
+              onClick={() => {
+                setEditMode(false);
+                crearNotificacion("formacion_confirmada", `🛡️ Formación de ${cat} confirmada.`, null, perfil?.id);
+              }}
+              style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}
+            >
               Guardar cambios
             </button>
           ) : (
@@ -3487,6 +3573,7 @@ const CONFIG_TABS = [
   { key: "perfil", label: "Perfil", icon: "👤" },
   { key: "cuenta", label: "Cuenta y seguridad", icon: "🔒" },
   { key: "staff", label: "Staff y usuarios", icon: "👥", admin: true },
+  { key: "escudos", label: "Escudos de rivales", icon: "🛡️", admin: true },
   { key: "apariencia", label: "Apariencia y preferencias", icon: "🎨" },
   { key: "instalar", label: "Instalar la app", icon: "📲" },
   { key: "gps-acwr", label: "GPS · ACWR", icon: "📡", admin: true },
@@ -3688,6 +3775,82 @@ function textoInvitacion() {
     INVITE_LINK +
     "\n\n" +
     "Elegí tu nombre en la lista y creá tu usuario y contraseña. ¡Nos vemos en la cancha!"
+  );
+}
+
+function FilaEscudo({ rival, onSubido }) {
+  const [subiendo, setSubiendo] = useState(false);
+  const inputRef = React.useRef(null);
+
+  async function elegirArchivo(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSubiendo(true);
+    const ext = file.name.split(".").pop();
+    const path = `${rival.id}.${ext}`;
+    const { error: errSubida } = await supabase.storage.from("escudos").upload(path, file, { upsert: true });
+    if (!errSubida) {
+      const { data } = supabase.storage.from("escudos").getPublicUrl(path);
+      const url = data.publicUrl + "?t=" + Date.now();
+      await supabase.from("equipos_rivales").update({ escudo_url: url }).eq("id", rival.id);
+      ESCUDOS_RIVALES[rival.nombre] = url;
+      onSubido();
+    } else {
+      console.error("Error subiendo escudo:", errSubida);
+    }
+    setSubiendo(false);
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid #232324" }}>
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <TeamBadge name={rival.nombre} size={26} />
+        <span style={{ fontSize: 13, color: "#f5f4f0" }}>{rival.nombre}</span>
+      </div>
+      <input ref={inputRef} type="file" accept="image/*" onChange={elegirArchivo} style={{ display: "none" }} />
+      <button
+        onClick={() => inputRef.current?.click()}
+        disabled={subiendo}
+        style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6", fontSize: 11.5 }}
+      >
+        {subiendo ? "Subiendo…" : rival.escudo_url ? "Cambiar escudo" : "Subir escudo"}
+      </button>
+    </div>
+  );
+}
+
+function PanelEscudos() {
+  const [rivales, setRivales] = useState([]);
+  const [, forzar] = useState(0);
+
+  async function recargar() {
+    const { data } = await supabase.from("equipos_rivales").select("*").order("nombre");
+    setRivales(data || []);
+  }
+  useEffect(() => {
+    recargar();
+  }, []);
+
+  return (
+    <div>
+      <ConfigTitulo sub="Subí el escudo real de cada rival — reemplaza al genérico apenas lo subís.">
+        Escudos de rivales
+      </ConfigTitulo>
+      <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 14 }}>
+        Usá una imagen cuadrada, idealmente con fondo transparente (PNG). Se ve en Calendario, VEO Cam y donde
+        aparezca el rival.
+      </div>
+      {rivales.map((r) => (
+        <FilaEscudo
+          key={r.id}
+          rival={r}
+          onSubido={() => {
+            recargar();
+            forzar((n) => n + 1);
+          }}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -3955,6 +4118,7 @@ function ConfiguracionPage({ menuPref, setMenuPref, perfil }) {
     perfil: <PanelPerfil perfil={perfil} />,
     cuenta: <PanelCuenta perfil={perfil} />,
     staff: <PanelStaff />,
+    escudos: <PanelEscudos />,
     apariencia: <PanelApariencia menuPref={menuPref} setMenuPref={setMenuPref} />,
     instalar: <PanelInstalar />,
     "gps-acwr": <PanelGpsAcwr />,
@@ -4352,8 +4516,27 @@ function LoginPage() {
   );
 }
 
+let ESCUDOS_RIVALES = {}; // nombre de club -> url del escudo real subido a Supabase Storage
+
+// Crea una notificación in-app. roles null = la ven todos; si no, solo esos roles.
+async function crearNotificacion(tipo, mensaje, roles, creadoPor) {
+  const { error } = await supabase
+    .from("notificaciones")
+    .insert({ tipo, mensaje, roles_destino: roles || null, creado_por: creadoPor || null });
+  if (error) console.error("Error creando notificación:", error);
+}
+
+async function cargarEscudos() {
+  const { data, error } = await supabase.from("equipos_rivales").select("nombre, escudo_url");
+  if (error) {
+    console.error("Error cargando escudos:", error);
+    return;
+  }
+  ESCUDOS_RIVALES = Object.fromEntries((data || []).filter((r) => r.escudo_url).map((r) => [r.nombre, r.escudo_url]));
+}
+
 async function cargarTodo() {
-  await Promise.all([cargarJugadores(), cargarCalendario(), cargarFormaciones()]);
+  await Promise.all([cargarJugadores(), cargarCalendario(), cargarFormaciones(), cargarEscudos()]);
 }
 
 function PantallaCarga() {
@@ -4532,6 +4715,92 @@ function MasMenu({ onSelect, onClose, active }) {
   );
 }
 
+function tiempoRelativo(fechaISO) {
+  const diffMin = Math.round((Date.now() - new Date(fechaISO).getTime()) / 60000);
+  if (diffMin < 1) return "recién";
+  if (diffMin < 60) return `hace ${diffMin} min`;
+  const diffH = Math.round(diffMin / 60);
+  if (diffH < 24) return `hace ${diffH} h`;
+  return `hace ${Math.round(diffH / 24)} d`;
+}
+
+function CampanaNotificaciones({ perfil }) {
+  const [abierto, setAbierto] = useState(false);
+  const [notis, setNotis] = useState([]);
+  const [leidas, setLeidas] = useState(new Set());
+
+  async function cargar() {
+    const desde = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const [{ data: n }, { data: l }] = await Promise.all([
+      supabase.from("notificaciones").select("*").gte("created_at", desde).order("created_at", { ascending: false }),
+      perfil ? supabase.from("notificaciones_leidas").select("notificacion_id").eq("perfil_id", perfil.id) : Promise.resolve({ data: [] }),
+    ]);
+    const relevantes = (n || []).filter((x) => !x.roles_destino || (perfil && x.roles_destino.includes(perfil.rol)));
+    setNotis(relevantes);
+    setLeidas(new Set((l || []).map((x) => x.notificacion_id)));
+  }
+
+  useEffect(() => {
+    cargar();
+    const intervalo = setInterval(cargar, 60000); // repasa cada 1 min mientras la app está abierta
+    return () => clearInterval(intervalo);
+  }, [perfil?.id]);
+
+  async function marcarLeida(id) {
+    if (!perfil || leidas.has(id)) return;
+    setLeidas((prev) => new Set(prev).add(id));
+    await supabase.from("notificaciones_leidas").insert({ notificacion_id: id, perfil_id: perfil.id });
+  }
+
+  const sinLeer = notis.filter((n) => !leidas.has(n.id)).length;
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        onClick={() => setAbierto((v) => !v)}
+        style={{ background: "transparent", border: "none", cursor: "pointer", position: "relative", padding: 6, fontSize: 18 }}
+      >
+        🔔
+        {sinLeer > 0 && (
+          <span
+            style={{
+              position: "absolute", top: 0, right: 0, background: "#e0665c", color: "#fff",
+              borderRadius: "50%", fontSize: 10, minWidth: 15, height: 15, display: "flex",
+              alignItems: "center", justifyContent: "center", fontWeight: 700,
+            }}
+          >
+            {sinLeer}
+          </span>
+        )}
+      </button>
+      {abierto && (
+        <div
+          style={{
+            position: "absolute", top: "100%", right: 0, marginTop: 8, width: 300, maxHeight: 360, overflowY: "auto",
+            background: "#141415", border: "1px solid #262627", borderRadius: 10, zIndex: 60, padding: 8,
+          }}
+        >
+          <div style={{ fontSize: 12, color: "#8f8f8c", padding: "6px 8px" }}>Notificaciones</div>
+          {notis.length === 0 && <div style={{ fontSize: 12, color: "#6b6b68", padding: "10px 8px" }}>Nada por ahora.</div>}
+          {notis.map((n) => (
+            <div
+              key={n.id}
+              onClick={() => marcarLeida(n.id)}
+              style={{
+                padding: "10px 8px", borderTop: "1px solid #232324", cursor: "pointer",
+                background: leidas.has(n.id) ? "transparent" : "#1d1a0c",
+              }}
+            >
+              <div style={{ fontSize: 12.5, color: "#f5f4f0" }}>{n.mensaje}</div>
+              <div style={{ fontSize: 10.5, color: "#6b6b68", marginTop: 2 }}>{tiempoRelativo(n.created_at)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ObrasHub({ perfil }) {
   const [active, setActive] = useState("hoy");
   const [masAbierto, setMasAbierto] = useState(false);
@@ -4550,11 +4819,14 @@ function ObrasHub({ perfil }) {
 
       {mostrarSidebar && (
         <div style={{ width: 220, borderRight: "1px solid #202021", padding: "18px 12px", flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 8px 20px" }}>
-          <Shield size={26} />
-          <span style={{ fontFamily: "'Oswald', sans-serif", fontSize: 15, fontWeight: 600, color: "#f5f4f0", letterSpacing: 0.5 }}>
-            Obras <span style={{ color: "#f2c230" }}>Rugby Hub</span>
-          </span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "0 8px 20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Shield size={26} />
+            <span style={{ fontFamily: "'Oswald', sans-serif", fontSize: 15, fontWeight: 600, color: "#f5f4f0", letterSpacing: 0.5 }}>
+              Obras <span style={{ color: "#f2c230" }}>Rugby Hub</span>
+            </span>
+          </div>
+          <CampanaNotificaciones perfil={perfil} />
         </div>
 
         {NAV.map((g) => (
@@ -4616,12 +4888,17 @@ function ObrasHub({ perfil }) {
       )}
 
       <div className="main-content" style={{ flex: 1, padding: mostrarSidebar ? "24px 28px" : "16px 14px 84px", overflow: "auto" }}>
+        {!mostrarSidebar && (
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+            <CampanaNotificaciones perfil={perfil} />
+          </div>
+        )}
         {active === "hoy" ? (
           <HoyPage onNavigate={setActive} />
         ) : active === "calendario" ? (
           <CalendarioPage perfil={perfil} />
         ) : active === "sesion" ? (
-          <SesionPage />
+          <SesionPage perfil={perfil} />
         ) : active === "gimnasio" ? (
           <GimnasioPage />
         ) : active === "plantel-completo" ? (
