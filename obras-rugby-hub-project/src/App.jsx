@@ -284,7 +284,91 @@ function TablaPosiciones({ data }) {
   );
 }
 
-function TablaFixture({ data, proximos }) {
+function FilaFixture({ p, esProximo, perfil, onGuardado }) {
+  const [editando, setEditando] = useState(false);
+  const [gf, setGf] = useState("");
+  const [gc, setGc] = useState("");
+  const tag = esProximo ? null : resultTag(p.res);
+
+  async function guardar() {
+    if (gf === "" || gc === "") return;
+    const ok = await guardarResultadoPartido(p.id, Number(gf), Number(gc));
+    if (ok) {
+      await cargarCalendario();
+      setEditando(false);
+      onGuardado();
+    }
+  }
+
+  return (
+    <tr style={{ borderTop: "1px solid #232324" }}>
+      <td style={{ padding: "9px 0", color: "#c9c9c6" }}>
+        {p.fecha}
+        <div style={{ fontSize: 11, color: "#6b6b68" }}>{p.date}</div>
+      </td>
+      <td style={{ padding: "9px 0", color: "#f5f4f0" }}>
+        <span style={{ display: "flex", alignItems: "center" }}>
+          <TeamBadge name={p.rival} size={18} />
+          {p.rival}
+        </span>
+      </td>
+      <td style={{ padding: "9px 0", color: "#8f8f8c" }}>{p.cond}</td>
+      <td style={{ padding: "9px 0" }}>
+        {editando ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input
+              value={gf}
+              onChange={(e) => setGf(e.target.value.replace(/\D/g, ""))}
+              placeholder="Obras"
+              style={{ ...editInputStyle, width: 40, borderBottom: "1px solid #2a2a2c", textAlign: "center" }}
+            />
+            <span style={{ color: "#6b6b68" }}>—</span>
+            <input
+              value={gc}
+              onChange={(e) => setGc(e.target.value.replace(/\D/g, ""))}
+              placeholder={p.rival}
+              style={{ ...editInputStyle, width: 40, borderBottom: "1px solid #2a2a2c", textAlign: "center" }}
+            />
+            <button onClick={guardar} style={{ background: "transparent", border: "none", color: "#f2c230", fontSize: 11.5, cursor: "pointer" }}>
+              Guardar
+            </button>
+            <button onClick={() => setEditando(false)} style={{ background: "transparent", border: "none", color: "#6b6b68", fontSize: 11.5, cursor: "pointer" }}>
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {esProximo ? (
+              <span style={{ ...tagStyle, background: "#1d1a0c", color: "#f2c230" }}>Próximo</span>
+            ) : (
+              <>
+                <span style={{ ...tagStyle, background: tag.bg, color: tag.color }}>{p.res}</span>
+                <span style={{ color: "#f5f4f0", fontFamily: "'Oswald', sans-serif" }}>
+                  {p.gf}-{p.gc}
+                </span>
+              </>
+            )}
+            {puedeGestionar(perfil) && (
+              <button
+                onClick={() => {
+                  setGf(esProximo ? "" : String(p.gf));
+                  setGc(esProximo ? "" : String(p.gc));
+                  setEditando(true);
+                }}
+                style={{ background: "transparent", border: "none", color: "#6b6b68", fontSize: 11, cursor: "pointer" }}
+              >
+                Editar
+              </button>
+            )}
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function TablaFixture({ data, proximos, perfil }) {
+  const [, forzar] = useState(0);
   return (
     <div>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -297,50 +381,12 @@ function TablaFixture({ data, proximos }) {
           </tr>
         </thead>
         <tbody>
-          {data.map((p) => {
-            const tag = resultTag(p.res);
-            return (
-              <tr key={p.fecha} style={{ borderTop: "1px solid #232324" }}>
-                <td style={{ padding: "9px 0", color: "#c9c9c6" }}>
-                  {p.fecha}
-                  <div style={{ fontSize: 11, color: "#6b6b68" }}>{p.date}</div>
-                </td>
-                <td style={{ padding: "9px 0", color: "#f5f4f0" }}>
-                  <span style={{ display: "flex", alignItems: "center" }}>
-                    <TeamBadge name={p.rival} size={18} />
-                    {p.rival}
-                  </span>
-                </td>
-                <td style={{ padding: "9px 0", color: "#8f8f8c" }}>{p.cond}</td>
-                <td style={{ padding: "9px 0" }}>
-                  <span style={{ ...tagStyle, background: tag.bg, color: tag.color, marginRight: 8 }}>{p.res}</span>
-                  <span style={{ color: "#f5f4f0", fontFamily: "'Oswald', sans-serif" }}>
-                    {p.gf}-{p.gc}
-                  </span>
-                </td>
-              </tr>
-
-            );
-          })}
-          {proximos &&
-            proximos.map((p) => (
-              <tr key={"prox-" + p.fecha} style={{ borderTop: "1px solid #232324" }}>
-                <td style={{ padding: "9px 0", color: "#c9c9c6" }}>
-                  {p.fecha}
-                  <div style={{ fontSize: 11, color: "#6b6b68" }}>{p.date}</div>
-                </td>
-                <td style={{ padding: "9px 0", color: "#f5f4f0" }}>
-                  <span style={{ display: "flex", alignItems: "center" }}>
-                    <TeamBadge name={p.rival} size={18} />
-                    {p.rival}
-                  </span>
-                </td>
-                <td style={{ padding: "9px 0", color: "#8f8f8c" }}>{p.cond}</td>
-                <td style={{ padding: "9px 0" }}>
-                  <span style={{ ...tagStyle, background: "#1d1a0c", color: "#f2c230" }}>Próximo</span>
-                </td>
-              </tr>
-            ))}
+          {data.map((p) => (
+            <FilaFixture key={p.fecha} p={p} esProximo={false} perfil={perfil} onGuardado={() => forzar((n) => n + 1)} />
+          ))}
+          {proximos && proximos.map((p) => (
+            <FilaFixture key={"prox-" + p.fecha} p={p} esProximo perfil={perfil} onGuardado={() => forzar((n) => n + 1)} />
+          ))}
         </tbody>
       </table>
     </div>
@@ -513,7 +559,7 @@ function CalendarioPage({ perfil }) {
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
         <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 340px" }}>
           <div style={{ fontSize: 14, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>📅 Fixture</div>
-          <TablaFixture data={fixture} proximos={proximos} />
+          <TablaFixture data={fixture} proximos={proximos} perfil={perfil} />
         </div>
 
         <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 380px" }}>
@@ -721,12 +767,6 @@ function SesionPage() {
             </button>
           )}
           <button style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>Avisar al staff</button>
-          <button style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6" }}>
-            Descargar
-          </button>
-          <button style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6" }}>
-            Compartir
-          </button>
         </div>
       </div>
 
@@ -1970,7 +2010,7 @@ function GpsPartidos({ perfil }) {
 
       <MatchSelector partidos={partidos} fecha={fecha} onSelect={setFecha} />
 
-      {puedeGestionar(perfil) && <ImportarGps partidoId={partido.id} onImportado={() => cargarGpsPartido(partido.id).then(setGpsReal)} />}
+      {esEntrenador(perfil) && <ImportarGps partidoId={partido.id} onImportado={() => cargarGpsPartido(partido.id).then(setGpsReal)} />}
 
       <div style={{ fontSize: 11, color: hayDatosReales ? "#5fbf7a" : "#6b6b68", marginBottom: 16 }}>
         {hayDatosReales
@@ -2258,7 +2298,7 @@ function VeoPage({ perfil }) {
             <a href={partido.veoLink} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: "#f2c230" }}>
               ▶ Ver video completo del partido
             </a>
-            {puedeGestionar(perfil) && (
+            {esEntrenador(perfil) && (
               <div style={{ marginTop: 10 }}>
                 <button
                   onClick={() => {
@@ -2275,7 +2315,7 @@ function VeoPage({ perfil }) {
         ) : (
           <div>
             <div style={{ fontSize: 13, color: "#6b6b68" }}>Todavía no se importó el video de este partido.</div>
-            {puedeGestionar(perfil) && (
+            {esEntrenador(perfil) && (
               <button
                 onClick={() => {
                   setLinkInput("");
@@ -2647,7 +2687,7 @@ function InformePartidoPage({ perfil }) {
             {partido.date}
           </div>
         </div>
-        {puedeGestionar(perfil) &&
+        {esEntrenador(perfil) &&
           (editando ? (
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={guardarInforme} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
@@ -3005,39 +3045,85 @@ async function cerrarWellnessHoy() {
 }
 
 function FormularioWellness({ jugadorDbId, onEnviado }) {
+  const [estado, setEstado] = useState("Full");
   const [estres, setEstres] = useState(4);
   const [sueno, setSueno] = useState(4);
   const [doms, setDoms] = useState(4);
   const [fatiga, setFatiga] = useState(4);
+  const [observaciones, setObservaciones] = useState("");
   const [enviando, setEnviando] = useState(false);
 
   async function enviar() {
     setEnviando(true);
     const { error } = await supabase
       .from("wellness_respuestas")
-      .upsert({ jugador_id: jugadorDbId, fecha: hoyISO(), estres, sueno, doms, fatiga });
+      .upsert({ jugador_id: jugadorDbId, fecha: hoyISO(), estado_entrenamiento: estado, estres, sueno, doms, fatiga, observaciones: observaciones || null });
     setEnviando(false);
     if (!error) onEnviado();
     else console.error("Error enviando wellness:", error);
   }
 
-  const Campo = ({ label, value, onChange }) => (
+  const Campo = ({ label, value, onChange, izq, der }) => (
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#c9c9c6", marginBottom: 6 }}>
         <span>{label}</span>
         <span style={{ color: "#f2c230", fontWeight: 600 }}>{value}/7</span>
       </div>
       <input type="range" min={1} max={7} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ width: "100%" }} />
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "#6b6b68", marginTop: 2 }}>
+        <span>{izq}</span>
+        <span>{der}</span>
+      </div>
     </div>
   );
 
   return (
     <div style={{ ...cardStyle, padding: "18px", marginBottom: 24, border: "1px solid #f2c230" }}>
-      <div style={{ fontSize: 14, color: "#f2c230", fontWeight: 600, marginBottom: 14 }}>🟡 Completá tu wellness de hoy</div>
-      <Campo label="Estrés" value={estres} onChange={setEstres} />
-      <Campo label="Sueño" value={sueno} onChange={setSueno} />
-      <Campo label="DOMS (dolor muscular)" value={doms} onChange={setDoms} />
-      <Campo label="Fatiga" value={fatiga} onChange={setFatiga} />
+      <div style={{ fontSize: 14, color: "#f2c230", fontWeight: 600, marginBottom: 4 }}>🟡 Cuestionario Wellness</div>
+      <div style={{ fontSize: 11.5, color: "#8f8f8c", marginBottom: 16, lineHeight: 1.5 }}>
+        Herramienta no invasiva para conocer tu estado antes de cada estímulo — nos ayuda a controlar mejor las
+        cargas.
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12.5, color: "#c9c9c6", marginBottom: 6 }}>Estado de entrenamiento</div>
+        <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 8 }}>
+          Lesión: no podés entrenar o es diferenciado · Parcial: todo menos contacto · Full: 100% disponible
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {["Lesión", "Parcial", "Full"].map((e) => (
+            <button
+              key={e}
+              onClick={() => setEstado(e)}
+              style={{
+                ...pillButton,
+                flex: 1,
+                border: "1px solid " + (estado === e ? "#f2c230" : "#2a2a2c"),
+                background: estado === e ? "#1d1a0c" : "transparent",
+                color: estado === e ? "#f2c230" : "#c9c9c6",
+              }}
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <Campo label="Nivel de estrés" value={estres} onChange={setEstres} izq="Mucho estrés" der="Sin estrés" />
+      <Campo label="Calidad de sueño" value={sueno} onChange={setSueno} izq="Muy mala" der="Excelente" />
+      <Campo label="Dolor muscular" value={doms} onChange={setDoms} izq="Mucho dolor" der="Sin dolor" />
+      <Campo label="Fatiga" value={fatiga} onChange={setFatiga} izq="Mucha fatiga" der="Sin fatiga" />
+
+      <div style={{ marginBottom: 4 }}>
+        <div style={{ fontSize: 12.5, color: "#c9c9c6", marginBottom: 6 }}>Observaciones (opcional)</div>
+        <textarea
+          value={observaciones}
+          onChange={(e) => setObservaciones(e.target.value)}
+          placeholder="Ej: tengo un golpe en la rodilla / hoy falto por x motivo"
+          rows={2}
+          style={{ ...inputStyle, resize: "vertical" }}
+        />
+      </div>
       <button onClick={enviar} disabled={enviando} style={{ ...buttonStyle, width: "auto", padding: "9px 20px", marginTop: 4 }}>
         {enviando ? "Enviando…" : "Enviar"}
       </button>
@@ -3071,10 +3157,12 @@ function WellnessPage({ perfil }) {
 
   const conReadiness = respuestas.map((r) => ({
     nombre: r.jugadores?.nombre || "—",
+    estado: r.estado_entrenamiento,
     estres: r.estres,
     sueno: r.sueno,
     doms: r.doms,
     fatiga: r.fatiga,
+    observaciones: r.observaciones,
     readiness: r.estres + r.sueno + r.doms + r.fatiga,
   }));
   const promedio = conReadiness.length ? (conReadiness.reduce((a, r) => a + r.readiness, 0) / conReadiness.length).toFixed(1) : "—";
@@ -3153,26 +3241,40 @@ function WellnessPage({ perfil }) {
         {conReadiness.length === 0 ? (
           <div style={{ padding: "14px 10px", color: "#6b6b68", fontSize: 12.5 }}>Todavía no hay respuestas hoy.</div>
         ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 700 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 820 }}>
             <thead>
               <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
+                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Estado</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Readiness</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Estrés</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Sueño</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>DOMS</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Fatiga</th>
+                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Observaciones</th>
               </tr>
             </thead>
             <tbody>
               {conReadiness.map((r) => (
                 <tr key={r.nombre} style={{ borderTop: "1px solid #232324" }}>
                   <td style={{ padding: "9px 10px", color: "#f5f4f0", fontWeight: 500, whiteSpace: "nowrap" }}>{r.nombre}</td>
+                  <td style={{ padding: "9px 10px" }}>
+                    <span
+                      style={{
+                        ...tagStyle,
+                        background: r.estado === "Lesión" ? "#2a120f" : r.estado === "Parcial" ? "#2a220a" : "#111a12",
+                        color: r.estado === "Lesión" ? "#e0665c" : r.estado === "Parcial" ? "#f2c230" : "#5fbf7a",
+                      }}
+                    >
+                      {r.estado || "—"}
+                    </span>
+                  </td>
                   <td style={{ padding: "9px 10px", color: r.readiness <= 16 ? "#f2c230" : "#c9c9c6" }}>{r.readiness}/28</td>
                   <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.estres}</td>
                   <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.sueno}</td>
                   <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.doms}</td>
                   <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.fatiga}</td>
+                  <td style={{ padding: "9px 10px", color: "#8f8f8c" }}>{r.observaciones || "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -3225,7 +3327,7 @@ function EquiposPage({ perfil }) {
               Guardar cambios
             </button>
           ) : (
-            puedeGestionar(perfil) && (
+            esEntrenador(perfil) && (
               <button onClick={() => setEditMode(true)} style={{ ...pillButton, background: "transparent", border: "1px solid #f2c230", color: "#f2c230" }}>
                 Editar equipo
               </button>
@@ -3412,26 +3514,82 @@ function ConfigTitulo({ children, sub }) {
   );
 }
 
-function PanelPerfil() {
-  const [nombre, setNombre] = useState("Federico Ryba");
-  const [rol, setRol] = useState("Cuerpo técnico");
-  const [email, setEmail] = useState("fede.ryba@gmail.com");
+async function subirAvatar(perfilId, file) {
+  const ext = file.name.split(".").pop();
+  const path = `${perfilId}.${ext}`;
+  const { error: errSubida } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+  if (errSubida) {
+    console.error("Error subiendo avatar:", errSubida);
+    return null;
+  }
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  const url = data.publicUrl + "?t=" + Date.now(); // evita que quede cacheada la foto vieja
+  const { error: errUpdate } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", perfilId);
+  if (errUpdate) {
+    console.error("Error guardando avatar:", errUpdate);
+    return null;
+  }
+  return url;
+}
+
+function PanelPerfil({ perfil }) {
+  const [nombre, setNombre] = useState(perfil?.nombre || "");
+  const [rol, setRol] = useState(perfil?.rol || "Jugador");
+  const [email, setEmail] = useState(perfil?.email || "");
+  const [avatarUrl, setAvatarUrl] = useState(perfil?.avatar_url || null);
+  const [subiendo, setSubiendo] = useState(false);
+  const [msg, setMsg] = useState("");
+  const inputFileRef = React.useRef(null);
+
+  async function elegirFoto(e) {
+    const file = e.target.files?.[0];
+    if (!file || !perfil) return;
+    setSubiendo(true);
+    const url = await subirAvatar(perfil.id, file);
+    setSubiendo(false);
+    if (url) {
+      setAvatarUrl(url);
+      perfil.avatar_url = url; // mismo objeto que usa el resto del HUB, así queda al día sin recargar
+    }
+  }
+
+  async function guardar() {
+    if (!perfil) return;
+    const { error } = await supabase.from("profiles").update({ nombre, rol }).eq("id", perfil.id);
+    perfil.nombre = nombre;
+    perfil.rol = rol;
+    setMsg(error ? "No se pudo guardar." : "Guardado.");
+    setTimeout(() => setMsg(""), 2500);
+  }
 
   return (
     <div>
       <ConfigTitulo sub="Tu información visible para el resto del staff.">Perfil</ConfigTitulo>
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 22 }}>
-        <div
-          style={{
-            width: 56, height: 56, borderRadius: "50%", background: "#3a7bd5", color: "#fff",
-            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 600,
-            fontFamily: "'Oswald', sans-serif",
-          }}
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt="Foto de perfil"
+            style={{ width: 56, height: 56, borderRadius: "50%", objectFit: "cover" }}
+          />
+        ) : (
+          <div
+            style={{
+              width: 56, height: 56, borderRadius: "50%", background: "#3a7bd5", color: "#fff",
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 600,
+              fontFamily: "'Oswald', sans-serif",
+            }}
+          >
+            {(nombre || "?").charAt(0)}
+          </div>
+        )}
+        <input ref={inputFileRef} type="file" accept="image/*" onChange={elegirFoto} style={{ display: "none" }} />
+        <button
+          onClick={() => inputFileRef.current?.click()}
+          disabled={subiendo}
+          style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6" }}
         >
-          {nombre.charAt(0)}
-        </div>
-        <button style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6" }}>
-          🖼 Cambiar foto
+          🖼 {subiendo ? "Subiendo…" : "Cambiar foto"}
         </button>
       </div>
 
@@ -3448,25 +3606,51 @@ function PanelPerfil() {
       </select>
 
       <label style={labelStyle}>Email</label>
-      <input style={inputStyle} value={email} onChange={(e) => setEmail(e.target.value)} />
+      <input style={inputStyle} value={email} disabled />
+      <div style={{ fontSize: 10.5, color: "#6b6b68", marginTop: 4 }}>El email de acceso no se cambia desde acá.</div>
 
-      <button style={{ ...buttonStyle, width: "auto", padding: "10px 22px", marginTop: 20 }}>Guardar cambios</button>
+      <button onClick={guardar} style={{ ...buttonStyle, width: "auto", padding: "10px 22px", marginTop: 20 }}>Guardar cambios</button>
+      {msg && <span style={{ fontSize: 11.5, color: "#5fbf7a", marginLeft: 12 }}>{msg}</span>}
     </div>
   );
 }
 
-function PanelCuenta() {
+function PanelCuenta({ perfil }) {
+  const [nueva, setNueva] = useState("");
+  const [repetir, setRepetir] = useState("");
+  const [msg, setMsg] = useState("");
+
+  async function actualizar() {
+    setMsg("");
+    if (nueva.length < 6) {
+      setMsg("La contraseña tiene que tener al menos 6 caracteres.");
+      return;
+    }
+    if (nueva !== repetir) {
+      setMsg("Las contraseñas no coinciden.");
+      return;
+    }
+    const { error } = await supabase.auth.updateUser({ password: nueva });
+    if (error) setMsg(error.message);
+    else {
+      setMsg("Contraseña actualizada.");
+      setNueva("");
+      setRepetir("");
+    }
+  }
+
   return (
     <div>
-      <ConfigTitulo sub={<>Usuario de acceso: <b style={{ color: "#c9c9c6" }}>fryba</b></>}>Cuenta y seguridad</ConfigTitulo>
+      <ConfigTitulo sub={<>Usuario de acceso: <b style={{ color: "#c9c9c6" }}>{perfil?.usuario || perfil?.email || "—"}</b></>}>
+        Cuenta y seguridad
+      </ConfigTitulo>
       <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 600, marginBottom: 8 }}>Cambiar contraseña</div>
-      <label style={labelStyle}>CONTRASEÑA ACTUAL</label>
-      <input type="password" style={inputStyle} />
       <label style={labelStyle}>NUEVA CONTRASEÑA</label>
-      <input type="password" style={inputStyle} />
+      <input type="password" style={inputStyle} value={nueva} onChange={(e) => setNueva(e.target.value)} />
       <label style={labelStyle}>REPETIR NUEVA</label>
-      <input type="password" style={inputStyle} />
-      <button style={{ ...buttonStyle, width: "auto", padding: "10px 22px", marginTop: 20 }}>Actualizar contraseña</button>
+      <input type="password" style={inputStyle} value={repetir} onChange={(e) => setRepetir(e.target.value)} />
+      {msg && <div style={{ fontSize: 11.5, color: msg === "Contraseña actualizada." ? "#5fbf7a" : "#e0665c", marginTop: 8 }}>{msg}</div>}
+      <button onClick={actualizar} style={{ ...buttonStyle, width: "auto", padding: "10px 22px", marginTop: 20 }}>Actualizar contraseña</button>
     </div>
   );
 }
@@ -3740,12 +3924,12 @@ function PanelNotificaciones() {
   );
 }
 
-function ConfiguracionPage({ menuPref, setMenuPref }) {
+function ConfiguracionPage({ menuPref, setMenuPref, perfil }) {
   const [tab, setTab] = useState("perfil");
 
   const PANELES = {
-    perfil: <PanelPerfil />,
-    cuenta: <PanelCuenta />,
+    perfil: <PanelPerfil perfil={perfil} />,
+    cuenta: <PanelCuenta perfil={perfil} />,
     staff: <PanelStaff />,
     apariencia: <PanelApariencia menuPref={menuPref} setMenuPref={setMenuPref} />,
     instalar: <PanelInstalar />,
@@ -3806,7 +3990,7 @@ function Placeholder({ label }) {
   );
 }
 
-function HoyPage() {
+function HoyPage({ onNavigate }) {
   const [showBanner, setShowBanner] = useState(true);
 
   return (
@@ -3853,7 +4037,10 @@ function HoyPage() {
           <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 500 }}>Sesión del día</div>
           <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 4 }}>Todavía no planificaste la sesión de hoy.</div>
         </div>
-        <button style={{ ...pillButton, background: "transparent", border: "1px solid #f2c230", color: "#f2c230" }}>
+        <button
+          onClick={() => onNavigate("sesion")}
+          style={{ ...pillButton, background: "transparent", border: "1px solid #f2c230", color: "#f2c230" }}
+        >
           Planificar
         </button>
       </div>
@@ -3918,9 +4105,13 @@ function HoyPage() {
 
 const ROLES_REGISTRO = ["Jugador", "Cuerpo técnico", "Manager", "Cuerpo médico"];
 
-// Gestión del plantel/partidos/formaciones: Cuerpo técnico y Manager.
+// Gestión general (resultados de partidos, plantel): Cuerpo técnico y Manager.
 function puedeGestionar(perfil) {
   return !!perfil && (perfil.rol === "Cuerpo técnico" || perfil.rol === "Manager");
+}
+// Trabajo técnico específico (formaciones, GPS, VEO, informe de partido): solo Cuerpo técnico.
+function esEntrenador(perfil) {
+  return !!perfil && perfil.rol === "Cuerpo técnico";
 }
 
 function LoginPage() {
@@ -4166,6 +4357,7 @@ export default function AppRoot() {
   const [chequeandoSesion, setChequeandoSesion] = useState(true);
   const [datosListos, setDatosListos] = useState(false);
   const [perfil, setPerfil] = useState(null);
+  const userIdCargado = React.useRef(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -4179,15 +4371,25 @@ export default function AppRoot() {
   }, []);
 
   useEffect(() => {
+    const userId = sesion?.user?.id || null;
+    // Supabase renueva el token de sesión solo cada tanto (y dispara este evento) sin que
+    // cambie el usuario — antes eso recargaba todo el HUB y te devolvía a "Hoy". Ahora solo
+    // recargamos cuando el usuario logueado realmente cambia (login/logout/otra cuenta).
+    if (userId === userIdCargado.current) return;
+    userIdCargado.current = userId;
+
     if (sesion) {
       setDatosListos(false);
       Promise.all([
         cargarTodo(),
         supabase.from("profiles").select("*").eq("auth_user_id", sesion.user.id).maybeSingle(),
       ]).then(([, { data }]) => {
-        setPerfil(data || null);
+        setPerfil(data ? { ...data, email: sesion.user.email } : null);
         setDatosListos(true);
       });
+    } else {
+      setDatosListos(false);
+      setPerfil(null);
     }
   }, [sesion]);
 
@@ -4390,7 +4592,7 @@ function ObrasHub({ perfil }) {
 
       <div className="main-content" style={{ flex: 1, padding: mostrarSidebar ? "24px 28px" : "16px 14px 84px", overflow: "auto" }}>
         {active === "hoy" ? (
-          <HoyPage />
+          <HoyPage onNavigate={setActive} />
         ) : active === "calendario" ? (
           <CalendarioPage perfil={perfil} />
         ) : active === "sesion" ? (
@@ -4416,7 +4618,7 @@ function ObrasHub({ perfil }) {
         ) : active === "reportes" ? (
           <ReportesPage perfil={perfil} />
         ) : active === CONFIG_ITEM.key ? (
-          <ConfiguracionPage menuPref={menuPref} setMenuPref={setMenuPref} />
+          <ConfiguracionPage menuPref={menuPref} setMenuPref={setMenuPref} perfil={perfil} />
         ) : (
           <Placeholder label={activeLabel} />
         )}
