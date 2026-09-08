@@ -2074,6 +2074,12 @@ function jugadoresConGps() {
   return LINEUPS_INICIALES.Superior.filter((s) => s.grupo !== "suplentes" && s.jugadorId);
 }
 
+// Titulares de cualquier categoría, sin camisetas vacantes — para el informe de partido,
+// que no depende de los chalecos GPS (esos solo existen para Superior).
+function jugadoresTitulares(categoriaNombre) {
+  return (LINEUPS_INICIALES[categoriaNombre] || []).filter((s) => s.grupo !== "suplentes" && s.jugadorId);
+}
+
 const DIAS_ENTRENAMIENTO_GPS = ["Lunes", "Martes", "Jueves"];
 
 function gpsMetricasEntrenamiento(nombre, dia) {
@@ -2742,9 +2748,8 @@ function descomponerPuntos(total, seed) {
 // Genera los eventos de puntaje del partido (tries + conversiones + penales + drops) a partir
 // del resultado real. Para los de Obras, elige quién los anota — el mismo jugador que después
 // figura con el "quiebre que termina en try" en la planilla.
-function generarTries(partido) {
+function generarTries(partido, jugadoresTry) {
   const seed = partido.fecha * 19 + partido.rival.length;
-  const jugadoresTry = jugadoresConGps();
   const hayJugadores = jugadoresTry.length > 0;
   const apertura = jugadoresTry.find((j) => j.puesto === "Apertura") || jugadoresTry[0] || { jugadorId: "Apertura" };
 
@@ -2815,16 +2820,26 @@ const STATS_VACIO = () => ({
 });
 
 function InformePartidoPage({ perfil }) {
-  const partidos = FIXTURE.superior;
+  const [categoria, setCategoria] = useState("Superior");
+  const partidos = FIXTURE[categoria.toLowerCase()];
   const [fecha, setFecha] = useState(partidos[partidos.length - 1].fecha);
   const partido = partidos.find((p) => p.fecha === fecha) || partidos[partidos.length - 1];
   const [editando, setEditando] = useState(false);
   const [borrador, setBorrador] = useState(null);
   const [, forzar] = useState(0);
 
+  function cambiarCategoria(c) {
+    setCategoria(c);
+    const nuevaLista = FIXTURE[c.toLowerCase()];
+    setFecha(nuevaLista[nuevaLista.length - 1].fecha);
+    setEditando(false);
+  }
+
   const stats = partido.informe || statsPartido(partido);
   const esReal = !!partido.informe;
-  const tries = generarTries(partido);
+  // GPS (los chalecos) solo existe para Superior — para Intermedia usamos los titulares del partido igual.
+  const jugadoresTry = categoria === "Superior" ? jugadoresConGps() : jugadoresTitulares("Intermedia");
+  const tries = generarTries(partido, jugadoresTry);
   const totalPerdidas = Object.values(stats.desfavorables).reduce((a, b) => a + b, 0) - stats.desfavorables.penalesEnContra;
 
   // Cuántos tries anotó cada jugador en este partido (solo Obras).
@@ -2835,7 +2850,7 @@ function InformePartidoPage({ perfil }) {
     }
   });
 
-  const jugadores = jugadoresConGps().map((s) => {
+  const jugadores = jugadoresTry.map((s) => {
     const base = statsJugadorBase(s.jugadorId, fecha);
     const qbreXTry = triesPorJugador[s.jugadorId] || 0;
     const quiebres = base.quiebresSinTry + qbreXTry; // el quiebre que termina en try es un quiebre más
@@ -2856,7 +2871,7 @@ function InformePartidoPage({ perfil }) {
       partido.informe = borrador;
       setEditando(false);
       forzar((n) => n + 1);
-      crearNotificacion("informe_partido", `📈 Informe de partido vs ${partido.rival} cargado.`, null, perfil?.id);
+      crearNotificacion("informe_partido", `📈 Informe de partido ${categoria} vs ${partido.rival} cargado.`, null, perfil?.id);
     } else {
       console.error("Error guardando informe:", error);
     }
@@ -2888,7 +2903,7 @@ function InformePartidoPage({ perfil }) {
         <div>
           <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Informe de partido</div>
           <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
-            Superior vs {partido.rival} ({partido.cond === "Local" ? "L" : "V"}) · {partido.gf}-{partido.gc} ·{" "}
+            {categoria} vs {partido.rival} ({partido.cond === "Local" ? "L" : "V"}) · {partido.gf}-{partido.gc} ·{" "}
             {partido.date}
           </div>
         </div>
@@ -2907,6 +2922,23 @@ function InformePartidoPage({ perfil }) {
               {esReal ? "Editar informe" : "Cargar informe"}
             </button>
           ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, margin: "16px 0 16px" }}>
+        {["Superior", "Intermedia"].map((c) => (
+          <button
+            key={c}
+            onClick={() => cambiarCategoria(c)}
+            style={{
+              ...pillButton,
+              border: "1px solid " + (categoria === c ? "#f2c230" : "#2a2a2c"),
+              background: categoria === c ? "#1d1a0c" : "transparent",
+              color: categoria === c ? "#f2c230" : "#c9c9c6",
+            }}
+          >
+            {c}
+          </button>
+        ))}
       </div>
 
       <MatchSelector partidos={partidos} fecha={fecha} onSelect={setFecha} />
@@ -3099,7 +3131,7 @@ function InformePartidoPage({ perfil }) {
             </table>
           </div>
           <div style={{ fontSize: 10.5, color: "#6b6b68", marginTop: 10 }}>
-            Datos de la planilla de seguimiento cargados por el staff durante el partido — solo para el XV que usa GPS.
+            Datos de la planilla de seguimiento cargados por el staff durante el partido — solo para los titulares.
           </div>
         </div>
       )}
@@ -4337,8 +4369,70 @@ function PanelMetricas() {
   );
 }
 
-function PanelNotificaciones() {
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
+
+const VAPID_PUBLIC_KEY = "BMeBQ3YOGw2ghpHXUrnnx22MCuY3pG9k4V-wRNmaNZuvaDVt8-KAW44IceURWSs1y3m6wx5jUEFTJ0XRbSCZFuI";
+
+function PanelNotificaciones({ perfil }) {
   const [activadas, setActivadas] = useState(false);
+  const [cargando, setCargando] = useState(false);
+  const [msg, setMsg] = useState("");
+  const soportado = "serviceWorker" in navigator && "PushManager" in window;
+
+  useEffect(() => {
+    if (!soportado) return;
+    navigator.serviceWorker.ready.then((reg) =>
+      reg.pushManager.getSubscription().then((sub) => setActivadas(!!sub))
+    );
+  }, []);
+
+  async function activar() {
+    if (!soportado) {
+      setMsg("Este navegador no soporta notificaciones push.");
+      return;
+    }
+    if (!perfil) {
+      setMsg("Iniciá sesión de nuevo antes de activarlas.");
+      return;
+    }
+    setCargando(true);
+    setMsg("");
+    try {
+      const permiso = await Notification.requestPermission();
+      if (permiso !== "granted") {
+        setMsg("No diste el permiso de notificaciones en el navegador.");
+        setCargando(false);
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+      const subJson = sub.toJSON();
+      const { error } = await supabase.from("push_subscriptions").upsert(
+        {
+          perfil_id: perfil.id,
+          endpoint: subJson.endpoint,
+          p256dh: subJson.keys.p256dh,
+          auth: subJson.keys.auth,
+        },
+        { onConflict: "endpoint" }
+      );
+      if (error) throw error;
+      setActivadas(true);
+    } catch (e) {
+      console.error("Error activando notificaciones:", e);
+      setMsg("No se pudo activar. Probá de nuevo.");
+    }
+    setCargando(false);
+  }
+
   return (
     <div>
       <ConfigTitulo>🔔 Notificaciones</ConfigTitulo>
@@ -4351,11 +4445,13 @@ function PanelNotificaciones() {
         <div style={{ fontSize: 12.5, color: "#8f8f8c", marginBottom: 14 }}>
           {activadas ? "Activadas en este dispositivo." : "Todavía no están activadas en este dispositivo."}
         </div>
+        {msg && <div style={{ fontSize: 12, color: "#e0665c", marginBottom: 10 }}>{msg}</div>}
         <button
-          onClick={() => setActivadas(true)}
+          onClick={activar}
+          disabled={cargando || activadas}
           style={{ ...buttonStyle, width: "auto", padding: "9px 18px", marginTop: 0 }}
         >
-          🔔 {activadas ? "Notificaciones activadas" : "Activar notificaciones"}
+          🔔 {activadas ? "Notificaciones activadas" : cargando ? "Activando…" : "Activar notificaciones"}
         </button>
       </div>
     </div>
@@ -4375,7 +4471,7 @@ function ConfiguracionPage({ menuPref, setMenuPref, perfil }) {
     "gps-acwr": <PanelGpsAcwr />,
     "evaluaciones-cfg": <PanelEvaluacionesCfg />,
     metricas: <PanelMetricas />,
-    notificaciones: <PanelNotificaciones />,
+    notificaciones: <PanelNotificaciones perfil={perfil} />,
   };
 
   return (
@@ -4429,8 +4525,23 @@ function Placeholder({ label }) {
   );
 }
 
-function HoyPage({ onNavigate }) {
+function HoyPage({ onNavigate, perfil }) {
   const [showBanner, setShowBanner] = useState(true);
+
+  const fixture = FIXTURE.superior;
+  const proximos = PROXIMOS.superior;
+  const ultimo = fixture[fixture.length - 1];
+  const proximo = proximos[0];
+  const record = fixture.reduce(
+    (acc, p) => {
+      if (p.res === "Ganado") acc.g++;
+      else if (p.res === "Perdido") acc.p++;
+      else if (p.res === "Empate") acc.e++;
+      return acc;
+    },
+    { g: 0, e: 0, p: 0 }
+  );
+  const hoyStr = new Date().toLocaleDateString("es-AR", { weekday: "long", day: "2-digit", month: "2-digit" });
 
   return (
     <div>
@@ -4444,31 +4555,8 @@ function HoyPage({ onNavigate }) {
       )}
 
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Hola, Federico</div>
-        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>Bienvenido al hub · sábado 05/09/2026</div>
-      </div>
-
-      <div style={{ ...cardStyle, padding: "20px 22px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontFamily: "'Oswald', sans-serif", fontSize: 26, color: "#f5f4f0", fontWeight: 600 }}>
-              Sábado 05/09
-            </span>
-            <span style={tagStyle}>Semana 13</span>
-            <span style={{ ...tagStyle, background: "#2a120f", color: "#e0665c" }}>Perdido</span>
-          </div>
-          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 6 }}>Hoy: P 19-78 vs Floresta (fecha 17)</div>
-        </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ ...cardStyle, padding: "10px 16px" }}>
-            <div style={{ fontSize: 11, color: "#8f8f8c" }}>Último partido</div>
-            <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 500 }}>hoy · @ Floresta</div>
-          </div>
-          <div style={{ ...cardStyle, padding: "10px 16px" }}>
-            <div style={{ fontSize: 11, color: "#8f8f8c" }}>Próximo partido</div>
-            <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 500 }}>en 7 días · vs Berazategui</div>
-          </div>
-        </div>
+        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Hola, {perfil?.nombre?.split(" ")[0] || "de nuevo"}</div>
+        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>Bienvenido al hub · {hoyStr}</div>
       </div>
 
       <div style={{ ...cardStyle, padding: "18px 22px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -4486,20 +4574,38 @@ function HoyPage({ onNavigate }) {
 
       <div style={{ display: "flex", gap: 14, marginBottom: 16, flexWrap: "wrap" }}>
         <div style={{ ...cardStyle, flex: "1 1 260px", padding: "16px 18px" }}>
-          <div style={{ fontSize: 11, color: "#8f8f8c", marginBottom: 4 }}>Último partido (Superior)</div>
-          <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 500 }}>@ Floresta · P 19-78</div>
-          <div style={{ fontSize: 12, color: "#8f8f8c", marginTop: 4 }}>Fecha 17 · 05/09/2026</div>
+          <div style={{ fontSize: 11, color: "#8f8f8c", marginBottom: 6 }}>Último partido (Superior)</div>
+          {ultimo ? (
+            <>
+              <div style={{ display: "flex", alignItems: "center", fontSize: 15, color: "#f5f4f0", fontWeight: 500 }}>
+                <TeamBadge name={ultimo.rival} size={20} />
+                {ultimo.cond === "Local" ? "vs" : "@"} {ultimo.rival} · {ultimo.res.charAt(0)} {ultimo.gf}-{ultimo.gc}
+              </div>
+              <div style={{ fontSize: 12, color: "#8f8f8c", marginTop: 4 }}>Fecha {ultimo.fecha} · {ultimo.date}</div>
+            </>
+          ) : (
+            <div style={{ fontSize: 13, color: "#6b6b68" }}>Sin partidos cargados.</div>
+          )}
         </div>
         <div style={{ ...cardStyle, flex: "1 1 260px", padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: "#8f8f8c", marginBottom: 4 }}>Récord Superior · Desarrollo</div>
           <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 600, fontFamily: "'Oswald', sans-serif" }}>
-            8G · 1E · 8P
+            {record.g}G · {record.e}E · {record.p}P
           </div>
         </div>
         <div style={{ ...cardStyle, flex: "1 1 260px", padding: "16px 18px" }}>
-          <div style={{ fontSize: 11, color: "#8f8f8c", marginBottom: 4 }}>Próximo partido</div>
-          <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 500 }}>vs Municipalidad de Berazategui</div>
-          <div style={{ fontSize: 12, color: "#8f8f8c", marginTop: 4 }}>Fecha 18 · 12/09/2026</div>
+          <div style={{ fontSize: 11, color: "#8f8f8c", marginBottom: 6 }}>Próximo partido</div>
+          {proximo ? (
+            <>
+              <div style={{ display: "flex", alignItems: "center", fontSize: 15, color: "#f5f4f0", fontWeight: 500 }}>
+                <TeamBadge name={proximo.rival} size={20} />
+                {proximo.cond === "Local" ? "vs" : "@"} {proximo.rival}
+              </div>
+              <div style={{ fontSize: 12, color: "#8f8f8c", marginTop: 4 }}>Fecha {proximo.fecha} · {proximo.date}</div>
+            </>
+          ) : (
+            <div style={{ fontSize: 13, color: "#6b6b68" }}>Sin próximo partido confirmado.</div>
+          )}
         </div>
       </div>
 
@@ -5253,7 +5359,7 @@ function ObrasHub({ perfil }) {
         )}
         <ErrorBoundary key={active} onReset={() => setActive("hoy")}>
         {active === "hoy" ? (
-          <HoyPage onNavigate={setActive} />
+          <HoyPage onNavigate={setActive} perfil={perfil} />
         ) : active === "calendario" ? (
           <CalendarioPage perfil={perfil} />
         ) : active === "sesion" ? (
