@@ -844,6 +844,95 @@ function GrupoTabla({ titulo, filas, editMode, onChange, onDelete, onAdd }) {
   );
 }
 
+function AsistenciaPanel({ perfil }) {
+  const fecha = hoyISO();
+  const [presentes, setPresentes] = useState({});
+  const [cargando, setCargando] = useState(true);
+  const [abierto, setAbierto] = useState(false);
+
+  useEffect(() => {
+    if (!abierto) return;
+    setCargando(true);
+    cargarAsistenciaFecha(fecha).then((m) => {
+      setPresentes(m);
+      setCargando(false);
+    });
+  }, [abierto]);
+
+  async function marcar(jugadorDbId, presente) {
+    setPresentes((prev) => ({ ...prev, [jugadorDbId]: presente }));
+    await guardarAsistencia(jugadorDbId, fecha, presente, perfil?.id);
+  }
+
+  const jugadoresOrdenados = [...POOL].sort((a, b) => a.id.localeCompare(b.id));
+  const totalMarcados = Object.keys(presentes).length;
+  const totalPresentes = Object.values(presentes).filter(Boolean).length;
+
+  if (!abierto) {
+    return (
+      <button
+        onClick={() => setAbierto(true)}
+        style={{ ...pillButton, marginBottom: 20, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}
+      >
+        ✅ Cargar asistencia de hoy
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>Asistencia de hoy</div>
+        <button onClick={() => setAbierto(false)} style={{ background: "transparent", border: "none", color: "#6b6b68", fontSize: 12, cursor: "pointer" }}>
+          Cerrar
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: "#8f8f8c", marginBottom: 12 }}>
+        {cargando ? "Cargando…" : `${totalPresentes} presentes de ${totalMarcados} marcados · ${jugadoresOrdenados.length} en el plantel`}
+      </div>
+      {!cargando && (
+        <div style={{ maxHeight: 340, overflowY: "auto" }}>
+          {jugadoresOrdenados.map((j) => {
+            const estado = presentes[j.dbId]; // true, false, o undefined = sin marcar
+            return (
+              <div
+                key={j.dbId}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 0", borderTop: "1px solid #202021" }}
+              >
+                <span style={{ fontSize: 12.5, color: "#c9c9c6" }}>{j.id}</span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    onClick={() => marcar(j.dbId, true)}
+                    style={{
+                      ...pillButton, fontSize: 11, padding: "4px 10px",
+                      border: "1px solid " + (estado === true ? "#5fbf7a" : "#2a2a2c"),
+                      background: estado === true ? "#111a12" : "transparent",
+                      color: estado === true ? "#5fbf7a" : "#6b6b68",
+                    }}
+                  >
+                    Presente
+                  </button>
+                  <button
+                    onClick={() => marcar(j.dbId, false)}
+                    style={{
+                      ...pillButton, fontSize: 11, padding: "4px 10px",
+                      border: "1px solid " + (estado === false ? "#e0665c" : "#2a2a2c"),
+                      background: estado === false ? "#2a120f" : "transparent",
+                      color: estado === false ? "#e0665c" : "#6b6b68",
+                    }}
+                  >
+                    Ausente
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SesionPage({ perfil }) {
   const [sesiones, setSesiones] = useState(SESIONES_INICIALES);
   const [dia, setDia] = useState("Lunes");
@@ -900,6 +989,8 @@ function SesionPage({ perfil }) {
           </button>
         </div>
       </div>
+
+      {puedeGestionar(perfil) && <AsistenciaPanel perfil={perfil} />}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
         {DIAS_SEMANA.map((d) => (
@@ -1614,6 +1705,19 @@ function RadarChart({ valores, etiquetas, size = 210 }) {
 function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemoveHistorial, ocultarVolver }) {
   const [editPos, setEditPos] = useState(false);
   const [nuevaLesion, setNuevaLesion] = useState("");
+  const [asistencia, setAsistencia] = useState(null);
+
+  useEffect(() => {
+    let vivo = true;
+    if (jugador.dbId) {
+      asistenciasJugador(jugador.dbId).then((r) => {
+        if (vivo) setAsistencia(r);
+      });
+    }
+    return () => {
+      vivo = false;
+    };
+  }, [jugador.dbId]);
 
   const evalu = ultimaEvaluacion(jugador.id);
   const m = evalu || metricasJugador(jugador.id);
@@ -1648,6 +1752,11 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
         <StatCard label="Altura" value={jugador.altura + " cm"} tone="ok" />
         <StatCard label="Peso" value={jugador.peso + " kg"} tone="ok" />
         <StatCard label="Apto" value={jugador.apto} tone={aptoTono} />
+        <StatCard
+          label={`Asistencia · temp. ${TEMPORADA_ACTIVA}`}
+          value={asistencia ? `${asistencia.presentes}/${asistencia.total}` : "…"}
+          tone="ok"
+        />
       </div>
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
@@ -3318,6 +3427,36 @@ function hoyISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Asistencia a entrenamientos — una fila por jugador y fecha real (no por "día de la semana").
+async function cargarAsistenciaFecha(fecha) {
+  const { data, error } = await supabase.from("asistencias").select("jugador_id, presente").eq("fecha", fecha);
+  if (error) {
+    console.error("Error cargando asistencia:", error);
+    return {};
+  }
+  return Object.fromEntries((data || []).map((r) => [r.jugador_id, r.presente]));
+}
+
+async function guardarAsistencia(jugadorId, fecha, presente, marcadoPor) {
+  const { error } = await supabase
+    .from("asistencias")
+    .upsert({ jugador_id: jugadorId, fecha, presente, temporada: TEMPORADA_ACTIVA, marcado_por: marcadoPor }, { onConflict: "jugador_id,fecha" });
+  if (error) console.error("Error guardando asistencia:", error);
+  return !error;
+}
+
+// Presentes / total de sesiones marcadas para un jugador, solo de la temporada activa —
+// así el contador arranca de nuevo solo con cada temporada nueva.
+async function asistenciasJugador(jugadorId) {
+  const { data, error } = await supabase
+    .from("asistencias")
+    .select("presente")
+    .eq("jugador_id", jugadorId)
+    .eq("temporada", TEMPORADA_ACTIVA);
+  if (error || !data) return { presentes: 0, total: 0 };
+  return { presentes: data.filter((r) => r.presente).length, total: data.length };
+}
+
 async function abrirWellnessHoy(perfilId) {
   const { error } = await supabase
     .from("wellness_ventanas")
@@ -4927,6 +5066,7 @@ function LoginPage() {
 }
 
 let ESCUDOS_RIVALES = {}; // nombre de club -> url del escudo real subido a Supabase Storage
+let TEMPORADA_ACTIVA = "2026"; // se sobreescribe con el valor real de la base al cargar
 
 // Crea una notificación in-app. roles null = la ven todos; si no, solo esos roles.
 async function crearNotificacion(tipo, mensaje, roles, creadoPor) {
@@ -4945,8 +5085,13 @@ async function cargarEscudos() {
   ESCUDOS_RIVALES = Object.fromEntries((data || []).filter((r) => r.escudo_url).map((r) => [r.nombre, r.escudo_url]));
 }
 
+async function cargarConfig() {
+  const { data, error } = await supabase.from("config").select("clave, valor").eq("clave", "temporada_activa").maybeSingle();
+  if (!error && data?.valor) TEMPORADA_ACTIVA = String(data.valor);
+}
+
 async function cargarTodo() {
-  await Promise.all([cargarJugadores(), cargarCalendario(), cargarFormaciones(), cargarEscudos()]);
+  await Promise.all([cargarJugadores(), cargarCalendario(), cargarFormaciones(), cargarEscudos(), cargarConfig()]);
 }
 
 function PantallaCarga() {

@@ -1,0 +1,23 @@
+{
+  "name": "Obras Rugby Hub",
+  "short_name": "Obras Rugby",
+  "description": "Hub de gestión del plantel de rugby de Obras Sanitarias de la Nación",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0b0c",
+  "theme_color": "#0b0b0c",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
