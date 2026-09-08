@@ -2745,7 +2745,8 @@ function descomponerPuntos(total, seed) {
 function generarTries(partido) {
   const seed = partido.fecha * 19 + partido.rival.length;
   const jugadoresTry = jugadoresConGps();
-  const apertura = jugadoresTry.find((j) => j.puesto === "Apertura") || jugadoresTry[0];
+  const hayJugadores = jugadoresTry.length > 0;
+  const apertura = jugadoresTry.find((j) => j.puesto === "Apertura") || jugadoresTry[0] || { jugadorId: "Apertura" };
 
   const obras = descomponerPuntos(partido.gf, seed);
   const rival = descomponerPuntos(partido.gc, seed * 3);
@@ -2753,7 +2754,7 @@ function generarTries(partido) {
   const tries = [];
   for (let i = 0; i < obras.tries; i++) {
     const conConv = i < obras.conversiones;
-    const autor = jugadoresTry[(seed + i) % jugadoresTry.length];
+    const autor = hayJugadores ? jugadoresTry[(seed + i) % jugadoresTry.length] : { jugadorId: "Jugador" };
     tries.push({
       equipo: "Obras",
       jugadorId: autor.jugadorId,
@@ -3125,8 +3126,18 @@ function statsJugadorTemporada(nombre) {
 }
 
 function ReporteIndividualPage() {
-  const [jugadorId, setJugadorId] = useState(POOL[0].id);
+  const [jugadorId, setJugadorId] = useState(POOL[0]?.id || "");
   const jugador = POOL.find((j) => j.id === jugadorId);
+
+  useEffect(() => {
+    // Si el jugador seleccionado ya no existe (por ejemplo, lo borraron del plantel), elegimos otro.
+    if (!jugador && POOL.length > 0) setJugadorId(POOL[0].id);
+  }, [jugador]);
+
+  if (!jugador) {
+    return <div style={{ color: "#8f8f8c", fontSize: 13 }}>No hay jugadores en el plantel todavía.</div>;
+  }
+
   const stJuego = statsJugadorTemporada(jugadorId);
 
   return (
