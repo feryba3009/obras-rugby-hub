@@ -232,7 +232,7 @@ const COLORES_RIVAL = [
   ["#831843", "#f9a8d4"], ["#1e293b", "#cbd5e1"], ["#3f2d1a", "#d6a86a"],
 ];
 function colorRival(name) {
-  const seed = [...name].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const seed = [...(name || "?")].reduce((a, c) => a + c.charCodeAt(0), 0);
   return COLORES_RIVAL[seed % COLORES_RIVAL.length];
 }
 
@@ -1232,7 +1232,7 @@ const RANGOS_FISICOS = {
 };
 
 function datosFisicos(puesto, nombre) {
-  const seed = [...nombre].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const seed = [...(nombre || "?")].reduce((a, c) => a + c.charCodeAt(0), 0);
   const r = RANGOS_FISICOS[puesto] || RANGOS_FISICOS["Centro"];
   const altura = r.altura[0] + (seed % (r.altura[1] - r.altura[0] + 1));
   const peso = r.peso[0] + ((seed * 7) % (r.peso[1] - r.peso[0] + 1));
@@ -1383,14 +1383,18 @@ const pillSelectStyle = {
 };
 
 function TitularPill({ slot, editMode, onChangeJugador }) {
+  const vacante = !slot.jugadorId;
   return (
-    <div style={pillStyle}>
+    <div style={{ ...pillStyle, opacity: vacante && !editMode ? 0.55 : 1 }}>
       <span style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#f2c230", fontSize: 13, minWidth: 14, textAlign: "center" }}>
         {slot.numero}
       </span>
       <AvatarPlaceholder />
       {editMode ? (
-        <select value={slot.jugadorId} onChange={(e) => onChangeJugador(e.target.value)} style={pillSelectStyle}>
+        <select value={slot.jugadorId || ""} onChange={(e) => onChangeJugador(e.target.value)} style={pillSelectStyle}>
+          <option value="" style={{ background: "#141415", color: "#8f8f8c" }}>
+            — Vacante —
+          </option>
           {jugadoresPara(slot.puesto).map((p) => (
             <option key={p.id} value={p.id} style={{ background: "#141415" }}>
               {p.id}
@@ -1398,7 +1402,9 @@ function TitularPill({ slot, editMode, onChangeJugador }) {
           ))}
         </select>
       ) : (
-        <span style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, whiteSpace: "nowrap" }}>{slot.jugadorId}</span>
+        <span style={{ fontSize: 13, color: vacante ? "#6b6b68" : "#f5f4f0", fontStyle: vacante ? "italic" : "normal", fontWeight: 500, whiteSpace: "nowrap" }}>
+          {vacante ? "Vacante" : slot.jugadorId}
+        </span>
       )}
     </div>
   );
@@ -1552,7 +1558,7 @@ const METRICAS_RANGOS = {
 };
 
 function metricasJugador(nombre) {
-  const seed = [...nombre].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const seed = [...(nombre || "?")].reduce((a, c) => a + c.charCodeAt(0), 0);
   const resultado = {};
   Object.entries(METRICAS_RANGOS).forEach(([clave, { rango }], i) => {
     const [a, b] = rango;
@@ -1764,9 +1770,35 @@ function PlantelCompletoPage({ perfil }) {
   const [jugadores, setJugadores] = useState(POOL);
   const [editMode, setEditMode] = useState(false);
   const [seleccionadoId, setSeleccionadoId] = useState(null);
+  const [agregando, setAgregando] = useState(false);
+  const [nuevoNombre, setNuevoNombre] = useState("");
+  const [nuevaPosicion, setNuevaPosicion] = useState("Centro");
   const puede = puedeGestionar(perfil);
 
   const CAMPO_DB = { posicionAlternativa: "posicion_alternativa", posicionEmergencia: "posicion_emergencia", apto: "apto" };
+
+  async function agregarJugador() {
+    if (!nuevoNombre.trim()) return;
+    const [alt, emer] = POSICIONES_ALT[nuevaPosicion];
+    const { data, error } = await supabase
+      .from("jugadores")
+      .insert({ nombre: nuevoNombre.trim(), posicion_ideal: nuevaPosicion, posicion_alternativa: alt, posicion_emergencia: emer, apto: "Pendiente", estado: "Disponible" })
+      .select()
+      .single();
+    if (error) {
+      console.error("Error agregando jugador:", error);
+      return;
+    }
+    const nuevo = {
+      dbId: data.id, id: data.nombre, puestoHabitual: data.posicion_ideal, posicionIdeal: data.posicion_ideal,
+      posicionAlternativa: data.posicion_alternativa, posicionEmergencia: data.posicion_emergencia,
+      altura: data.altura_cm, peso: data.peso_kg, apto: data.apto, estado: data.estado, zona: undefined, historial: [],
+    };
+    setJugadores((prev) => [...prev, nuevo]);
+    POOL = [...POOL, nuevo];
+    setNuevoNombre("");
+    setAgregando(false);
+  }
 
   function updateCampo(id, campo, valor) {
     setJugadores((prev) => prev.map((j) => (j.id === id ? { ...j, [campo]: valor } : j)));
@@ -1855,6 +1887,40 @@ function PlantelCompletoPage({ perfil }) {
         Altura, peso y posición ideal los completa cada jugador al registrarse en la app. La posición alternativa,
         la de emergencia y el estado de "apto" los maneja el cuerpo técnico / el manager desde acá.
       </div>
+
+      {editMode && puede && (
+        agregando ? (
+          <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div>
+              <label style={labelStyle}>Nombre y apellido</label>
+              <input value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} style={{ ...inputStyle, width: 220 }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Posición ideal</label>
+              <select value={nuevaPosicion} onChange={(e) => setNuevaPosicion(e.target.value)} style={{ ...inputStyle, width: 170 }}>
+                {Object.keys(POSICIONES_ALT).map((p) => (
+                  <option key={p} value={p} style={{ background: "#0e0e0f" }}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button onClick={agregarJugador} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+              Agregar
+            </button>
+            <button onClick={() => setAgregando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setAgregando(true)}
+            style={{ ...pillButton, marginBottom: 16, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}
+          >
+            + Agregar jugador
+          </button>
+        )
+      )}
 
       <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 900 }}>
@@ -1965,7 +2031,7 @@ function PlantelCompletoPage({ perfil }) {
 
 // GPS (Oliver Pro) — carga de rendimiento físico por partido, jugador por jugador.
 function gpsMetricas(nombre, fecha) {
-  const seed = [...(nombre + fecha)].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const seed = [...((nombre || "?") + fecha)].reduce((a, c) => a + c.charCodeAt(0), 0);
   const val = (mult, min, max) => min + ((seed * mult) % (max - min + 1));
   return {
     min: val(3, 40, 80),
@@ -2003,13 +2069,15 @@ function MatchSelector({ partidos, fecha, onSelect }) {
 
 // El club solo tiene 15 chalecos GPS — únicamente el XV titular (no los suplentes) queda registrado.
 function jugadoresConGps() {
-  return LINEUPS_INICIALES.Superior.filter((s) => s.grupo !== "suplentes");
+  // Si un jugador titular fue eliminado del plantel, su camiseta queda vacante (jugadorId null) —
+  // no entra en los reportes de GPS/partido, que necesitan un jugador real para calcular datos.
+  return LINEUPS_INICIALES.Superior.filter((s) => s.grupo !== "suplentes" && s.jugadorId);
 }
 
 const DIAS_ENTRENAMIENTO_GPS = ["Lunes", "Martes", "Jueves"];
 
 function gpsMetricasEntrenamiento(nombre, dia) {
-  const seed = [...(nombre + dia)].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const seed = [...((nombre || "?") + dia)].reduce((a, c) => a + c.charCodeAt(0), 0);
   const val = (mult, min, max) => min + ((seed * mult) % (max - min + 1));
   return {
     distancia: val(5, 2500, 5500),
@@ -2505,7 +2573,7 @@ function VeoPage({ perfil }) {
 
 // Return to Play — lesiones actuales cruzadas con el historial médico de todo el plantel.
 function severidadLesion(nombre) {
-  const seed = [...nombre].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const seed = [...(nombre || "?")].reduce((a, c) => a + c.charCodeAt(0), 0);
   return ["Leve", "Moderada", "Grave", "Severa"][seed % 4];
 }
 
@@ -2725,7 +2793,7 @@ function generarTries(partido) {
 // totales (los que se hacen antes de la línea de ventaja, recuperan pelota o evitan un try),
 // y los quiebres que sí terminan en try se agregan aparte, cruzando la lista de tries.
 function statsJugadorBase(nombre, fecha) {
-  const seed = [...(nombre + fecha)].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const seed = [...((nombre || "?") + fecha)].reduce((a, c) => a + c.charCodeAt(0), 0);
   const tackles = 2 + ((seed * 3) % 12);
   const tacklesPositivos = Math.min(tackles, Math.round(tackles * (0.3 + (seed % 4) / 10)));
   return {
@@ -3041,7 +3109,7 @@ function InformePartidoPage({ perfil }) {
 // Reporte individual — cualidades físicas + estadísticas de juego de la temporada + historial médico.
 // Los puntos siempre se arman con el puntaje real: try 5, conversión 2, penal a los palos 3, drop 3.
 function statsJugadorTemporada(nombre) {
-  const seed = [...nombre].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const seed = [...(nombre || "?")].reduce((a, c) => a + c.charCodeAt(0), 0);
   const tries = (seed * 3) % 6;
   const conversiones = Math.min(tries, (seed * 5) % 4);
   const penalesPalos = (seed * 7) % 5;
@@ -3198,7 +3266,7 @@ function EvaluacionesPage() {
 // Wellness — encuesta diaria que completa cada jugador (estrés, sueño, DOMS y fatiga, 1 a 7).
 // El readiness es la suma de los cuatro valores, sobre 28.
 function wellnessDeterministico(nombre) {
-  const seed = [...nombre].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const seed = [...(nombre || "?")].reduce((a, c) => a + c.charCodeAt(0), 0);
   const val = (mult) => 3 + ((seed * mult) % 5); // rango 3 a 7
   return { estres: val(3), sueno: val(5), doms: val(7), fatiga: val(11) };
 }
@@ -3875,8 +3943,10 @@ function textoInvitacion() {
   );
 }
 
-function FilaEscudo({ rival, onSubido }) {
+function FilaEscudo({ rival, onSubido, onRenombrado }) {
   const [subiendo, setSubiendo] = useState(false);
+  const [editandoNombre, setEditandoNombre] = useState(false);
+  const [nombreInput, setNombreInput] = useState(rival.nombre);
   const inputRef = React.useRef(null);
 
   async function elegirArchivo(e) {
@@ -3898,17 +3968,46 @@ function FilaEscudo({ rival, onSubido }) {
     setSubiendo(false);
   }
 
+  async function guardarNombre() {
+    if (!nombreInput.trim() || nombreInput === rival.nombre) {
+      setEditandoNombre(false);
+      return;
+    }
+    const { error } = await supabase.from("equipos_rivales").update({ nombre: nombreInput.trim() }).eq("id", rival.id);
+    if (!error) {
+      setEditandoNombre(false);
+      onRenombrado();
+    }
+  }
+
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid #232324" }}>
-      <div style={{ display: "flex", alignItems: "center" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid #232324", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}>
         <TeamBadge name={rival.nombre} size={26} />
-        <span style={{ fontSize: 13, color: "#f5f4f0" }}>{rival.nombre}</span>
+        {editandoNombre ? (
+          <input
+            value={nombreInput}
+            onChange={(e) => setNombreInput(e.target.value)}
+            onBlur={guardarNombre}
+            onKeyDown={(e) => e.key === "Enter" && guardarNombre()}
+            autoFocus
+            style={{ ...editInputStyle, borderBottom: "1px solid #2a2a2c" }}
+          />
+        ) : (
+          <span
+            onClick={() => setEditandoNombre(true)}
+            style={{ fontSize: 13, color: "#f5f4f0", cursor: "pointer" }}
+            title="Tocá para renombrar"
+          >
+            {rival.nombre}
+          </span>
+        )}
       </div>
       <input ref={inputRef} type="file" accept="image/*" onChange={elegirArchivo} style={{ display: "none" }} />
       <button
         onClick={() => inputRef.current?.click()}
         disabled={subiendo}
-        style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6", fontSize: 11.5 }}
+        style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6", fontSize: 11.5, flexShrink: 0 }}
       >
         {subiendo ? "Subiendo…" : rival.escudo_url ? "Cambiar escudo" : "Subir escudo"}
       </button>
@@ -3919,6 +4018,8 @@ function FilaEscudo({ rival, onSubido }) {
 function PanelEscudos({ perfil }) {
   const [rivales, setRivales] = useState([]);
   const [, forzar] = useState(0);
+  const [agregando, setAgregando] = useState(false);
+  const [nuevoNombre, setNuevoNombre] = useState("");
 
   async function recargar() {
     const { data } = await supabase.from("equipos_rivales").select("*").order("nombre");
@@ -3927,6 +4028,16 @@ function PanelEscudos({ perfil }) {
   useEffect(() => {
     recargar();
   }, []);
+
+  async function agregarRival() {
+    if (!nuevoNombre.trim()) return;
+    const { error } = await supabase.from("equipos_rivales").insert({ nombre: nuevoNombre.trim() });
+    if (!error) {
+      setNuevoNombre("");
+      setAgregando(false);
+      recargar();
+    }
+  }
 
   if (!puedeGestionar(perfil)) {
     return (
@@ -3939,12 +4050,11 @@ function PanelEscudos({ perfil }) {
 
   return (
     <div>
-      <ConfigTitulo sub="Subí el escudo real de cada rival — reemplaza al genérico apenas lo subís.">
+      <ConfigTitulo sub="Subí el escudo real de cada rival, cambiales el nombre, o agregá uno nuevo.">
         Escudos de rivales
       </ConfigTitulo>
       <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 14 }}>
-        Usá una imagen cuadrada, idealmente con fondo transparente (PNG). Se ve en Calendario, VEO Cam y donde
-        aparezca el rival.
+        Usá una imagen cuadrada, idealmente con fondo transparente (PNG). Tocá el nombre para renombrarlo.
       </div>
       {rivales.map((r) => (
         <FilaEscudo
@@ -3954,8 +4064,32 @@ function PanelEscudos({ perfil }) {
             recargar();
             forzar((n) => n + 1);
           }}
+          onRenombrado={recargar}
         />
       ))}
+      {agregando ? (
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <input
+            value={nuevoNombre}
+            onChange={(e) => setNuevoNombre(e.target.value)}
+            placeholder="Nombre del club"
+            style={{ ...inputStyle, flex: 1 }}
+          />
+          <button onClick={agregarRival} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+            Agregar
+          </button>
+          <button onClick={() => setAgregando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+            Cancelar
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setAgregando(true)}
+          style={{ ...pillButton, marginTop: 14, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}
+        >
+          + Agregar rival
+        </button>
+      )}
     </div>
   );
 }
@@ -4362,7 +4496,9 @@ function HoyPage({ onNavigate }) {
         <div style={{ ...cardStyle, flex: "1 1 320px", padding: "16px 18px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontSize: 14, color: "#f5f4f0", fontWeight: 500 }}>Disponibilidad</div>
-            <span style={{ fontSize: 12, color: "#f2c230" }}>ver tablero →</span>
+            <span onClick={() => onNavigate("disponibilidad")} style={{ fontSize: 12, color: "#f2c230", cursor: "pointer" }}>
+              ver tablero →
+            </span>
           </div>
           <div style={{ fontSize: 12, color: "#8f8f8c", marginBottom: 10 }}>Plantel superior · activos</div>
           <div style={{ display: "flex", gap: 10 }}>
@@ -4375,7 +4511,9 @@ function HoyPage({ onNavigate }) {
         <div style={{ ...cardStyle, flex: "1 1 320px", padding: "16px 18px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontSize: 14, color: "#f5f4f0", fontWeight: 500 }}>Alertas de riesgo</div>
-            <span style={{ fontSize: 12, color: "#f2c230" }}>ver todas →</span>
+            <span onClick={() => onNavigate("wellness")} style={{ fontSize: 12, color: "#f2c230", cursor: "pointer" }}>
+              ver todas →
+            </span>
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
             <span style={{ ...tagStyle, background: "#2a120f", color: "#e0665c" }}>Críticas 0</span>
@@ -4420,6 +4558,9 @@ function LoginPage() {
   const [usuario, setUsuario] = useState("");
   const [altura, setAltura] = useState("");
   const [peso, setPeso] = useState("");
+  const [soyNuevo, setSoyNuevo] = useState(false);
+  const [nombreNuevoJugador, setNombreNuevoJugador] = useState("");
+  const [posicionNueva, setPosicionNueva] = useState("Centro");
   const [mensaje, setMensaje] = useState("");
   const [cargando, setCargando] = useState(false);
 
@@ -4454,7 +4595,7 @@ function LoginPage() {
     }
     setCargando(true);
 
-    const nombreFinal = rol === "Jugador" ? jugadorId : nombreCompleto;
+    const nombreFinal = rol === "Jugador" ? (soyNuevo ? nombreNuevoJugador : jugadorId) : nombreCompleto;
     const jugadorDb = jugadoresLista.find((j) => j.nombre === jugadorId);
 
     // Mandamos todo como metadata del usuario: así el perfil se crea solo del lado del servidor
@@ -4468,7 +4609,9 @@ function LoginPage() {
           nombre: nombreFinal,
           usuario,
           rol,
-          jugador_id: rol === "Jugador" ? jugadorDb?.id || "" : "",
+          jugador_id: rol === "Jugador" && !soyNuevo ? jugadorDb?.id || "" : "",
+          nombre_nuevo_jugador: rol === "Jugador" && soyNuevo ? nombreNuevoJugador : "",
+          posicion_nueva: rol === "Jugador" && soyNuevo ? posicionNueva : "",
           altura: rol === "Jugador" ? altura : "",
           peso: rol === "Jugador" ? peso : "",
         },
@@ -4576,14 +4719,58 @@ function LoginPage() {
 
               {rol === "Jugador" && (
                 <>
-                  <label style={labelStyle}>Elegí tu nombre</label>
-                  <select value={jugadorId} onChange={(e) => setJugadorId(e.target.value)} style={inputStyle}>
-                    {jugadoresLista.map((j) => (
-                      <option key={j.id} value={j.nombre} style={{ background: "#0e0e0f" }}>
-                        {j.nombre}
-                      </option>
-                    ))}
-                  </select>
+                  <div style={{ display: "flex", gap: 8, margin: "6px 0 4px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setSoyNuevo(false)}
+                      style={{
+                        ...pillButton, flex: 1, fontSize: 12,
+                        border: "1px solid " + (!soyNuevo ? "#f2c230" : "#2a2a2c"),
+                        background: !soyNuevo ? "#1d1a0c" : "transparent",
+                        color: !soyNuevo ? "#f2c230" : "#c9c9c6",
+                      }}
+                    >
+                      Estoy en la lista
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSoyNuevo(true)}
+                      style={{
+                        ...pillButton, flex: 1, fontSize: 12,
+                        border: "1px solid " + (soyNuevo ? "#f2c230" : "#2a2a2c"),
+                        background: soyNuevo ? "#1d1a0c" : "transparent",
+                        color: soyNuevo ? "#f2c230" : "#c9c9c6",
+                      }}
+                    >
+                      Soy nuevo
+                    </button>
+                  </div>
+
+                  {!soyNuevo ? (
+                    <>
+                      <label style={labelStyle}>Elegí tu nombre</label>
+                      <select value={jugadorId} onChange={(e) => setJugadorId(e.target.value)} style={inputStyle}>
+                        {jugadoresLista.map((j) => (
+                          <option key={j.id} value={j.nombre} style={{ background: "#0e0e0f" }}>
+                            {j.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  ) : (
+                    <>
+                      <label style={labelStyle}>Nombre y apellido</label>
+                      <input style={inputStyle} value={nombreNuevoJugador} onChange={(e) => setNombreNuevoJugador(e.target.value)} placeholder="Nombre y apellido" />
+                      <label style={labelStyle}>Posición ideal</label>
+                      <select value={posicionNueva} onChange={(e) => setPosicionNueva(e.target.value)} style={inputStyle}>
+                        {Object.keys(POSICIONES_ALT).map((p) => (
+                          <option key={p} value={p} style={{ background: "#0e0e0f" }}>
+                            {p}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
                   <label style={labelStyle}>Altura (cm)</label>
                   <input style={inputStyle} value={altura} onChange={(e) => setAltura(e.target.value)} placeholder="ej: 182" />
                   <label style={labelStyle}>Peso (kg)</label>
