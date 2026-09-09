@@ -5333,7 +5333,7 @@ function tiempoRelativo(fechaISO) {
   return `hace ${Math.round(diffH / 24)} d`;
 }
 
-function CampanaNotificaciones({ perfil }) {
+function CampanaNotificaciones({ perfil, align = "right" }) {
   const [abierto, setAbierto] = useState(false);
   const [notis, setNotis] = useState([]);
   const [leidas, setLeidas] = useState(new Set());
@@ -5385,7 +5385,7 @@ function CampanaNotificaciones({ perfil }) {
       {abierto && (
         <div
           style={{
-            position: "absolute", top: "100%", right: 0, marginTop: 8, width: 300, maxHeight: 360, overflowY: "auto",
+            position: "absolute", top: "100%", [align]: 0, marginTop: 8, width: 300, maxWidth: "calc(100vw - 32px)", maxHeight: 360, overflowY: "auto",
             background: "#141415", border: "1px solid #262627", borderRadius: 10, zIndex: 60, padding: 8,
           }}
         >
@@ -5435,7 +5435,7 @@ function ObrasHub({ perfil }) {
               Obras <span style={{ color: "#f2c230" }}>Rugby Hub</span>
             </span>
           </div>
-          <CampanaNotificaciones perfil={perfil} />
+          <CampanaNotificaciones perfil={perfil} align="left" />
         </div>
 
         {NAV.map((g) => (
