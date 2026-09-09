@@ -66,7 +66,7 @@ function Shield({ size = 40 }) {
   );
 }
 
-function Banner({ title, body, cta, onClose }) {
+function Banner({ title, body, cta, onCta, onClose }) {
   return (
     <div style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", marginBottom: 14 }}>
       <div style={{ width: 30, height: 30, borderRadius: "50%", background: "#2a220a", display: "flex", alignItems: "center", justifyContent: "center", color: "#f2c230", fontSize: 15, flexShrink: 0 }}>
@@ -77,7 +77,7 @@ function Banner({ title, body, cta, onClose }) {
         <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>{body}</div>
       </div>
       {cta && (
-        <button style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+        <button onClick={onCta} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
           {cta}
         </button>
       )}
@@ -1634,9 +1634,19 @@ const APTO_TAG = {
   Pendiente: { bg: "#2a220a", color: "#f2c230" },
 };
 
+// Disponibilidad real de un jugador: primero manda el estado físico (RTP);
+// si está "Disponible" ahí, todavía depende de que el cuerpo médico lo haya habilitado (apto).
+function disponibilidadReal(j) {
+  if (j.estado === "Lesionado") return "Lesionado";
+  if (j.estado === "A vigilar") return "A vigilar";
+  if (j.apto !== "Apto") return "No habilitado";
+  return "Disponible";
+}
+
 function estadoMedicoTexto(j) {
   if (j.estado === "Lesionado") return `Lesionado · ${j.zona}`;
   if (j.estado === "A vigilar") return `A vigilar · ${j.zona}`;
+  if (j.apto !== "Apto") return `No habilitado · apto ${j.apto?.toLowerCase() || "pendiente"}`;
   return "Disponible";
 }
 
@@ -3836,14 +3846,16 @@ function DisponibilidadPage() {
       ? POOL
       : POOL.filter((j) => idsEnCategoria(tab).has(j.id));
 
-  const disponibles = jugadores.filter((j) => j.estado === "Disponible");
-  const lesionados = jugadores.filter((j) => j.estado === "Lesionado");
-  const aVigilar = jugadores.filter((j) => j.estado === "A vigilar");
+  const disponibles = jugadores.filter((j) => disponibilidadReal(j) === "Disponible");
+  const lesionados = jugadores.filter((j) => disponibilidadReal(j) === "Lesionado");
+  const aVigilar = jugadores.filter((j) => disponibilidadReal(j) === "A vigilar");
+  const noHabilitados = jugadores.filter((j) => disponibilidadReal(j) === "No habilitado");
 
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Tablero de disponibilidad</div>
+        <div style={{ fontSize: 12, color: "#8f8f8c", marginTop: 2 }}>Combina el estado físico (Return to Play) y la habilitación médica de cada jugador.</div>
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
@@ -3867,9 +3879,10 @@ function DisponibilidadPage() {
         <StatCard label="Disponibles" value={disponibles.length} tone="ok" />
         <StatCard label="Lesionados" value={lesionados.length} tone="danger" />
         <StatCard label="A vigilar" value={aVigilar.length} tone="warn" />
+        <StatCard label="No habilitados" value={noHabilitados.length} tone="warn" />
       </div>
 
-      {(lesionados.length > 0 || aVigilar.length > 0) && (
+      {(lesionados.length > 0 || aVigilar.length > 0 || noHabilitados.length > 0) && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>A gestionar</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
@@ -3892,6 +3905,17 @@ function DisponibilidadPage() {
                 </div>
                 <div style={{ fontSize: 11, color: "#8f8f8c", marginTop: 4 }}>
                   {j.puestoHabitual} · {j.zona}
+                </div>
+              </div>
+            ))}
+            {noHabilitados.map((j) => (
+              <div key={j.id} style={{ ...cardStyle, borderLeft: "3px solid #f2c230", padding: "10px 14px", minWidth: 220 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>{j.id}</span>
+                  <span style={{ ...tagStyle, background: "#2a220a", color: "#f2c230" }}>No habilitado</span>
+                </div>
+                <div style={{ fontSize: 11, color: "#8f8f8c", marginTop: 4 }}>
+                  {j.puestoHabitual} · apto {j.apto?.toLowerCase() || "pendiente"}
                 </div>
               </div>
             ))}
@@ -4360,31 +4384,51 @@ function PanelStaff() {
   );
 }
 
-function PanelApariencia({ menuPref, setMenuPref }) {
+function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantallaInicio, setPantallaInicio }) {
   const opciones = [
     { key: "Automático", titulo: "Automático", desc: "Abajo en el celular, al costado en la compu" },
     { key: "Barra abajo", titulo: "Barra abajo", desc: "Menú fijo en la parte inferior" },
     { key: "Menú lateral", titulo: "Menú lateral", desc: "Siempre al costado, como en la compu" },
+  ];
+  const paginasInicio = [
+    { key: "hoy", label: "📅 Hoy" },
+    { key: "calendario", label: "🏆 Calendario" },
+    { key: "equipos", label: "🛡️ Equipos" },
   ];
   return (
     <div>
       <ConfigTitulo sub="Ajustes personales del HUB.">Apariencia y preferencias</ConfigTitulo>
 
       <label style={labelStyle}>APARIENCIA</label>
-      <select style={inputStyle} defaultValue="Oscuro">
-        <option style={{ background: "#0e0e0f" }}>🌙 Oscuro</option>
-      </select>
-      <div style={{ fontSize: 11, color: "#6b6b68", marginTop: 6 }}>El tema del HUB. Se aplica en toda la app.</div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+        {["Oscuro", "Claro"].map((t) => (
+          <button
+            key={t}
+            onClick={() => setTemaPref(t)}
+            style={{
+              ...pillButton, flex: 1,
+              border: "1px solid " + (temaPref === t ? "#f2c230" : "#2a2a2c"),
+              background: temaPref === t ? "#1d1a0c" : "transparent",
+              color: temaPref === t ? "#f2c230" : "#c9c9c6",
+            }}
+          >
+            {t === "Oscuro" ? "🌙 Oscuro" : "☀️ Claro"}
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 18 }}>El tema del HUB. Se aplica en toda la app al instante.</div>
 
       <label style={labelStyle}>PÁGINA DE INICIO</label>
-      <select style={inputStyle} defaultValue="Hoy">
-        <option style={{ background: "#0e0e0f" }}>📅 Hoy</option>
+      <select style={inputStyle} value={pantallaInicio} onChange={(e) => setPantallaInicio(e.target.value)}>
+        {paginasInicio.map((p) => (
+          <option key={p.key} value={p.key} style={{ background: "#0e0e0f" }}>
+            {p.label}
+          </option>
+        ))}
       </select>
-      <div style={{ fontSize: 11, color: "#6b6b68", marginTop: 6 }}>
-        La pantalla que se abre al entrar al HUB. "Hoy" sigue disponible siempre en el menú.
+      <div style={{ fontSize: 11, color: "#6b6b68", marginTop: 6, marginBottom: 26 }}>
+        La pantalla que se abre al entrar al HUB. Se aplica la próxima vez que inicies sesión.
       </div>
-
-      <button style={{ ...buttonStyle, width: "auto", padding: "10px 22px", marginTop: 18, marginBottom: 26 }}>Guardar cambios</button>
 
       <div style={{ fontSize: 14, color: "#f5f4f0", fontWeight: 600, marginBottom: 4 }}>📱 Posición del menú (en el celular)</div>
       <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 14 }}>
@@ -4597,15 +4641,27 @@ function PanelNotificaciones({ perfil }) {
   );
 }
 
-function ConfiguracionPage({ menuPref, setMenuPref, perfil }) {
-  const [tab, setTab] = useState("perfil");
+function ConfiguracionPage({ menuPref, setMenuPref, temaPref, setTemaPref, pantallaInicio, setPantallaInicio, tabInicial, perfil }) {
+  const [tab, setTab] = useState(tabInicial || "perfil");
+  useEffect(() => {
+    if (tabInicial) setTab(tabInicial);
+  }, [tabInicial]);
 
   const PANELES = {
     perfil: <PanelPerfil perfil={perfil} />,
     cuenta: <PanelCuenta perfil={perfil} />,
     staff: <PanelStaff />,
     escudos: <PanelEscudos perfil={perfil} />,
-    apariencia: <PanelApariencia menuPref={menuPref} setMenuPref={setMenuPref} />,
+    apariencia: (
+      <PanelApariencia
+        menuPref={menuPref}
+        setMenuPref={setMenuPref}
+        temaPref={temaPref}
+        setTemaPref={setTemaPref}
+        pantallaInicio={pantallaInicio}
+        setPantallaInicio={setPantallaInicio}
+      />
+    ),
     instalar: <PanelInstalar />,
     "gps-acwr": <PanelGpsAcwr />,
     "evaluaciones-cfg": <PanelEvaluacionesCfg />,
@@ -4622,7 +4678,7 @@ function ConfiguracionPage({ menuPref, setMenuPref, perfil }) {
 
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
         <div style={{ ...cardStyle, padding: "10px", width: 230, flexShrink: 0 }}>
-          {CONFIG_TABS.map((t) => (
+          {CONFIG_TABS.filter((t) => !t.admin || esStaff(perfil)).map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
@@ -4645,9 +4701,20 @@ function ConfiguracionPage({ menuPref, setMenuPref, perfil }) {
               <span>
                 {t.icon} {t.label}
               </span>
-              {t.admin && <span style={{ fontSize: 10, color: "#6b6b68" }}>admin</span>}
+              {t.admin && <span style={{ fontSize: 10, color: "#6b6b68" }}>staff</span>}
             </button>
           ))}
+          <div style={{ borderTop: "1px solid #232324", margin: "8px 0" }} />
+          <button
+            onClick={() => supabase.auth.signOut()}
+            style={{
+              display: "flex", alignItems: "center", width: "100%", textAlign: "left",
+              padding: "9px 10px", borderRadius: 6, border: "none", fontSize: 13,
+              cursor: "pointer", background: "transparent", color: "#e0665c",
+            }}
+          >
+            🚪 Cerrar sesión
+          </button>
         </div>
 
         <div style={{ ...cardStyle, padding: "22px 24px", flex: "1 1 380px" }}>{PANELES[tab]}</div>
@@ -4664,8 +4731,43 @@ function Placeholder({ label }) {
   );
 }
 
-function HoyPage({ onNavigate, perfil }) {
+function HoyPage({ onNavigate, onIrAConfiguracion, perfil }) {
   const [showBanner, setShowBanner] = useState(true);
+  const [novedad, setNovedad] = useState(null);
+  const [mostrarNovedad, setMostrarNovedad] = useState(true);
+  const [alertasHoy, setAlertasHoy] = useState({ cargando: true, respuestas: [] });
+
+  useEffect(() => {
+    supabase
+      .from("wellness_respuestas")
+      .select("estres, sueno, doms, fatiga, jugadores(nombre)")
+      .eq("fecha", hoyISO())
+      .then(({ data }) => {
+        const conReadiness = (data || []).map((r) => ({
+          nombre: r.jugadores?.nombre || "—",
+          readiness: r.estres + r.sueno + r.doms + r.fatiga,
+        }));
+        setAlertasHoy({ cargando: false, respuestas: conReadiness });
+      });
+  }, []);
+
+  useEffect(() => {
+    supabase
+      .from("notificaciones")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(5)
+      .then(({ data }) => {
+        const relevante = (data || []).find((n) => !n.roles_destino || (perfil && n.roles_destino.includes(perfil.rol)));
+        if (relevante) setNovedad(relevante);
+      });
+  }, [perfil?.rol]);
+
+  const disponibles = POOL.filter((j) => disponibilidadReal(j) === "Disponible").length;
+  const lesionados = POOL.filter((j) => disponibilidadReal(j) === "Lesionado").length;
+  const aVigilarRtp = POOL.filter((j) => disponibilidadReal(j) === "A vigilar").length;
+  const noHabilitados = POOL.filter((j) => disponibilidadReal(j) === "No habilitado").length;
+  const aMirarWellness = alertasHoy.respuestas.filter((r) => r.readiness <= 16);
 
   const fixture = FIXTURE.superior;
   const proximos = PROXIMOS.superior;
@@ -4684,11 +4786,39 @@ function HoyPage({ onNavigate, perfil }) {
 
   return (
     <div>
+      {novedad && mostrarNovedad && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 80,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+          }}
+          onClick={() => setMostrarNovedad(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ ...cardStyle, maxWidth: 380, padding: "22px 24px", border: "1px solid #f2c230" }}
+          >
+            <div style={{ fontSize: 12, color: "#f2c230", fontWeight: 600, marginBottom: 8, letterSpacing: 0.5 }}>
+              🔔 ÚLTIMA NOVEDAD
+            </div>
+            <div style={{ fontSize: 14, color: "#f5f4f0", marginBottom: 4 }}>{novedad.mensaje}</div>
+            <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 16 }}>{tiempoRelativo(novedad.created_at)}</div>
+            <button
+              onClick={() => setMostrarNovedad(false)}
+              style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
+
       {showBanner && (
         <Banner
           title="Activá las notificaciones"
           body="Recibí los avisos del club aunque no tengas la app abierta."
           cta="Activar"
+          onCta={() => onIrAConfiguracion("notificaciones")}
           onClose={() => setShowBanner(false)}
         />
       )}
@@ -4756,11 +4886,12 @@ function HoyPage({ onNavigate, perfil }) {
               ver tablero →
             </span>
           </div>
-          <div style={{ fontSize: 12, color: "#8f8f8c", marginBottom: 10 }}>Plantel superior · activos</div>
+          <div style={{ fontSize: 12, color: "#8f8f8c", marginBottom: 10 }}>Plantel completo · RTP + habilitación médica</div>
           <div style={{ display: "flex", gap: 10 }}>
-            <StatCard label="Disponibles" value="34" tone="ok" />
-            <StatCard label="Limitados" value="2" tone="warn" />
-            <StatCard label="Lesionados" value="6" tone="danger" />
+            <StatCard label="Disponibles" value={disponibles} tone="ok" />
+            <StatCard label="A vigilar" value={aVigilarRtp} tone="warn" />
+            <StatCard label="Lesionados" value={lesionados} tone="danger" />
+            <StatCard label="No habilitados" value={noHabilitados} tone="warn" />
           </div>
         </div>
 
@@ -4771,20 +4902,22 @@ function HoyPage({ onNavigate, perfil }) {
               ver todas →
             </span>
           </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <span style={{ ...tagStyle, background: "#2a120f", color: "#e0665c" }}>Críticas 0</span>
-            <span style={{ ...tagStyle, background: "#2a220a", color: "#f2c230" }}>Altas 2</span>
-            <span style={{ ...tagStyle, background: "#111a12", color: "#5fbf7a" }}>Vigilar 1</span>
-          </div>
-          {RISK_ALERTS.map((a) => (
-            <div key={a.name} style={{ display: "flex", gap: 10, alignItems: "center", padding: "6px 0", borderTop: "1px solid #232324", fontSize: 13 }}>
-              <span style={{ ...tagStyle, background: a.level === "Alta" ? "#2a220a" : "#111a12", color: a.level === "Alta" ? "#f2c230" : "#5fbf7a", fontSize: 10 }}>
-                {a.level.toUpperCase()}
-              </span>
-              <span style={{ color: "#f5f4f0" }}>{a.name}</span>
-              <span style={{ color: "#8f8f8c" }}>{a.note}</span>
-            </div>
-          ))}
+          <div style={{ fontSize: 12, color: "#8f8f8c", marginBottom: 10 }}>Wellness de hoy · readiness bajo (≤16/28)</div>
+          {alertasHoy.cargando ? (
+            <div style={{ fontSize: 12.5, color: "#6b6b68" }}>Cargando…</div>
+          ) : alertasHoy.respuestas.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: "#5fbf7a" }}>✓ Todo bien — todavía nadie completó el wellness de hoy.</div>
+          ) : aMirarWellness.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: "#5fbf7a" }}>✓ Todo bien — nadie con readiness bajo hoy.</div>
+          ) : (
+            aMirarWellness.map((a) => (
+              <div key={a.nombre} style={{ display: "flex", gap: 10, alignItems: "center", padding: "6px 0", borderTop: "1px solid #232324", fontSize: 13 }}>
+                <span style={{ ...tagStyle, background: "#2a220a", color: "#f2c230", fontSize: 10 }}>A MIRAR</span>
+                <span style={{ color: "#f5f4f0" }}>{a.nombre}</span>
+                <span style={{ color: "#8f8f8c" }}>Readiness {a.readiness}/28</span>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
@@ -4800,6 +4933,10 @@ function puedeGestionar(perfil) {
 // Trabajo técnico específico (formaciones, GPS, VEO, informe de partido): solo Cuerpo técnico.
 function esEntrenador(perfil) {
   return !!perfil && perfil.rol === "Cuerpo técnico";
+}
+// Herramientas internas del club (staff, escudos, GPS·ACWR, evaluaciones, métricas): todo el staff.
+function esStaff(perfil) {
+  return !!perfil && ["Cuerpo técnico", "Cuerpo médico", "Manager"].includes(perfil.rol);
 }
 
 function LoginPage() {
@@ -5218,6 +5355,7 @@ export default function AppRoot() {
 
 const RESPONSIVE_CSS = `
 ${FONTS}
+[data-tema-claro] img { filter: invert(1) hue-rotate(180deg); }
 `;
 
 // El viewport dentro del visor de artifacts a veces no tiene <meta viewport>, así que el
@@ -5411,10 +5549,17 @@ function CampanaNotificaciones({ perfil, align = "right" }) {
 }
 
 function ObrasHub({ perfil }) {
-  const [active, setActive] = useState("hoy");
+  const [pantallaInicio, setPantallaInicio] = useState("hoy");
+  const [active, setActive] = useState(pantallaInicio);
+  const [configTabInicial, setConfigTabInicial] = useState("perfil");
   const [masAbierto, setMasAbierto] = useState(false);
   const [menuPref, setMenuPref] = useState("Automático");
+  const [temaPref, setTemaPref] = useState("Oscuro");
   const isMobile = useIsMobile();
+  function irAConfiguracion(tabKey) {
+    setConfigTabInicial(tabKey);
+    setActive(CONFIG_ITEM.key);
+  }
   // "Automático" respeta el ancho real de pantalla; las otras dos opciones fuerzan el layout
   // sin importar el dispositivo, tal como se elige en Configuración → Apariencia y preferencias.
   const mostrarSidebar = menuPref === "Menú lateral" || (menuPref === "Automático" && !isMobile);
@@ -5423,7 +5568,13 @@ function ObrasHub({ perfil }) {
     (active === CONFIG_ITEM.key ? CONFIG_ITEM.label : undefined);
 
   return (
-    <div style={{ display: "flex", minHeight: 620, background: "#0b0b0c", fontFamily: "'Inter', sans-serif" }}>
+    <div
+      data-tema-claro={temaPref === "Claro" ? "" : undefined}
+      style={{
+        display: "flex", minHeight: 620, background: "#0b0b0c", fontFamily: "'Inter', sans-serif",
+        filter: temaPref === "Claro" ? "invert(1) hue-rotate(180deg)" : "none",
+      }}
+    >
       <style>{RESPONSIVE_CSS}</style>
 
       {mostrarSidebar && (
@@ -5504,7 +5655,7 @@ function ObrasHub({ perfil }) {
         )}
         <ErrorBoundary key={active} onReset={() => setActive("hoy")}>
         {active === "hoy" ? (
-          <HoyPage onNavigate={setActive} perfil={perfil} />
+          <HoyPage onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} perfil={perfil} />
         ) : active === "calendario" ? (
           <CalendarioPage perfil={perfil} />
         ) : active === "sesion" ? (
@@ -5530,7 +5681,16 @@ function ObrasHub({ perfil }) {
         ) : active === "reportes" ? (
           <ReportesPage perfil={perfil} />
         ) : active === CONFIG_ITEM.key ? (
-          <ConfiguracionPage menuPref={menuPref} setMenuPref={setMenuPref} perfil={perfil} />
+          <ConfiguracionPage
+            menuPref={menuPref}
+            setMenuPref={setMenuPref}
+            temaPref={temaPref}
+            setTemaPref={setTemaPref}
+            pantallaInicio={pantallaInicio}
+            setPantallaInicio={setPantallaInicio}
+            tabInicial={configTabInicial}
+            perfil={perfil}
+          />
         ) : (
           <Placeholder label={activeLabel} />
         )}
