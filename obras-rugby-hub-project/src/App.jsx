@@ -1344,7 +1344,7 @@ let POOL = [];
 async function cargarJugadores() {
   const { data, error } = await supabase
     .from("jugadores")
-    .select("id, nombre, posicion_ideal, posicion_alternativa, posicion_emergencia, altura_cm, peso_kg, apto, estado, zona_lesion, historial_medico(descripcion)")
+    .select("id, nombre, posicion_ideal, posicion_alternativa, posicion_emergencia, altura_cm, peso_kg, apto, estado, zona_lesion, foto_url, historial_medico(descripcion)")
     .order("nombre");
   if (error) {
     console.error("Error cargando jugadores:", error);
@@ -1362,6 +1362,7 @@ async function cargarJugadores() {
     apto: row.apto,
     estado: row.estado,
     zona: row.zona_lesion || undefined,
+    foto: row.foto_url || null,
     historial: (row.historial_medico || []).map((h) => h.descripcion),
   }));
 }
@@ -1430,7 +1431,16 @@ async function guardarPuestoFormacion(categoriaNombre, numero, puesto) {
   if (error) console.error("Error guardando puesto:", error);
 }
 
-function AvatarPlaceholder({ size = 26 }) {
+function AvatarPlaceholder({ size = 26, foto }) {
+  if (foto) {
+    return (
+      <img
+        src={foto}
+        alt=""
+        style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
+      />
+    );
+  }
   return (
     <div
       style={{
@@ -1634,19 +1644,36 @@ const APTO_TAG = {
   Pendiente: { bg: "#2a220a", color: "#f2c230" },
 };
 
+// Fecha (real, de hoy) del primer partido de la temporada activa — se usa para la regla del "apto pendiente".
+function primerFechaTemporada() {
+  const todas = [...(FIXTURE.superior || []), ...(FIXTURE.intermedia || []), ...(PROXIMOS.superior || []), ...(PROXIMOS.intermedia || [])];
+  if (todas.length === 0) return null;
+  const primera = todas.reduce((min, p) => (p.fecha < min.fecha ? p : min), todas[0]);
+  const [d, m, y] = primera.date.split("/").map(Number);
+  return new Date(y, m - 1, d);
+}
+function antesDelPrimerPartido() {
+  const primera = primerFechaTemporada();
+  if (!primera) return true; // sin fixture cargado todavía, no bloqueamos a nadie por las dudas
+  return new Date() < primera;
+}
+
 // Disponibilidad real de un jugador: primero manda el estado físico (RTP);
 // si está "Disponible" ahí, todavía depende de que el cuerpo médico lo haya habilitado (apto).
+// Un "Pendiente" puede jugar con el apto de la temporada anterior hasta el debut del torneo;
+// pasado el primer partido, "Pendiente" ya cuenta como no habilitado.
 function disponibilidadReal(j) {
   if (j.estado === "Lesionado") return "Lesionado";
   if (j.estado === "A vigilar") return "A vigilar";
-  if (j.apto !== "Apto") return "No habilitado";
-  return "Disponible";
+  if (j.apto === "Apto") return "Disponible";
+  if (j.apto === "Pendiente" && antesDelPrimerPartido()) return "Disponible";
+  return "No habilitado";
 }
 
 function estadoMedicoTexto(j) {
   if (j.estado === "Lesionado") return `Lesionado · ${j.zona}`;
   if (j.estado === "A vigilar") return `A vigilar · ${j.zona}`;
-  if (j.apto !== "Apto") return `No habilitado · apto ${j.apto?.toLowerCase() || "pendiente"}`;
+  if (disponibilidadReal(j) === "No habilitado") return `No habilitado · apto ${j.apto?.toLowerCase() || "pendiente"}`;
   return "Disponible";
 }
 
@@ -1671,9 +1698,10 @@ function metricasJugador(nombre) {
 }
 
 // Registro de evaluaciones físicas — lo carga el preparador físico cuando toma los tests.
-// La ficha del jugador y la pantalla de Evaluaciones muestran siempre el último test cargado,
-// nunca un número inventado en el momento.
+// La ficha del jugador y la pantalla de Evaluaciones muestran siempre el último test cargado;
+// si todavía no hay ninguno real para ese jugador, se ve un valor de referencia (a la espera).
 function ultimaEvaluacion(jugadorId) {
+  if (EVALUACIONES_REALES[jugadorId]) return EVALUACIONES_REALES[jugadorId];
   return { fecha: "04/08/2026", ...metricasJugador(jugadorId) };
 }
 
@@ -1712,10 +1740,27 @@ function RadarChart({ valores, etiquetas, size = 210 }) {
   );
 }
 
-function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemoveHistorial, ocultarVolver }) {
+function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemoveHistorial, ocultarVolver, perfil }) {
   const [editPos, setEditPos] = useState(false);
   const [nuevaLesion, setNuevaLesion] = useState("");
   const [asistencia, setAsistencia] = useState(null);
+  const [lesionActiva, setLesionActiva] = useState(null);
+  const [cargandoLesion, setCargandoLesion] = useState(false);
+  const [mostrarFormLesion, setMostrarFormLesion] = useState(false);
+  const [zonaLesion, setZonaLesion] = useState("Rodilla");
+  const [descLesion, setDescLesion] = useState("");
+  const [semanasLesion, setSemanasLesion] = useState("2");
+  const [subiendoFoto, setSubiendoFoto] = useState(false);
+  const inputFotoRef = React.useRef(null);
+
+  async function elegirFoto(e) {
+    const file = e.target.files?.[0];
+    if (!file || !jugador.dbId) return;
+    setSubiendoFoto(true);
+    const url = await subirFotoJugador(jugador.dbId, file);
+    setSubiendoFoto(false);
+    if (url) onUpdateCampo("foto", url);
+  }
 
   useEffect(() => {
     let vivo = true;
@@ -1723,11 +1768,45 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
       asistenciasJugador(jugador.dbId).then((r) => {
         if (vivo) setAsistencia(r);
       });
+      if (jugador.estado === "Lesionado") {
+        lesionActivaDe(jugador.dbId).then((r) => {
+          if (vivo) setLesionActiva(r);
+        });
+      } else {
+        setLesionActiva(null);
+      }
     }
     return () => {
       vivo = false;
     };
-  }, [jugador.dbId]);
+  }, [jugador.dbId, jugador.estado]);
+
+  async function confirmarLesion() {
+    setCargandoLesion(true);
+    const fechaVuelta = await reportarLesion({
+      jugadorId: jugador.dbId,
+      zona: zonaLesion,
+      descripcion: descLesion,
+      semanas: semanasLesion,
+      creadoPor: perfil?.id,
+    });
+    setCargandoLesion(false);
+    if (fechaVuelta) {
+      onUpdateCampo("estado", "Lesionado");
+      onUpdateCampo("zona", zonaLesion);
+      setMostrarFormLesion(false);
+      setDescLesion("");
+      setLesionActiva({ zona: zonaLesion, descripcion: descLesion, semanas_estimadas: Number(semanasLesion), fecha_vuelta_estimada: fechaVuelta });
+    }
+  }
+
+  async function confirmarAlta() {
+    setCargandoLesion(true);
+    await darDeAltaLesion(jugador.dbId);
+    setCargandoLesion(false);
+    onUpdateCampo("estado", "Disponible");
+    setLesionActiva(null);
+  }
 
   const evalu = ultimaEvaluacion(jugador.id);
   const m = evalu || metricasJugador(jugador.id);
@@ -1749,12 +1828,24 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
       )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
-        <AvatarPlaceholder size={52} />
+        <AvatarPlaceholder size={52} foto={jugador.foto} />
         <div>
           <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 600, fontFamily: "'Oswald', sans-serif" }}>{jugador.id}</div>
           <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
             {jugador.posicionIdeal} · {estadoMedicoTexto(jugador)}
           </div>
+          {perfil?.rol === "Manager" && (
+            <>
+              <input ref={inputFotoRef} type="file" accept="image/*" onChange={elegirFoto} style={{ display: "none" }} />
+              <button
+                onClick={() => inputFotoRef.current?.click()}
+                disabled={subiendoFoto}
+                style={{ background: "transparent", border: "none", color: "#f2c230", fontSize: 11.5, cursor: "pointer", padding: 0, marginTop: 4 }}
+              >
+                {subiendoFoto ? "Subiendo…" : "🖼 Cambiar foto"}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1837,6 +1928,79 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
               <span style={{ color: "#8f8f8c" }}>{jugador.posicionEmergencia}</span>
             )}
           </div>
+
+          {perfil?.rol === "Cuerpo médico" && (
+            <div style={{ marginBottom: 16, padding: "12px", background: "#0e0e0f", borderRadius: 8, border: "1px solid #2a2a2c" }}>
+              <div style={{ fontSize: 12, color: "#6b6b68", letterSpacing: 0.5, marginBottom: 10 }}>ESTADO MÉDICO</div>
+              {jugador.estado === "Lesionado" ? (
+                <>
+                  <div style={{ fontSize: 13, color: "#e0665c", fontWeight: 600, marginBottom: 6 }}>🩹 Lesionado · {jugador.zona}</div>
+                  {lesionActiva ? (
+                    <div style={{ fontSize: 12, color: "#c9c9c6", marginBottom: 10, lineHeight: 1.5 }}>
+                      {lesionActiva.descripcion && <div>{lesionActiva.descripcion}</div>}
+                      <div>Rehabilitación estimada: {lesionActiva.semanas_estimadas || "?"} semanas</div>
+                      <div>Vuelta estimada: {lesionActiva.fecha_vuelta_estimada}</div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: "#6b6b68", marginBottom: 10 }}>Cargando el detalle…</div>
+                  )}
+                  <button
+                    onClick={confirmarAlta}
+                    disabled={cargandoLesion}
+                    style={{ ...pillButton, background: "#5fbf7a", color: "#141415", border: "none", fontSize: 12 }}
+                  >
+                    {cargandoLesion ? "Guardando…" : "✓ Dar de alta"}
+                  </button>
+                </>
+              ) : mostrarFormLesion ? (
+                <>
+                  <label style={{ ...labelStyle, marginTop: 0 }}>Zona</label>
+                  <select value={zonaLesion} onChange={(e) => setZonaLesion(e.target.value)} style={inputStyle}>
+                    {["Rodilla", "Tobillo", "Hombro", "Muslo", "Isquiotibial", "Espalda", "Otra"].map((z) => (
+                      <option key={z} value={z} style={{ background: "#0e0e0f" }}>
+                        {z}
+                      </option>
+                    ))}
+                  </select>
+                  <label style={labelStyle}>Descripción</label>
+                  <input
+                    value={descLesion}
+                    onChange={(e) => setDescLesion(e.target.value)}
+                    placeholder="Ej: esguince grado I"
+                    style={inputStyle}
+                  />
+                  <label style={labelStyle}>Semanas estimadas de rehabilitación</label>
+                  <input
+                    value={semanasLesion}
+                    onChange={(e) => setSemanasLesion(e.target.value.replace(/\D/g, ""))}
+                    style={{ ...inputStyle, width: 90 }}
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    <button
+                      onClick={confirmarLesion}
+                      disabled={cargandoLesion}
+                      style={{ ...pillButton, background: "#e0665c", color: "#141415", border: "none", fontSize: 12 }}
+                    >
+                      {cargandoLesion ? "Guardando…" : "Confirmar lesión"}
+                    </button>
+                    <button
+                      onClick={() => setMostrarFormLesion(false)}
+                      style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c", fontSize: 12 }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button
+                  onClick={() => setMostrarFormLesion(true)}
+                  style={{ ...pillButton, background: "transparent", border: "1px dashed #e0665c", color: "#e0665c", fontSize: 12 }}
+                >
+                  🩹 Informar lesión
+                </button>
+              )}
+            </div>
+          )}
 
           <div style={{ fontSize: 12, color: "#6b6b68", letterSpacing: 0.5, marginBottom: 8 }}>HISTORIAL MÉDICO</div>
           {jugador.historial.length > 0 ? (
@@ -1980,6 +2144,7 @@ function PlantelCompletoPage({ perfil }) {
         onUpdateCampo={(campo, valor) => updateCampo(seleccionadoId, campo, valor)}
         onAddHistorial={(texto) => addHistorial(seleccionadoId, texto)}
         onRemoveHistorial={(index) => removeHistorial(seleccionadoId, index)}
+        perfil={perfil}
       />
     );
   }
@@ -2709,10 +2874,28 @@ function tipoLesion(zona) {
 }
 
 function RtpPage() {
+  const [lesionesReales, setLesionesReales] = useState({});
+
+  useEffect(() => {
+    supabase
+      .from("lesiones")
+      .select("*, jugadores(nombre)")
+      .eq("activa", true)
+      .then(({ data }) => {
+        const porNombre = {};
+        (data || []).forEach((l) => {
+          const nombre = l.jugadores?.nombre;
+          if (nombre) porNombre[nombre] = l;
+        });
+        setLesionesReales(porNombre);
+      });
+  }, []);
+
   const lesionadosActuales = POOL.filter((j) => j.estado === "Lesionado").map((j) => ({
     ...j,
     severidad: severidadLesion(j.id),
     tipo: tipoLesion(j.zona),
+    lesionReal: lesionesReales[j.id] || null,
   }));
 
   const historialCompleto = POOL.flatMap((j) => j.historial.map((h) => ({ jugador: j.id, texto: h })));
@@ -2748,7 +2931,7 @@ function RtpPage() {
           Lesionados actuales · {lesionadosActuales.length}
         </div>
         <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 700 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 860 }}>
             <thead>
               <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
@@ -2756,6 +2939,8 @@ function RtpPage() {
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Zona</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Tipo</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Severidad</th>
+                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Rehabilitación</th>
+                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Vuelta estimada</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Antecedentes</th>
               </tr>
             </thead>
@@ -2777,6 +2962,10 @@ function RtpPage() {
                       {j.severidad}
                     </span>
                   </td>
+                  <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>
+                    {j.lesionReal?.semanas_estimadas ? `${j.lesionReal.semanas_estimadas} semanas` : "—"}
+                  </td>
+                  <td style={{ padding: "9px 10px", color: "#f2c230" }}>{j.lesionReal?.fecha_vuelta_estimada || "—"}</td>
                   <td style={{ padding: "9px 10px", color: "#6b6b68", fontSize: 11.5 }}>
                     {j.historial.length > 0 ? j.historial.join(" · ") : "Sin antecedentes"}
                   </td>
@@ -3276,7 +3465,7 @@ function statsJugadorTemporada(nombre) {
   };
 }
 
-function ReporteIndividualPage() {
+function ReporteIndividualPage({ perfil }) {
   const [jugadorId, setJugadorId] = useState(POOL[0]?.id || "");
   const jugador = POOL.find((j) => j.id === jugadorId);
 
@@ -3326,6 +3515,7 @@ function ReporteIndividualPage() {
         onAddHistorial={() => {}}
         onRemoveHistorial={() => {}}
         ocultarVolver
+        perfil={perfil}
       />
     </div>
   );
@@ -3380,15 +3570,186 @@ function ReportesPage({ perfil }) {
   );
 }
 
-function EvaluacionesPage() {
+function EvaluacionesPage({ perfil }) {
+  const [, forzar] = useState(0);
+  const [mostrarCarga, setMostrarCarga] = useState(false);
+  const [modo, setModo] = useState("manual"); // "manual" | "importar"
+  const [jugadorSel, setJugadorSel] = useState(POOL[0]?.id || "");
+  const [fechaTest, setFechaTest] = useState(hoyISO());
+  const [valores, setValores] = useState({ Potencia: "", Reactividad: "", Fuerza: "", Velocidad: "", Resistencia: "" });
+  const [textoImport, setTextoImport] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  async function guardarManual() {
+    const jugador = POOL.find((j) => j.id === jugadorSel);
+    if (!jugador) return;
+    setGuardando(true);
+    const { error } = await supabase.from("evaluaciones").insert({
+      jugador_id: jugador.dbId,
+      fecha: fechaTest,
+      potencia: Number(valores.Potencia) || null,
+      reactividad: Number(valores.Reactividad) || null,
+      fuerza: Number(valores.Fuerza) || null,
+      velocidad: Number(valores.Velocidad) || null,
+      resistencia: Number(valores.Resistencia) || null,
+      cargado_por: perfil?.id,
+    });
+    setGuardando(false);
+    if (error) {
+      setMsg("No se pudo guardar.");
+      return;
+    }
+    await cargarEvaluaciones();
+    forzar((n) => n + 1);
+    setValores({ Potencia: "", Reactividad: "", Fuerza: "", Velocidad: "", Resistencia: "" });
+    setMsg("✓ Evaluación guardada.");
+    setTimeout(() => setMsg(""), 2500);
+  }
+
+  async function importarTexto() {
+    const filas = textoImport
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => l.split(/[,\t]/).map((c) => c.trim()));
+    setGuardando(true);
+    let ok = 0;
+    let sinMatch = [];
+    for (const [nombre, potencia, reactividad, fuerza, velocidad, resistencia] of filas) {
+      const jugador = POOL.find((j) => j.id.toLowerCase() === (nombre || "").toLowerCase());
+      if (!jugador) {
+        sinMatch.push(nombre);
+        continue;
+      }
+      const { error } = await supabase.from("evaluaciones").insert({
+        jugador_id: jugador.dbId,
+        fecha: hoyISO(),
+        potencia: Number(potencia) || null,
+        reactividad: Number(reactividad) || null,
+        fuerza: Number(fuerza) || null,
+        velocidad: Number(velocidad) || null,
+        resistencia: Number(resistencia) || null,
+        cargado_por: perfil?.id,
+      });
+      if (!error) ok++;
+    }
+    setGuardando(false);
+    await cargarEvaluaciones();
+    forzar((n) => n + 1);
+    setTextoImport("");
+    setMsg(`✓ ${ok} evaluaciones importadas${sinMatch.length ? ` · ${sinMatch.length} sin coincidencia de nombre` : ""}.`);
+    setTimeout(() => setMsg(""), 4000);
+  }
+
   return (
     <div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Evaluaciones</div>
-        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
-          Últimos tests físicos cargados por el preparador físico
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Evaluaciones</div>
+          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
+            Últimos tests físicos cargados por el preparador físico
+          </div>
         </div>
+        {esEntrenador(perfil) && !mostrarCarga && (
+          <button onClick={() => setMostrarCarga(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}>
+            + Cargar evaluación
+          </button>
+        )}
       </div>
+
+      {esEntrenador(perfil) && mostrarCarga && (
+        <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 20 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            {[
+              { key: "manual", label: "Carga manual" },
+              { key: "importar", label: "Importar (pegar texto)" },
+            ].map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setModo(t.key)}
+                style={{
+                  ...pillButton, fontSize: 12,
+                  border: "1px solid " + (modo === t.key ? "#f2c230" : "#2a2a2c"),
+                  background: modo === t.key ? "#1d1a0c" : "transparent",
+                  color: modo === t.key ? "#f2c230" : "#c9c9c6",
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {modo === "manual" ? (
+            <>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                <div>
+                  <label style={labelStyle}>Jugador</label>
+                  <select value={jugadorSel} onChange={(e) => setJugadorSel(e.target.value)} style={{ ...inputStyle, width: 220 }}>
+                    {POOL.map((j) => (
+                      <option key={j.id} value={j.id} style={{ background: "#0e0e0f" }}>
+                        {j.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Fecha del test</label>
+                  <input type="date" value={fechaTest} onChange={(e) => setFechaTest(e.target.value)} style={{ ...inputStyle, width: 160 }} />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {Object.entries(METRICAS_RANGOS).map(([clave, { unidad }]) => (
+                  <div key={clave}>
+                    <label style={labelStyle}>
+                      {clave} ({unidad})
+                    </label>
+                    <input
+                      value={valores[clave]}
+                      onChange={(e) => setValores((prev) => ({ ...prev, [clave]: e.target.value }))}
+                      style={{ ...inputStyle, width: 110 }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={guardarManual}
+                disabled={guardando || !jugadorSel}
+                style={{ ...pillButton, marginTop: 14, background: "#f2c230", color: "#141415", border: "none" }}
+              >
+                {guardando ? "Guardando…" : "Guardar evaluación"}
+              </button>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 8 }}>
+                Una línea por jugador: Nombre, Potencia, Reactividad, Fuerza, Velocidad, Resistencia
+              </div>
+              <textarea
+                value={textoImport}
+                onChange={(e) => setTextoImport(e.target.value)}
+                placeholder={"Franco Etchegoyen, 34, 0.42, 3100, 30.5, 17.8\nBautista Sarmiento, 31, 0.39, 2900, 29.1, 17.2"}
+                rows={6}
+                style={{ ...inputStyle, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
+              />
+              <button
+                onClick={importarTexto}
+                disabled={guardando || !textoImport.trim()}
+                style={{ ...pillButton, marginTop: 10, background: "#f2c230", color: "#141415", border: "none" }}
+              >
+                {guardando ? "Importando…" : "Importar"}
+              </button>
+            </>
+          )}
+          {msg && <div style={{ fontSize: 12, color: "#5fbf7a", marginTop: 10 }}>{msg}</div>}
+          <button
+            onClick={() => setMostrarCarga(false)}
+            style={{ ...pillButton, marginTop: 10, marginLeft: 8, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
 
       <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 820 }}>
@@ -3465,6 +3826,49 @@ async function asistenciasJugador(jugadorId) {
     .eq("temporada", TEMPORADA_ACTIVA);
   if (error || !data) return { presentes: 0, total: 0 };
   return { presentes: data.filter((r) => r.presente).length, total: data.length };
+}
+
+// El cuerpo médico reporta una lesión: queda el registro en RTP con tiempo de rehabilitación
+// y vuelta estimada, y el jugador pasa a "Lesionado" en su ficha.
+async function reportarLesion({ jugadorId, zona, descripcion, semanas, creadoPor }) {
+  const hoy = new Date();
+  const vuelta = new Date(hoy);
+  vuelta.setDate(vuelta.getDate() + (Number(semanas) || 0) * 7);
+  const fechaVuelta = vuelta.toISOString().slice(0, 10);
+
+  const { error: errLesion } = await supabase.from("lesiones").insert({
+    jugador_id: jugadorId,
+    zona,
+    descripcion: descripcion || null,
+    semanas_estimadas: Number(semanas) || null,
+    fecha_vuelta_estimada: fechaVuelta,
+    activa: true,
+    creado_por: creadoPor,
+  });
+  if (errLesion) {
+    console.error("Error guardando lesión:", errLesion);
+    return null;
+  }
+  await supabase.from("jugadores").update({ estado: "Lesionado", zona }).eq("id", jugadorId);
+  crearNotificacion("lesion_reportada", `🩹 Nueva lesión reportada: ${zona}.`, ["Cuerpo técnico", "Manager"], creadoPor);
+  return fechaVuelta;
+}
+
+async function darDeAltaLesion(jugadorId) {
+  await supabase.from("lesiones").update({ activa: false }).eq("jugador_id", jugadorId).eq("activa", true);
+  await supabase.from("jugadores").update({ estado: "Disponible" }).eq("id", jugadorId);
+}
+
+async function lesionActivaDe(jugadorId) {
+  const { data } = await supabase
+    .from("lesiones")
+    .select("*")
+    .eq("jugador_id", jugadorId)
+    .eq("activa", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data || null;
 }
 
 async function abrirWellnessHoy(perfilId) {
@@ -4014,6 +4418,25 @@ async function subirAvatar(perfilId, file) {
   return url;
 }
 
+// El manager sube la foto de un jugador del plantel (no depende de que el jugador tenga cuenta).
+async function subirFotoJugador(jugadorDbId, file) {
+  const ext = file.name.split(".").pop();
+  const path = `${jugadorDbId}.${ext}`;
+  const { error: errSubida } = await supabase.storage.from("jugadores-fotos").upload(path, file, { upsert: true });
+  if (errSubida) {
+    console.error("Error subiendo foto:", errSubida);
+    return null;
+  }
+  const { data } = supabase.storage.from("jugadores-fotos").getPublicUrl(path);
+  const url = data.publicUrl + "?t=" + Date.now();
+  const { error: errUpdate } = await supabase.from("jugadores").update({ foto_url: url }).eq("id", jugadorDbId);
+  if (errUpdate) {
+    console.error("Error guardando foto:", errUpdate);
+    return null;
+  }
+  return url;
+}
+
 function PanelPerfil({ perfil }) {
   const [nombre, setNombre] = useState(perfil?.nombre || "");
   const [rol, setRol] = useState(perfil?.rol || "Jugador");
@@ -4300,15 +4723,63 @@ function PanelEscudos({ perfil }) {
   );
 }
 
-function PanelStaff() {
-  const staff = [
-    { nombre: "Federico Ryba", rol: "Cuerpo técnico" },
-    { nombre: "Marcela Suárez", rol: "Manager" },
-    { nombre: "Dr. Ignacio Palma", rol: "Cuerpo médico" },
-  ];
+function BotonFotoStaff({ perfilId, onSubido }) {
+  const [subiendo, setSubiendo] = useState(false);
+  const inputRef = React.useRef(null);
+  async function elegir(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSubiendo(true);
+    const url = await subirAvatar(perfilId, file);
+    setSubiendo(false);
+    if (url) onSubido(url);
+  }
+  return (
+    <>
+      <input ref={inputRef} type="file" accept="image/*" onChange={elegir} style={{ display: "none" }} />
+      <button
+        onClick={() => inputRef.current?.click()}
+        disabled={subiendo}
+        style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6", fontSize: 11.5 }}
+      >
+        {subiendo ? "Subiendo…" : "🖼 Foto"}
+      </button>
+    </>
+  );
+}
+
+function PanelStaff({ perfil }) {
+  const [staff, setStaff] = useState([]);
+  const [cargando, setCargando] = useState(true);
   const [mostrarInvitar, setMostrarInvitar] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const texto = textoInvitacion();
+  const puede = puedeGestionar(perfil);
+  const esManager = perfil?.rol === "Manager";
+
+  async function recargar() {
+    setCargando(true);
+    const { data } = await supabase.from("profiles").select("*").order("nombre");
+    setStaff(data || []);
+    setCargando(false);
+  }
+  useEffect(() => {
+    recargar();
+  }, []);
+
+  async function confirmarUsuario(id) {
+    await supabase.from("profiles").update({ confirmado: true }).eq("id", id);
+    recargar();
+  }
+  async function toggleBloqueo(id, bloqueadoActual) {
+    await supabase.from("profiles").update({ bloqueado: !bloqueadoActual }).eq("id", id);
+    recargar();
+  }
+  async function eliminarUsuario(id, nombre) {
+    if (!window.confirm(`¿Eliminar el acceso de ${nombre}? Esto no se puede deshacer.`)) return;
+    await supabase.from("profiles").delete().eq("id", id);
+    recargar();
+  }
 
   function copiar() {
     if (navigator.clipboard) {
@@ -4323,15 +4794,78 @@ function PanelStaff() {
     window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
   }
 
+  if (cargando) return <div style={{ color: "#8f8f8c", fontSize: 13 }}>Cargando…</div>;
+
+  const pendientes = staff.filter((s) => !s.confirmado);
+  const activos = staff.filter((s) => s.confirmado);
+
   return (
     <div>
       <ConfigTitulo sub="Quién tiene acceso al HUB y con qué rol.">Staff y usuarios</ConfigTitulo>
-      {staff.map((s) => (
-        <div key={s.nombre} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid #232324", fontSize: 13 }}>
-          <span style={{ color: "#f5f4f0" }}>{s.nombre}</span>
-          <span style={{ color: "#8f8f8c" }}>{s.rol}</span>
+
+      {pendientes.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 13, color: "#f2c230", fontWeight: 600, marginBottom: 8 }}>
+            Pendientes de confirmar · {pendientes.length}
+          </div>
+          {pendientes.map((s) => (
+            <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: "1px solid #232324", fontSize: 13 }}>
+              <div>
+                <span style={{ color: "#f5f4f0" }}>{s.nombre || s.usuario || "(sin nombre)"}</span>
+                <span style={{ color: "#6b6b68", marginLeft: 8 }}>{s.rol}</span>
+              </div>
+              {esManager ? (
+                <button
+                  onClick={() => confirmarUsuario(s.id)}
+                  style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none", fontSize: 11.5 }}
+                >
+                  Confirmar
+                </button>
+              ) : (
+                <span style={{ fontSize: 11, color: "#6b6b68" }}>Esperando al manager</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 600, marginBottom: 8 }}>Usuarios activos · {activos.length}</div>
+      {activos.map((s) => (
+        <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: "1px solid #232324", fontSize: 13 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <AvatarPlaceholder size={30} foto={s.avatar_url} />
+            <div>
+              <span style={{ color: s.bloqueado ? "#6b6b68" : "#f5f4f0", textDecoration: s.bloqueado ? "line-through" : "none" }}>
+                {s.nombre || s.usuario || "(sin nombre)"}
+              </span>
+              <span style={{ color: "#8f8f8c", marginLeft: 8 }}>{s.rol}</span>
+              {s.bloqueado && <span style={{ ...tagStyle, background: "#2a120f", color: "#e0665c", marginLeft: 8 }}>Bloqueado</span>}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {esManager && ["Cuerpo técnico", "Cuerpo médico", "Manager"].includes(s.rol) && (
+              <BotonFotoStaff perfilId={s.id} onSubido={recargar} />
+            )}
+            {puede && s.id !== perfil.id && (
+              <>
+                <button
+                  onClick={() => toggleBloqueo(s.id, s.bloqueado)}
+                  style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6", fontSize: 11.5 }}
+                >
+                  {s.bloqueado ? "Desbloquear" : "Bloquear"}
+                </button>
+                <button
+                  onClick={() => eliminarUsuario(s.id, s.nombre)}
+                  style={{ ...pillButton, background: "transparent", border: "1px solid #2a120f", color: "#e0665c", fontSize: 11.5 }}
+                >
+                  Eliminar
+                </button>
+              </>
+            )}
+          </div>
         </div>
       ))}
+
       <button
         onClick={() => setMostrarInvitar((v) => !v)}
         style={{ ...pillButton, marginTop: 16, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}
@@ -4650,7 +5184,7 @@ function ConfiguracionPage({ menuPref, setMenuPref, temaPref, setTemaPref, panta
   const PANELES = {
     perfil: <PanelPerfil perfil={perfil} />,
     cuenta: <PanelCuenta perfil={perfil} />,
-    staff: <PanelStaff />,
+    staff: <PanelStaff perfil={perfil} />,
     escudos: <PanelEscudos perfil={perfil} />,
     apariencia: (
       <PanelApariencia
@@ -5226,8 +5760,35 @@ async function cargarConfig() {
   if (!error && data?.valor) TEMPORADA_ACTIVA = String(data.valor);
 }
 
+let EVALUACIONES_REALES = {}; // nombre de jugador -> última evaluación real cargada por el cuerpo técnico
+
+async function cargarEvaluaciones() {
+  const { data, error } = await supabase
+    .from("evaluaciones")
+    .select("fecha, potencia, reactividad, fuerza, velocidad, resistencia, jugadores(nombre)")
+    .order("fecha", { ascending: false });
+  if (error) {
+    console.error("Error cargando evaluaciones:", error);
+    return;
+  }
+  const porNombre = {};
+  (data || []).forEach((r) => {
+    const nombre = r.jugadores?.nombre;
+    if (!nombre || porNombre[nombre]) return; // ya tenemos la más nueva de ese jugador (viene ordenado desc)
+    porNombre[nombre] = {
+      fecha: r.fecha,
+      Potencia: r.potencia,
+      Reactividad: r.reactividad,
+      Fuerza: r.fuerza,
+      Velocidad: r.velocidad,
+      Resistencia: r.resistencia,
+    };
+  });
+  EVALUACIONES_REALES = porNombre;
+}
+
 async function cargarTodo() {
-  await Promise.all([cargarJugadores(), cargarCalendario(), cargarFormaciones(), cargarEscudos(), cargarConfig()]);
+  await Promise.all([cargarJugadores(), cargarCalendario(), cargarFormaciones(), cargarEscudos(), cargarConfig(), cargarEvaluaciones()]);
 }
 
 function PantallaCarga() {
@@ -5349,6 +5910,45 @@ export default function AppRoot() {
   if (chequeandoSesion) return <PantallaCarga />;
   if (!sesion) return <LoginPage />;
   if (!datosListos) return <PantallaCarga />;
+  if (perfil?.bloqueado) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0b0b0c", padding: 24 }}>
+        <div style={{ ...cardStyle, maxWidth: 380, padding: "28px 26px", textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 10 }}>🚫</div>
+          <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 600, marginBottom: 8 }}>Tu acceso está bloqueado</div>
+          <div style={{ fontSize: 12.5, color: "#8f8f8c", marginBottom: 18 }}>
+            Hablá con el cuerpo técnico o el manager del club si creés que es un error.
+          </div>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6" }}
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (perfil && !perfil.confirmado) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0b0b0c", padding: 24 }}>
+        <div style={{ ...cardStyle, maxWidth: 380, padding: "28px 26px", textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 10 }}>⏳</div>
+          <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 600, marginBottom: 8 }}>Cuenta pendiente de aprobación</div>
+          <div style={{ fontSize: 12.5, color: "#8f8f8c", marginBottom: 18 }}>
+            Ya confirmaste tu email — ahora falta que el manager del club apruebe tu cuenta desde su panel. Te
+            avisamos apenas puedas entrar.
+          </div>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6" }}
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+    );
+  }
   return <ObrasHub perfil={perfil} />;
 }
 
@@ -5470,7 +6070,18 @@ function tiempoRelativo(fechaISO) {
   return `hace ${Math.round(diffH / 24)} d`;
 }
 
-function CampanaNotificaciones({ perfil, align = "right" }) {
+const NOTI_DESTINO = {
+  wellness_abierto: "wellness",
+  resultado_cargado: "calendario",
+  partido_agregado: "calendario",
+  formacion_confirmada: "equipos",
+  sesion_planificada: "sesion",
+  video_partido: "veo",
+  informe_partido: "reportes",
+  lesion_reportada: "rtp",
+};
+
+function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfiguracion }) {
   const [abierto, setAbierto] = useState(false);
   const [notis, setNotis] = useState([]);
   const [leidas, setLeidas] = useState(new Set());
@@ -5496,6 +6107,17 @@ function CampanaNotificaciones({ perfil, align = "right" }) {
     if (!perfil || leidas.has(id)) return;
     setLeidas((prev) => new Set(prev).add(id));
     await supabase.from("notificaciones_leidas").insert({ notificacion_id: id, perfil_id: perfil.id });
+  }
+
+  function abrirNotificacion(n) {
+    marcarLeida(n.id);
+    setAbierto(false);
+    if (n.tipo === "usuario_pendiente" && onIrAConfiguracion) {
+      onIrAConfiguracion("staff");
+      return;
+    }
+    const destino = NOTI_DESTINO[n.tipo];
+    if (destino && onNavigate) onNavigate(destino);
   }
 
   const sinLeer = notis.filter((n) => !leidas.has(n.id)).length;
@@ -5531,7 +6153,7 @@ function CampanaNotificaciones({ perfil, align = "right" }) {
           {notis.map((n) => (
             <div
               key={n.id}
-              onClick={() => marcarLeida(n.id)}
+              onClick={() => abrirNotificacion(n)}
               style={{
                 padding: "10px 8px", borderTop: "1px solid #232324", cursor: "pointer",
                 background: leidas.has(n.id) ? "transparent" : "#1d1a0c",
@@ -5586,7 +6208,7 @@ function ObrasHub({ perfil }) {
               Obras <span style={{ color: "#f2c230" }}>Rugby Hub</span>
             </span>
           </div>
-          <CampanaNotificaciones perfil={perfil} align="left" />
+          <CampanaNotificaciones perfil={perfil} align="left" onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
         </div>
 
         {NAV.map((g) => (
@@ -5650,7 +6272,7 @@ function ObrasHub({ perfil }) {
       <div className="main-content" style={{ flex: 1, padding: mostrarSidebar ? "24px 28px" : "16px 14px 84px", overflow: "auto" }}>
         {!mostrarSidebar && (
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-            <CampanaNotificaciones perfil={perfil} />
+            <CampanaNotificaciones perfil={perfil} onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
           </div>
         )}
         <ErrorBoundary key={active} onReset={() => setActive("hoy")}>
@@ -5675,7 +6297,7 @@ function ObrasHub({ perfil }) {
         ) : active === "disponibilidad" ? (
           <DisponibilidadPage />
         ) : active === "evaluaciones" ? (
-          <EvaluacionesPage />
+          <EvaluacionesPage perfil={perfil} />
         ) : active === "gps" ? (
           <GpsPage perfil={perfil} />
         ) : active === "veo" ? (
