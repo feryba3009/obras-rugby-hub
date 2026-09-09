@@ -4731,10 +4731,9 @@ function Placeholder({ label }) {
   );
 }
 
-function HoyPage({ onNavigate, onIrAConfiguracion, perfil }) {
+function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista, perfil }) {
   const [showBanner, setShowBanner] = useState(true);
   const [novedad, setNovedad] = useState(null);
-  const [mostrarNovedad, setMostrarNovedad] = useState(true);
   const [alertasHoy, setAlertasHoy] = useState({ cargando: true, respuestas: [] });
 
   useEffect(() => {
@@ -4786,13 +4785,13 @@ function HoyPage({ onNavigate, onIrAConfiguracion, perfil }) {
 
   return (
     <div>
-      {novedad && mostrarNovedad && (
+      {novedad && !novedadVista && (
         <div
           style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 80,
             display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
           }}
-          onClick={() => setMostrarNovedad(false)}
+          onClick={() => setNovedadVista(true)}
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -4804,7 +4803,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, perfil }) {
             <div style={{ fontSize: 14, color: "#f5f4f0", marginBottom: 4 }}>{novedad.mensaje}</div>
             <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 16 }}>{tiempoRelativo(novedad.created_at)}</div>
             <button
-              onClick={() => setMostrarNovedad(false)}
+              onClick={() => setNovedadVista(true)}
               style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}
             >
               Entendido
@@ -5555,6 +5554,7 @@ function ObrasHub({ perfil }) {
   const [masAbierto, setMasAbierto] = useState(false);
   const [menuPref, setMenuPref] = useState("Automático");
   const [temaPref, setTemaPref] = useState("Oscuro");
+  const [novedadVista, setNovedadVista] = useState(false); // una sola vez por sesión iniciada, no cada vez que se entra a Hoy
   const isMobile = useIsMobile();
   function irAConfiguracion(tabKey) {
     setConfigTabInicial(tabKey);
@@ -5655,7 +5655,13 @@ function ObrasHub({ perfil }) {
         )}
         <ErrorBoundary key={active} onReset={() => setActive("hoy")}>
         {active === "hoy" ? (
-          <HoyPage onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} perfil={perfil} />
+          <HoyPage
+            onNavigate={setActive}
+            onIrAConfiguracion={irAConfiguracion}
+            novedadVista={novedadVista}
+            setNovedadVista={setNovedadVista}
+            perfil={perfil}
+          />
         ) : active === "calendario" ? (
           <CalendarioPage perfil={perfil} />
         ) : active === "sesion" ? (
