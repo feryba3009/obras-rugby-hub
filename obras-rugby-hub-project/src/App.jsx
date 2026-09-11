@@ -109,6 +109,18 @@ function dbDateToDisplay(d) {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : d;
 }
 
+// Busca el partido de una categoría cuya fecha (dd/mm/yyyy) coincide con hoy — ya sea que
+// todavía esté "Próximo" o que ya se haya jugado hoy mismo (para saber si el MD ya terminó).
+function partidoDeHoyCategoria(categoriaNombre) {
+  const clave = categoriaNombre.toLowerCase();
+  const todos = [...(FIXTURE[clave] || []), ...(PROXIMOS[clave] || [])];
+  const hoy = new Date();
+  return todos.find((p) => {
+    const [d, m, y] = p.date.split("/").map(Number);
+    return new Date(y, m - 1, d).toDateString() === hoy.toDateString();
+  });
+}
+
 async function cargarCalendario() {
   const { data: categorias, error: errCat } = await supabase.from("categorias").select("id, nombre");
   if (errCat) {
@@ -625,13 +637,11 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
 
     await guardarResultadoPartido(partido.id, gf, gc);
     const { error } = await supabase.from("partidos").update({ informe }).eq("id", partido.id);
-    partido.informe = informe;
-    partido.gf = gf;
-    partido.gc = gc;
 
     if (!error) {
       crearNotificacion("informe_partido", `📈 Partido terminado: ${categoria} vs ${partido.rival} (${gf}-${gc}).`, null, perfil?.id);
     }
+    await cargarCalendario(); // así el partido pasa de "Próximo" a jugado y Home refleja el nuevo estado al toque
     setGuardando(false);
     onSalir();
   }
@@ -5655,19 +5665,13 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const [showBanner, setShowBanner] = useState(true);
   const [novedad, setNovedad] = useState(null);
   const [alertasHoy, setAlertasHoy] = useState({ cargando: true, respuestas: [] });
-  const [partidoVivoAbierto, setPartidoVivoAbierto] = useState(false);
+  const [categoriaEnVivo, setCategoriaEnVivo] = useState(null); // null | "Superior" | "Intermedia"
 
-  const partidoHoy = (() => {
-    const hoy = new Date();
-    const candidatos = [
-      ...PROXIMOS.superior.map((p) => ({ ...p, categoria: "Superior" })),
-      ...PROXIMOS.intermedia.map((p) => ({ ...p, categoria: "Intermedia" })),
-    ];
-    return candidatos.find((p) => {
-      const [d, m, y] = p.date.split("/").map(Number);
-      return new Date(y, m - 1, d).toDateString() === hoy.toDateString();
-    });
-  })();
+  const intermediaHoy = partidoDeHoyCategoria("Intermedia");
+  const superiorHoy = partidoDeHoyCategoria("Superior");
+  // Intermedia juega primero: el MD de Superior se habilita recién cuando el de Intermedia ya jugó
+  // (ya sea porque se cerró desde acá, o porque alguien cargó el resultado a mano en Calendario).
+  const intermediaTerminada = !intermediaHoy || !!intermediaHoy.res;
 
   useEffect(() => {
     supabase
@@ -5716,33 +5720,52 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   );
   const hoyStr = new Date().toLocaleDateString("es-AR", { weekday: "long", day: "2-digit", month: "2-digit" });
 
-  if (partidoVivoAbierto && partidoHoy) {
-    return <PartidoVivoPage partido={partidoHoy} categoria={partidoHoy.categoria} perfil={perfil} onSalir={() => setPartidoVivoAbierto(false)} />;
+  if (categoriaEnVivo) {
+    const partido = categoriaEnVivo === "Superior" ? superiorHoy : intermediaHoy;
+    return <PartidoVivoPage partido={partido} categoria={categoriaEnVivo} perfil={perfil} onSalir={() => setCategoriaEnVivo(null)} />;
   }
+
+  const TarjetaMatchday = ({ categoria, partido, bloqueada }) => (
+    <div
+      style={{
+        background: bloqueada ? "#141415" : "linear-gradient(135deg, #2a120f, #1a1a1a)",
+        border: "1px solid " + (bloqueada ? "#232324" : "#e0665c"),
+        borderRadius: 12, padding: "16px 18px", marginBottom: 12,
+        display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 11, color: bloqueada ? "#6b6b68" : "#e0665c", fontWeight: 700, letterSpacing: 0.5 }}>
+          {partido.res ? "✓ PARTIDO FINALIZADO" : "● HOY ES DÍA DE PARTIDO"}
+        </div>
+        <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 600, marginTop: 4 }}>
+          {categoria} vs {partido.rival}
+        </div>
+        {bloqueada && !partido.res && (
+          <div style={{ fontSize: 11, color: "#8f8f8c", marginTop: 3 }}>Se habilita cuando termine el de Intermedia</div>
+        )}
+      </div>
+      {!partido.res && (
+        <button
+          onClick={() => !bloqueada && setCategoriaEnVivo(categoria)}
+          disabled={bloqueada}
+          style={{
+            ...pillButton, fontWeight: 600, border: "none",
+            background: bloqueada ? "#2a2a2c" : "#e0665c",
+            color: bloqueada ? "#6b6b68" : "#141415",
+            cursor: bloqueada ? "not-allowed" : "pointer",
+          }}
+        >
+          ▶ Abrir Matchday
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div>
-      {partidoHoy && puedeGestionar(perfil) && (
-        <div
-          style={{
-            background: "linear-gradient(135deg, #2a120f, #1a1a1a)", border: "1px solid #e0665c", borderRadius: 12,
-            padding: "16px 18px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12,
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 11, color: "#e0665c", fontWeight: 700, letterSpacing: 0.5 }}>● HOY ES DÍA DE PARTIDO</div>
-            <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 600, marginTop: 4 }}>
-              {partidoHoy.categoria} vs {partidoHoy.rival}
-            </div>
-          </div>
-          <button
-            onClick={() => setPartidoVivoAbierto(true)}
-            style={{ ...pillButton, background: "#e0665c", color: "#141415", border: "none", fontWeight: 600 }}
-          >
-            ▶ Abrir Matchday
-          </button>
-        </div>
-      )}
+      {puedeGestionar(perfil) && intermediaHoy && <TarjetaMatchday categoria="Intermedia" partido={intermediaHoy} bloqueada={false} />}
+      {puedeGestionar(perfil) && superiorHoy && <TarjetaMatchday categoria="Superior" partido={superiorHoy} bloqueada={!intermediaTerminada} />}
 
       {novedad && !novedadVista && (
         <div
