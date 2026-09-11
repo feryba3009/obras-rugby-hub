@@ -465,6 +465,320 @@ function etiquetaDias(dateStr) {
   return `hace ${-diff} día${diff === -1 ? "" : "s"}`;
 }
 
+// ───────────────────────── PARTIDO EN VIVO (MATCHDAY) ─────────────────────────
+// Cronómetro simple (0:00 a 40:00, se frena/reanuda), tanteador, y botones de incidencia.
+// Usa la formación confirmada del partido (titulares + suplentes) para las tarjetas.
+
+function formatoReloj(seg) {
+  const signo = seg < 0 ? "-" : "";
+  const abs = Math.abs(seg);
+  const m = Math.floor(abs / 60).toString().padStart(2, "0");
+  const s = Math.floor(abs % 60).toString().padStart(2, "0");
+  return `${signo}${m}:${s}`;
+}
+
+// Titulares + suplentes con jugador real asignado, de la formación confirmada de esa categoría.
+function convocadosPartido(categoriaNombre) {
+  return (LINEUPS_INICIALES[categoriaNombre] || [])
+    .filter((s) => s.jugadorId)
+    .map((s) => s.jugadorId)
+    .filter((nombre, i, arr) => arr.indexOf(nombre) === i);
+}
+
+function SelectorJugadorIncidencia({ jugadores, expulsados, onElegir, onCancelar, titulo }) {
+  return (
+    <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 16 }}>
+      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 600, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+        {jugadores.map((j) => (
+          <button
+            key={j}
+            disabled={expulsados.has(j)}
+            onClick={() => onElegir(j)}
+            style={{
+              ...pillButton, fontSize: 11.5,
+              background: expulsados.has(j) ? "#1c1c1d" : "transparent",
+              border: "1px solid " + (expulsados.has(j) ? "#232324" : "#2a2a2c"),
+              color: expulsados.has(j) ? "#4a4a4a" : "#c9c9c6",
+              textDecoration: expulsados.has(j) ? "line-through" : "none",
+              cursor: expulsados.has(j) ? "not-allowed" : "pointer",
+            }}
+          >
+            {j}
+          </button>
+        ))}
+      </div>
+      <button onClick={onCancelar} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c", fontSize: 11.5 }}>
+        Cancelar
+      </button>
+    </div>
+  );
+}
+
+function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
+  const [corriendo, setCorriendo] = useState(false);
+  const [segundos, setSegundos] = useState(0);
+  const intervaloRef = React.useRef(null);
+
+  const [gf, setGf] = useState(0);
+  const [gc, setGc] = useState(0);
+  const [incidencias, setIncidencias] = useState([]);
+
+  // acción pendiente de conversión: { equipo: "Obras"|"Rival", tipo: "Penal"|"Try"|"Drop" }
+  const [pendienteConversion, setPendienteConversion] = useState(null);
+  // qué lista de jugadores mostrar: "amarilla" | "roja" | null
+  const [pidiendoJugador, setPidiendoJugador] = useState(null);
+
+  // amarillas: { [jugador]: cantidad }; tiemposAfuera: { [jugador]: segundosRestantes }
+  const [amarillas, setAmarillas] = useState({});
+  const [tiemposAfuera, setTiemposAfuera] = useState({});
+  const [expulsados, setExpulsados] = useState(new Set()); // roja o segunda amarilla: no vuelve a entrar
+
+  const [guardando, setGuardando] = useState(false);
+
+  const jugadores = convocadosPartido(categoria);
+
+  useEffect(() => {
+    if (corriendo) {
+      intervaloRef.current = setInterval(() => {
+        setSegundos((s) => s + 1);
+        setTiemposAfuera((prev) => {
+          const next = {};
+          let cambio = false;
+          for (const [j, t] of Object.entries(prev)) {
+            if (t > 0) {
+              next[j] = t - 1;
+              cambio = true;
+            } else {
+              next[j] = t;
+            }
+          }
+          return cambio ? next : prev;
+        });
+      }, 1000);
+    } else if (intervaloRef.current) {
+      clearInterval(intervaloRef.current);
+    }
+    return () => clearInterval(intervaloRef.current);
+  }, [corriendo]);
+
+  function log(texto) {
+    setIncidencias((prev) => [...prev, { minuto: formatoReloj(segundos), texto }]);
+  }
+
+  function reiniciarReloj() {
+    if (!window.confirm("¿Reiniciar el cronómetro a 0:00? (para arrancar el segundo tiempo, por ejemplo)")) return;
+    setSegundos(0);
+    setCorriendo(false);
+    log("— Cronómetro reiniciado —");
+  }
+
+  function pedirConversion(equipo, tipo) {
+    setPendienteConversion({ equipo, tipo });
+  }
+
+  function resolverConversion(convierte) {
+    const { equipo, tipo } = pendienteConversion;
+    let pts = 0;
+    if (tipo === "Try") pts = convierte ? 7 : 5;
+    else if (tipo === "Penal") pts = convierte ? 3 : 0;
+    else if (tipo === "Drop") pts = convierte ? 3 : 0;
+
+    if (pts > 0) {
+      if (equipo === "Obras") setGf((v) => v + pts);
+      else setGc((v) => v + pts);
+    }
+    const detalle = tipo === "Try" ? (convierte ? "convertido" : "sin convertir") : convierte ? "convertido" : "errado";
+    log(`${equipo === "Obras" ? "🟡" : "⚫"} ${equipo}: ${tipo} ${detalle} (${pts} pts)`);
+    setPendienteConversion(null);
+  }
+
+  function aplicarAmarilla(jugador) {
+    const cantidadPrevia = amarillas[jugador] || 0;
+    const nuevaCantidad = cantidadPrevia + 1;
+    setAmarillas((prev) => ({ ...prev, [jugador]: nuevaCantidad }));
+    if (nuevaCantidad >= 2) {
+      setTiemposAfuera((prev) => ({ ...prev, [jugador]: 1200 })); // 20 min
+      setExpulsados((prev) => new Set(prev).add(jugador));
+      log(`🟨🟨 ${jugador}: segunda amarilla — 20 min y no vuelve a entrar`);
+    } else {
+      setTiemposAfuera((prev) => ({ ...prev, [jugador]: 600 })); // 10 min
+      log(`🟨 ${jugador}: amarilla — 10 min afuera`);
+    }
+    setPidiendoJugador(null);
+  }
+
+  function aplicarRoja(jugador) {
+    setExpulsados((prev) => new Set(prev).add(jugador));
+    log(`🟥 ${jugador}: roja — no vuelve a entrar`);
+    setPidiendoJugador(null);
+  }
+
+  const afuera = Object.entries(tiemposAfuera).filter(([, t]) => t > 0);
+
+  async function finalizarPartido() {
+    if (!window.confirm("¿Finalizar el partido y subir el resultado al calendario?")) return;
+    setGuardando(true);
+    const informe = STATS_VACIO();
+    informe.incidencias = incidencias;
+    informe.tarjetas = { amarillas, expulsados: [...expulsados] };
+
+    await guardarResultadoPartido(partido.id, gf, gc);
+    const { error } = await supabase.from("partidos").update({ informe }).eq("id", partido.id);
+    partido.informe = informe;
+    partido.gf = gf;
+    partido.gc = gc;
+
+    if (!error) {
+      crearNotificacion("informe_partido", `📈 Partido terminado: ${categoria} vs ${partido.rival} (${gf}-${gc}).`, null, perfil?.id);
+    }
+    setGuardando(false);
+    onSalir();
+  }
+
+  return (
+    <div>
+      <button onClick={onSalir} style={{ background: "transparent", border: "none", color: "#f2c230", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}>
+        ← Salir
+      </button>
+
+      <div style={{ ...cardStyle, padding: "20px", marginBottom: 16, textAlign: "center" }}>
+        <div style={{ fontSize: 12, color: "#8f8f8c", marginBottom: 8 }}>
+          {categoria} vs {partido.rival}
+        </div>
+        <div
+          style={{
+            fontFamily: "'Oswald', sans-serif", fontSize: 46, fontWeight: 700, letterSpacing: 1,
+            color: segundos > 2400 ? "#e0665c" : "#f5f4f0",
+          }}
+        >
+          {formatoReloj(segundos)}
+        </div>
+        <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 12 }}>de 40:00</div>
+        <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
+          <button
+            onClick={() => setCorriendo((v) => !v)}
+            style={{ ...pillButton, background: corriendo ? "#2a120f" : "#5fbf7a", color: corriendo ? "#e0665c" : "#141415", border: "none" }}
+          >
+            {corriendo ? "⏸ Frenar" : "▶ Reanudar"}
+          </button>
+          <button onClick={reiniciarReloj} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+            ↺ Reiniciar
+          </button>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 24, margin: "18px 0 4px" }}>
+          <div>
+            <div style={{ fontSize: 11, color: "#8f8f8c" }}>Obras</div>
+            <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 40, color: "#f2c230", fontWeight: 700 }}>{gf}</div>
+          </div>
+          <div style={{ color: "#6b6b68", fontSize: 20 }}>—</div>
+          <div>
+            <div style={{ fontSize: 11, color: "#8f8f8c" }}>{partido.rival}</div>
+            <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 40, color: "#f5f4f0", fontWeight: 700 }}>{gc}</div>
+          </div>
+        </div>
+      </div>
+
+      {afuera.length > 0 && (
+        <div style={{ ...cardStyle, padding: "12px 16px", marginBottom: 16, borderLeft: "3px solid #f2c230" }}>
+          <div style={{ fontSize: 11, color: "#f2c230", marginBottom: 6 }}>AFUERA POR TARJETA</div>
+          {afuera.map(([j, t]) => (
+            <div key={j} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0" }}>
+              <span style={{ color: "#c9c9c6" }}>{j}</span>
+              <span style={{ color: "#f2c230", fontFamily: "'Oswald', sans-serif" }}>{formatoReloj(t)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {pendienteConversion ? (
+        <div style={{ ...cardStyle, padding: "16px", marginBottom: 16, textAlign: "center", border: "1px solid #f2c230" }}>
+          <div style={{ fontSize: 13, color: "#f5f4f0", marginBottom: 12 }}>
+            {pendienteConversion.equipo}: {pendienteConversion.tipo} — ¿convierte?
+          </div>
+          <div style={{ display: "flex", justifyContent: "center", gap: 10 }}>
+            <button onClick={() => resolverConversion(true)} style={{ ...pillButton, background: "#111a12", border: "none", color: "#5fbf7a" }}>
+              ✓ Sí
+            </button>
+            <button onClick={() => resolverConversion(false)} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#e0665c" }}>
+              ✗ No
+            </button>
+          </div>
+        </div>
+      ) : pidiendoJugador ? (
+        <SelectorJugadorIncidencia
+          jugadores={jugadores}
+          expulsados={expulsados}
+          titulo={pidiendoJugador === "amarilla" ? "🟨 ¿Quién recibe la amarilla?" : "🟥 ¿Quién recibe la roja?"}
+          onElegir={pidiendoJugador === "amarilla" ? aplicarAmarilla : aplicarRoja}
+          onCancelar={() => setPidiendoJugador(null)}
+        />
+      ) : (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
+          <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
+            <div style={{ fontSize: 11, color: "#5fbf7a", marginBottom: 8, textAlign: "center" }}>OBRAS</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button onClick={() => pedirConversion("Obras", "Penal")} style={{ ...pillButton, background: "#111a12", border: "none", color: "#5fbf7a" }}>
+                Penal
+              </button>
+              <button onClick={() => pedirConversion("Obras", "Try")} style={{ ...pillButton, background: "#111a12", border: "none", color: "#5fbf7a" }}>
+                Try
+              </button>
+              <button onClick={() => pedirConversion("Obras", "Drop")} style={{ ...pillButton, background: "#111a12", border: "none", color: "#5fbf7a" }}>
+                Drop
+              </button>
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
+            <div style={{ fontSize: 11, color: "#e0665c", marginBottom: 8, textAlign: "center" }}>{partido.rival.toUpperCase()}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button onClick={() => pedirConversion("Rival", "Penal")} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#e0665c" }}>
+                Penal
+              </button>
+              <button onClick={() => pedirConversion("Rival", "Try")} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#e0665c" }}>
+                Try
+              </button>
+              <button onClick={() => pedirConversion("Rival", "Drop")} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#e0665c" }}>
+                Drop
+              </button>
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
+            <div style={{ fontSize: 11, color: "#8f8f8c", marginBottom: 8, textAlign: "center" }}>TARJETAS</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button onClick={() => setPidiendoJugador("amarilla")} style={{ ...pillButton, background: "#2a220a", border: "none", color: "#f2c230" }}>
+                🟨 Amarilla
+              </button>
+              <button onClick={() => setPidiendoJugador("roja")} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#e0665c" }}>
+                🟥 Roja
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 10 }}>Incidencias</div>
+      <div style={{ ...cardStyle, padding: "8px 16px", marginBottom: 20, maxHeight: 240, overflowY: "auto" }}>
+        {incidencias.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: "#6b6b68", padding: "10px 0" }}>Todavía no hay nada cargado.</div>
+        ) : (
+          [...incidencias].reverse().map((i, idx) => (
+            <div key={idx} style={{ padding: "8px 0", borderTop: idx === 0 ? "none" : "1px solid #232324", display: "flex", gap: 10, fontSize: 12.5 }}>
+              <span style={{ color: "#f2c230", fontFamily: "'Oswald', sans-serif", flexShrink: 0 }}>{i.minuto}</span>
+              <span style={{ color: "#c9c9c6" }}>{i.texto}</span>
+            </div>
+          ))
+        )}
+      </div>
+
+      <button onClick={finalizarPartido} disabled={guardando} style={{ ...buttonStyle, width: "100%", background: "#e0665c", color: "#141415" }}>
+        {guardando ? "Guardando…" : "🏁 Finalizar partido y subir resultado"}
+      </button>
+    </div>
+  );
+}
+
 function CalendarioPage({ perfil }) {
   const [cat, setCat] = useState("superior");
   const [, forceUpdate] = useState(0);
@@ -1545,6 +1859,41 @@ function SuplentePill({ slot, editMode, onChangeJugador, onChangePuesto }) {
         ) : (
           <span style={{ fontSize: 10.5, color: "#8f8f8c" }}>{slot.puesto}</span>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Versión en lista simple (sin cancha) — la usamos en mobile, donde el dibujo de la cancha
+// con los backs en posiciones absolutas queda apretado y difícil de tocar.
+function ListaFormacion({ lineup, editMode, onChangeJugador, onChangePuesto }) {
+  const titulares = lineup.filter((s) => s.grupo !== "suplentes").sort((a, b) => a.numero - b.numero);
+  const suplentes = lineup.filter((s) => s.grupo === "suplentes").sort((a, b) => a.numero - b.numero);
+
+  return (
+    <div>
+      <div style={{ ...cardStyle, padding: "16px 18px" }}>
+        <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.6, marginBottom: 14 }}>TITULARES</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {titulares.map((s) => (
+            <TitularPill key={s.numero} slot={s} editMode={editMode} onChangeJugador={(v) => onChangeJugador(s.numero, v)} />
+          ))}
+        </div>
+      </div>
+
+      <div style={{ ...cardStyle, padding: "16px 18px", marginTop: 16 }}>
+        <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.6, marginBottom: 14 }}>SUPLENTES · {suplentes.length}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {suplentes.map((s) => (
+            <SuplentePill
+              key={s.numero}
+              slot={s}
+              editMode={editMode}
+              onChangeJugador={(v) => onChangeJugador(s.numero, v)}
+              onChangePuesto={(v) => onChangePuesto(s.numero, v)}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -3056,25 +3405,41 @@ function descomponerPuntos(total, seed) {
 // Genera los eventos de puntaje del partido (tries + conversiones + penales + drops) a partir
 // del resultado real. Para los de Obras, elige quién los anota — el mismo jugador que después
 // figura con el "quiebre que termina en try" en la planilla.
-function generarTries(partido, jugadoresTry) {
+function generarTries(partido, jugadoresTry, triesReales) {
   const seed = partido.fecha * 19 + partido.rival.length;
   const hayJugadores = jugadoresTry.length > 0;
   const apertura = jugadoresTry.find((j) => j.puesto === "Apertura") || jugadoresTry[0] || { jugadorId: "Apertura" };
 
-  const obras = descomponerPuntos(partido.gf, seed);
+  const usaTriesReales = triesReales && triesReales.length > 0;
+  const puntosTriesReales = usaTriesReales
+    ? triesReales.reduce((acc, t) => acc + (t.conConversion ? 7 : 5), 0)
+    : 0;
+  const obras = descomponerPuntos(usaTriesReales ? partido.gf - puntosTriesReales : partido.gf, seed);
   const rival = descomponerPuntos(partido.gc, seed * 3);
 
   const tries = [];
-  for (let i = 0; i < obras.tries; i++) {
-    const conConv = i < obras.conversiones;
-    const autor = hayJugadores ? jugadoresTry[(seed + i) % jugadoresTry.length] : { jugadorId: "Jugador" };
-    tries.push({
-      equipo: "Obras",
-      jugadorId: autor.jugadorId,
-      origen: ORIGENES_TRY[(seed + i) % ORIGENES_TRY.length],
-      pts: conConv ? 7 : 5,
-      obs: `Try de ${autor.jugadorId}${conConv ? " + conversión" : ""} (5${conConv ? " + 2" : ""} pts).`,
+  if (usaTriesReales) {
+    triesReales.forEach((t) => {
+      tries.push({
+        equipo: "Obras",
+        jugadorId: t.jugadorId,
+        origen: "Partido en vivo",
+        pts: t.conConversion ? 7 : 5,
+        obs: `Try de ${t.jugadorId}${t.conConversion ? " + conversión" : ""} a los ${t.minuto} (5${t.conConversion ? " + 2" : ""} pts).`,
+      });
     });
+  } else {
+    for (let i = 0; i < obras.tries; i++) {
+      const conConv = i < obras.conversiones;
+      const autor = hayJugadores ? jugadoresTry[(seed + i) % jugadoresTry.length] : { jugadorId: "Jugador" };
+      tries.push({
+        equipo: "Obras",
+        jugadorId: autor.jugadorId,
+        origen: ORIGENES_TRY[(seed + i) % ORIGENES_TRY.length],
+        pts: conConv ? 7 : 5,
+        obs: `Try de ${autor.jugadorId}${conConv ? " + conversión" : ""} (5${conConv ? " + 2" : ""} pts).`,
+      });
+    }
   }
   for (let i = 0; i < obras.penales; i++) {
     tries.push({ equipo: "Obras", jugadorId: null, origen: "Penal a los palos", pts: 3, obs: `Penal de ${apertura.jugadorId} (3 pts).` });
@@ -3147,7 +3512,7 @@ function InformePartidoPage({ perfil }) {
   const esReal = !!partido.informe;
   // GPS (los chalecos) solo existe para Superior — para Intermedia usamos los titulares del partido igual.
   const jugadoresTry = categoria === "Superior" ? jugadoresConGps() : jugadoresTitulares("Intermedia");
-  const tries = generarTries(partido, jugadoresTry);
+  const tries = generarTries(partido, jugadoresTry, partido.informe?.triesReales);
   const totalPerdidas = Object.values(stats.desfavorables).reduce((a, b) => a + b, 0) - stats.desfavorables.penalesEnContra;
 
   // Cuántos tries anotó cada jugador en este partido (solo Obras).
@@ -3379,21 +3744,37 @@ function InformePartidoPage({ perfil }) {
       )}
 
       {tab === "puntos" && (
-        <div style={{ ...cardStyle, padding: "8px 16px" }}>
-          {tries.map((t, i) => (
-            <div key={i} style={{ padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #232324" }}>
-              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 3 }}>
-                <span style={{ ...tagStyle, background: t.equipo === "Obras" ? "#111a12" : "#2a120f", color: t.equipo === "Obras" ? "#5fbf7a" : "#e0665c" }}>
-                  {t.equipo}
-                </span>
-                <span style={{ fontSize: 12, color: "#8f8f8c" }}>{t.origen}</span>
-                <span style={{ fontSize: 12, color: "#f2c230", fontFamily: "'Oswald', sans-serif", fontWeight: 600 }}>
-                  {t.pts} pts
-                </span>
+        <div>
+          <div style={{ ...cardStyle, padding: "8px 16px", marginBottom: partido.informe?.incidencias?.length ? 20 : 0 }}>
+            {tries.map((t, i) => (
+              <div key={i} style={{ padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #232324" }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 3 }}>
+                  <span style={{ ...tagStyle, background: t.equipo === "Obras" ? "#111a12" : "#2a120f", color: t.equipo === "Obras" ? "#5fbf7a" : "#e0665c" }}>
+                    {t.equipo}
+                  </span>
+                  <span style={{ fontSize: 12, color: "#8f8f8c" }}>{t.origen}</span>
+                  <span style={{ fontSize: 12, color: "#f2c230", fontFamily: "'Oswald', sans-serif", fontWeight: 600 }}>
+                    {t.pts} pts
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: "#c9c9c6" }}>{t.obs}</div>
               </div>
-              <div style={{ fontSize: 12, color: "#c9c9c6" }}>{t.obs}</div>
-            </div>
-          ))}
+            ))}
+          </div>
+
+          {partido.informe?.incidencias?.length > 0 && (
+            <>
+              <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 10 }}>Incidencias del partido en vivo</div>
+              <div style={{ ...cardStyle, padding: "8px 16px", maxHeight: 260, overflowY: "auto" }}>
+                {partido.informe.incidencias.map((inc, i) => (
+                  <div key={i} style={{ padding: "7px 0", borderTop: i === 0 ? "none" : "1px solid #232324", display: "flex", gap: 10, fontSize: 12.5 }}>
+                    <span style={{ color: "#f2c230", fontFamily: "'Oswald', sans-serif", flexShrink: 0 }}>{inc.minuto}</span>
+                    <span style={{ color: "#c9c9c6" }}>{inc.texto}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -4154,6 +4535,7 @@ function EquiposPage({ perfil }) {
   const [cat, setCat] = useState(null);
   const [lineups, setLineups] = useState(LINEUPS_INICIALES);
   const [editMode, setEditMode] = useState(false);
+  const isMobile = useIsMobile();
 
   function changeJugador(numero, jugadorId) {
     setLineups((prev) => ({
@@ -4205,7 +4587,11 @@ function EquiposPage({ perfil }) {
             )
           )}
         </div>
-        <CanchaFormacion lineup={lineups[cat]} editMode={editMode} onChangeJugador={changeJugador} onChangePuesto={changePuesto} />
+        {isMobile ? (
+          <ListaFormacion lineup={lineups[cat]} editMode={editMode} onChangeJugador={changeJugador} onChangePuesto={changePuesto} />
+        ) : (
+          <CanchaFormacion lineup={lineups[cat]} editMode={editMode} onChangeJugador={changeJugador} onChangePuesto={changePuesto} />
+        )}
       </div>
     );
   }
@@ -5269,6 +5655,19 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const [showBanner, setShowBanner] = useState(true);
   const [novedad, setNovedad] = useState(null);
   const [alertasHoy, setAlertasHoy] = useState({ cargando: true, respuestas: [] });
+  const [partidoVivoAbierto, setPartidoVivoAbierto] = useState(false);
+
+  const partidoHoy = (() => {
+    const hoy = new Date();
+    const candidatos = [
+      ...PROXIMOS.superior.map((p) => ({ ...p, categoria: "Superior" })),
+      ...PROXIMOS.intermedia.map((p) => ({ ...p, categoria: "Intermedia" })),
+    ];
+    return candidatos.find((p) => {
+      const [d, m, y] = p.date.split("/").map(Number);
+      return new Date(y, m - 1, d).toDateString() === hoy.toDateString();
+    });
+  })();
 
   useEffect(() => {
     supabase
@@ -5317,8 +5716,34 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   );
   const hoyStr = new Date().toLocaleDateString("es-AR", { weekday: "long", day: "2-digit", month: "2-digit" });
 
+  if (partidoVivoAbierto && partidoHoy) {
+    return <PartidoVivoPage partido={partidoHoy} categoria={partidoHoy.categoria} perfil={perfil} onSalir={() => setPartidoVivoAbierto(false)} />;
+  }
+
   return (
     <div>
+      {partidoHoy && puedeGestionar(perfil) && (
+        <div
+          style={{
+            background: "linear-gradient(135deg, #2a120f, #1a1a1a)", border: "1px solid #e0665c", borderRadius: 12,
+            padding: "16px 18px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 11, color: "#e0665c", fontWeight: 700, letterSpacing: 0.5 }}>● HOY ES DÍA DE PARTIDO</div>
+            <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 600, marginTop: 4 }}>
+              {partidoHoy.categoria} vs {partidoHoy.rival}
+            </div>
+          </div>
+          <button
+            onClick={() => setPartidoVivoAbierto(true)}
+            style={{ ...pillButton, background: "#e0665c", color: "#141415", border: "none", fontWeight: 600 }}
+          >
+            ▶ Abrir Matchday
+          </button>
+        </div>
+      )}
+
       {novedad && !novedadVista && (
         <div
           style={{
