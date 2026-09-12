@@ -574,8 +574,47 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
     return () => clearInterval(intervaloRef.current);
   }, [corriendo]);
 
-  function log(texto) {
-    setIncidencias((prev) => [...prev, { minuto: formatoReloj(segundos), texto }]);
+  function log(texto, meta = {}) {
+    const id = Date.now() + Math.random();
+    setIncidencias((prev) => [...prev, { id, minuto: formatoReloj(segundos), texto, ...meta }]);
+    return id;
+  }
+
+  function borrarIncidencia(id) {
+    const inc = incidencias.find((i) => i.id === id);
+    if (!inc) return;
+    if (!window.confirm("¿Borrar esta incidencia? Si sumó puntos o afectó una tarjeta, también se revierte.")) return;
+
+    if (inc.puntos && inc.equipo) {
+      if (inc.equipo === "Obras") setGf((v) => Math.max(0, v - inc.puntos));
+      else setGc((v) => Math.max(0, v - inc.puntos));
+    }
+    if (inc.tarjetaJugador) {
+      const j = inc.tarjetaJugador;
+      if (inc.tarjetaTipo === "roja" || inc.segundaAmarilla) {
+        setExpulsados((prev) => {
+          const next = new Set(prev);
+          next.delete(j);
+          return next;
+        });
+      }
+      if (inc.tarjetaTipo === "amarilla") {
+        setAmarillas((prev) => ({ ...prev, [j]: Math.max(0, (prev[j] || 1) - 1) }));
+      }
+      setTiemposAfuera((prev) => {
+        const next = { ...prev };
+        delete next[j];
+        return next;
+      });
+    }
+    setIncidencias((prev) => prev.filter((i) => i.id !== id));
+  }
+
+  function reiniciarMarcador() {
+    if (!window.confirm("¿Reiniciar el tanteador a 0-0? Esto no borra el log de incidencias.")) return;
+    setGf(0);
+    setGc(0);
+    log("↺ Tanteador reiniciado a 0-0");
   }
 
   function reiniciarReloj() {
@@ -601,7 +640,7 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
       else setGc((v) => v + pts);
     }
     const detalle = tipo === "Try" ? (convierte ? "convertido" : "sin convertir") : convierte ? "convertido" : "errado";
-    log(`${equipo === "Obras" ? "🟡" : "⚫"} ${equipo}: ${tipo} ${detalle} (${pts} pts)`);
+    log(`${equipo === "Obras" ? "🟡" : "⚫"} ${equipo}: ${tipo} ${detalle} (${pts} pts)`, { puntos: pts, equipo });
     setPendienteConversion(null);
   }
 
@@ -612,17 +651,17 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
     if (nuevaCantidad >= 2) {
       setTiemposAfuera((prev) => ({ ...prev, [jugador]: 1200 })); // 20 min
       setExpulsados((prev) => new Set(prev).add(jugador));
-      log(`🟨🟨 ${jugador}: segunda amarilla — 20 min y no vuelve a entrar`);
+      log(`🟨🟨 ${jugador}: segunda amarilla — 20 min y no vuelve a entrar`, { tarjetaJugador: jugador, tarjetaTipo: "amarilla", segundaAmarilla: true });
     } else {
       setTiemposAfuera((prev) => ({ ...prev, [jugador]: 600 })); // 10 min
-      log(`🟨 ${jugador}: amarilla — 10 min afuera`);
+      log(`🟨 ${jugador}: amarilla — 10 min afuera`, { tarjetaJugador: jugador, tarjetaTipo: "amarilla" });
     }
     setPidiendoJugador(null);
   }
 
   function aplicarRoja(jugador) {
     setExpulsados((prev) => new Set(prev).add(jugador));
-    log(`🟥 ${jugador}: roja — no vuelve a entrar`);
+    log(`🟥 ${jugador}: roja — no vuelve a entrar`, { tarjetaJugador: jugador, tarjetaTipo: "roja" });
     setPidiendoJugador(null);
   }
 
@@ -688,6 +727,12 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
             <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 40, color: "#f5f4f0", fontWeight: 700 }}>{gc}</div>
           </div>
         </div>
+        <button
+          onClick={reiniciarMarcador}
+          style={{ background: "transparent", border: "none", color: "#6b6b68", fontSize: 11, cursor: "pointer", textDecoration: "underline" }}
+        >
+          ↺ Reiniciar tanteador (0-0)
+        </button>
       </div>
 
       {afuera.length > 0 && (
@@ -774,9 +819,16 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
           <div style={{ fontSize: 12.5, color: "#6b6b68", padding: "10px 0" }}>Todavía no hay nada cargado.</div>
         ) : (
           [...incidencias].reverse().map((i, idx) => (
-            <div key={idx} style={{ padding: "8px 0", borderTop: idx === 0 ? "none" : "1px solid #232324", display: "flex", gap: 10, fontSize: 12.5 }}>
+            <div key={i.id} style={{ padding: "8px 0", borderTop: idx === 0 ? "none" : "1px solid #232324", display: "flex", gap: 10, alignItems: "center", fontSize: 12.5 }}>
               <span style={{ color: "#f2c230", fontFamily: "'Oswald', sans-serif", flexShrink: 0 }}>{i.minuto}</span>
-              <span style={{ color: "#c9c9c6" }}>{i.texto}</span>
+              <span style={{ color: "#c9c9c6", flex: 1 }}>{i.texto}</span>
+              <button
+                onClick={() => borrarIncidencia(i.id)}
+                title="Borrar esta incidencia"
+                style={{ background: "transparent", border: "none", color: "#6b6b68", fontSize: 14, cursor: "pointer", flexShrink: 0, padding: "0 4px" }}
+              >
+                ✕
+              </button>
             </div>
           ))
         )}
@@ -1876,31 +1928,97 @@ function SuplentePill({ slot, editMode, onChangeJugador, onChangePuesto }) {
 
 // Versión en lista simple (sin cancha) — la usamos en mobile, donde el dibujo de la cancha
 // con los backs en posiciones absolutas queda apretado y difícil de tocar.
+function FilaFormacionMobile({ slot, editMode, abierto, onAbrir, onElegir }) {
+  const vacante = !slot.jugadorId;
+  return (
+    <div>
+      <button
+        onClick={() => editMode && onAbrir(abierto ? null : slot.numero)}
+        style={{
+          display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+          background: abierto ? "#1d1a0c" : "transparent", border: "none",
+          borderRadius: 8, padding: "8px 6px", cursor: editMode ? "pointer" : "default",
+        }}
+      >
+        <span style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#f2c230", fontSize: 13, minWidth: 18, textAlign: "center", flexShrink: 0 }}>
+          {slot.numero}
+        </span>
+        <AvatarPlaceholder foto={slot.foto} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, color: vacante ? "#6b6b68" : "#f5f4f0", fontStyle: vacante ? "italic" : "normal", fontWeight: 500 }}>
+            {vacante ? "Vacante" : slot.jugadorId}
+          </div>
+          <div style={{ fontSize: 10.5, color: "#6b6b68" }}>{slot.puesto}</div>
+        </div>
+        {editMode && <span style={{ color: "#6b6b68", fontSize: 12, flexShrink: 0 }}>{abierto ? "▲" : "▾"}</span>}
+      </button>
+
+      {abierto && (
+        <div style={{ background: "#0e0e0f", border: "1px solid #2a2a2c", borderRadius: 8, padding: 10, margin: "4px 0 10px" }}>
+          <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 8 }}>Elegí quién cubre esta camiseta:</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            <button
+              onClick={() => onElegir("")}
+              style={{ ...pillButton, fontSize: 11.5, background: !slot.jugadorId ? "#1d1a0c" : "transparent", border: "1px solid " + (!slot.jugadorId ? "#f2c230" : "#2a2a2c"), color: !slot.jugadorId ? "#f2c230" : "#8f8f8c" }}
+            >
+              — Vacante —
+            </button>
+            {jugadoresPara(slot.puesto).map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onElegir(p.id)}
+                style={{ ...pillButton, fontSize: 11.5, background: slot.jugadorId === p.id ? "#1d1a0c" : "transparent", border: "1px solid " + (slot.jugadorId === p.id ? "#f2c230" : "#2a2a2c"), color: slot.jugadorId === p.id ? "#f2c230" : "#c9c9c6" }}
+              >
+                {p.id}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ListaFormacion({ lineup, editMode, onChangeJugador, onChangePuesto }) {
+  const [abierto, setAbierto] = useState(null); // número de camiseta con el panel desplegado
   const titulares = lineup.filter((s) => s.grupo !== "suplentes").sort((a, b) => a.numero - b.numero);
   const suplentes = lineup.filter((s) => s.grupo === "suplentes").sort((a, b) => a.numero - b.numero);
 
   return (
     <div>
       <div style={{ ...cardStyle, padding: "16px 18px" }}>
-        <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.6, marginBottom: 14 }}>TITULARES</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.6, marginBottom: 10 }}>TITULARES</div>
+        <div style={{ display: "flex", flexDirection: "column" }}>
           {titulares.map((s) => (
-            <TitularPill key={s.numero} slot={s} editMode={editMode} onChangeJugador={(v) => onChangeJugador(s.numero, v)} />
+            <FilaFormacionMobile
+              key={s.numero}
+              slot={s}
+              editMode={editMode}
+              abierto={abierto === s.numero}
+              onAbrir={setAbierto}
+              onElegir={(v) => {
+                onChangeJugador(s.numero, v);
+                setAbierto(null);
+              }}
+            />
           ))}
         </div>
       </div>
 
       <div style={{ ...cardStyle, padding: "16px 18px", marginTop: 16 }}>
-        <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.6, marginBottom: 14 }}>SUPLENTES · {suplentes.length}</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.6, marginBottom: 10 }}>SUPLENTES · {suplentes.length}</div>
+        <div style={{ display: "flex", flexDirection: "column" }}>
           {suplentes.map((s) => (
-            <SuplentePill
+            <FilaFormacionMobile
               key={s.numero}
               slot={s}
               editMode={editMode}
-              onChangeJugador={(v) => onChangeJugador(s.numero, v)}
-              onChangePuesto={(v) => onChangePuesto(s.numero, v)}
+              abierto={abierto === s.numero}
+              onAbrir={setAbierto}
+              onElegir={(v) => {
+                onChangeJugador(s.numero, v);
+                setAbierto(null);
+              }}
             />
           ))}
         </div>
@@ -6540,9 +6658,12 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
       supabase.from("notificaciones").select("*").gte("created_at", desde).order("created_at", { ascending: false }),
       perfil ? supabase.from("notificaciones_leidas").select("notificacion_id").eq("perfil_id", perfil.id) : Promise.resolve({ data: [] }),
     ]);
-    const relevantes = (n || []).filter((x) => !x.roles_destino || (perfil && x.roles_destino.includes(perfil.rol)));
+    const leidasSet = new Set((l || []).map((x) => x.notificacion_id));
+    const relevantes = (n || []).filter(
+      (x) => (!x.roles_destino || (perfil && x.roles_destino.includes(perfil.rol))) && !leidasSet.has(x.id)
+    );
     setNotis(relevantes);
-    setLeidas(new Set((l || []).map((x) => x.notificacion_id)));
+    setLeidas(leidasSet);
   }
 
   useEffect(() => {
@@ -6554,6 +6675,7 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
   async function marcarLeida(id) {
     if (!perfil || leidas.has(id)) return;
     setLeidas((prev) => new Set(prev).add(id));
+    setNotis((prev) => prev.filter((n) => n.id !== id)); // desaparece de la lista apenas se abre
     await supabase.from("notificaciones_leidas").insert({ notificacion_id: id, perfil_id: perfil.id });
   }
 
@@ -6568,7 +6690,7 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
     if (destino && onNavigate) onNavigate(destino);
   }
 
-  const sinLeer = notis.filter((n) => !leidas.has(n.id)).length;
+  const sinLeer = notis.length;
 
   return (
     <div style={{ position: "relative" }}>
@@ -6604,7 +6726,7 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
               onClick={() => abrirNotificacion(n)}
               style={{
                 padding: "10px 8px", borderTop: "1px solid #232324", cursor: "pointer",
-                background: leidas.has(n.id) ? "transparent" : "#1d1a0c",
+                background: "#1d1a0c",
               }}
             >
               <div style={{ fontSize: 12.5, color: "#f5f4f0" }}>{n.mensaje}</div>
