@@ -131,7 +131,7 @@ async function cargarCalendario() {
 
   const { data: posRows, error: errPos } = await supabase
     .from("posiciones")
-    .select("categoria_id, es_obras, pj, g, e, p, pf, pc, dif, bo, bd, pts, equipos_rivales(nombre)")
+    .select("id, categoria_id, es_obras, pj, g, e, p, pf, pc, dif, bo, bd, pts, equipos_rivales(nombre)")
     .order("pts", { ascending: false });
   if (errPos) console.error("Error cargando posiciones:", errPos);
 
@@ -147,6 +147,7 @@ async function cargarCalendario() {
     POSICIONES[claveCat] = (posRows || [])
       .filter((r) => r.categoria_id === catId)
       .map((r) => ({
+        id: r.id,
         equipo: r.es_obras ? "Obras Sanitarias" : r.equipos_rivales?.nombre,
         pj: r.pj, g: r.g, e: r.e, p: r.p, pf: r.pf, pc: r.pc, dif: r.dif, bo: r.bo, bd: r.bd, pts: r.pts,
       }));
@@ -184,13 +185,61 @@ async function guardarResultadoPartido(partidoId, gf, gc) {
   let res = "Empate";
   if (gf > gc) res = "Ganado";
   else if (gf < gc) res = "Perdido";
-  const { error } = await supabase.from("partidos").update({ goles_favor: gf, goles_contra: gc, resultado: res }).eq("id", partidoId);
-  if (error) console.error("Error guardando resultado:", error);
-  else crearNotificacion("resultado_cargado", `🏉 Resultado cargado: Obras ${gf}-${gc}`, null);
-  return !error;
+  const { data, error } = await supabase
+    .from("partidos")
+    .update({ goles_favor: gf, goles_contra: gc, resultado: res })
+    .eq("id", partidoId)
+    .select("categoria_id")
+    .single();
+  if (error) {
+    console.error("Error guardando resultado:", error);
+    return false;
+  }
+  crearNotificacion("resultado_cargado", `🏉 Resultado cargado: Obras ${gf}-${gc}`, null);
+  if (data?.categoria_id) await recalcularPosicionObras(data.categoria_id);
+  return true;
+}
+
+// Recalcula solo la fila de Obras en la tabla de posiciones, sumando todos sus partidos jugados
+// de esa categoría — así queda siempre al día sola, sin tocar las filas de los otros clubes
+// (esas las carga a mano el cuerpo técnico/manager, editando la tabla).
+async function recalcularPosicionObras(categoriaId) {
+  const { data: partidos, error: errPartidos } = await supabase
+    .from("partidos")
+    .select("resultado, goles_favor, goles_contra")
+    .eq("categoria_id", categoriaId)
+    .in("resultado", ["Ganado", "Empate", "Perdido"]);
+  if (errPartidos || !partidos) return;
+
+  const pj = partidos.length;
+  const g = partidos.filter((p) => p.resultado === "Ganado").length;
+  const e = partidos.filter((p) => p.resultado === "Empate").length;
+  const p = partidos.filter((p) => p.resultado === "Perdido").length;
+  const pf = partidos.reduce((acc, x) => acc + (x.goles_favor || 0), 0);
+  const pc = partidos.reduce((acc, x) => acc + (x.goles_contra || 0), 0);
+
+  const { data: filaObras } = await supabase
+    .from("posiciones")
+    .select("id, bo, bd")
+    .eq("categoria_id", categoriaId)
+    .eq("es_obras", true)
+    .maybeSingle();
+  if (!filaObras) return;
+
+  await guardarFilaPosicion(filaObras.id, { pj, g, e, p, pf, pc, bo: filaObras.bo || 0, bd: filaObras.bd || 0 });
 }
 
 // Agrega un partido nuevo al fixture. Si el rival no existe todavía en la base, lo crea de paso.
+// Guarda a mano una fila de la tabla de posiciones (Cuerpo técnico / Manager) — pts se recalcula
+// siempre como G*4 + E*2 + bonus, así nunca queda desincronizado de los otros campos.
+async function guardarFilaPosicion(id, campos) {
+  const pts = campos.g * 4 + campos.e * 2 + (campos.bo || 0) + (campos.bd || 0);
+  const dif = campos.pf - campos.pc;
+  const { error } = await supabase.from("posiciones").update({ ...campos, dif, pts }).eq("id", id);
+  if (error) console.error("Error guardando posición:", error);
+  return !error;
+}
+
 async function agregarPartido({ categoriaNombre, fechaNumero, fecha, rivalNombre, condicion }) {
   let { data: rival } = await supabase.from("equipos_rivales").select("id").eq("nombre", rivalNombre).maybeSingle();
   if (!rival) {
@@ -298,9 +347,73 @@ function TeamBadge({ name, size = 20 }) {
   );
 }
 
-function TablaPosiciones({ data }) {
+function TablaPosiciones({ data, perfil, onGuardado }) {
+  const [editando, setEditando] = useState(false);
+  const [filas, setFilas] = useState(data);
+  const [guardando, setGuardando] = useState(false);
+
+  useEffect(() => {
+    setFilas(data);
+  }, [data]);
+
+  function campo(i, clave, valor) {
+    const n = Number(valor.replace(/[^\d-]/g, "")) || 0;
+    setFilas((prev) => {
+      const next = [...prev];
+      const fila = { ...next[i], [clave]: n };
+      fila.dif = fila.pf - fila.pc;
+      fila.pts = fila.g * 4 + fila.e * 2 + (fila.bo || 0) + (fila.bd || 0);
+      next[i] = fila;
+      return next;
+    });
+  }
+
+  async function guardarTodo() {
+    setGuardando(true);
+    for (const fila of filas) {
+      if (!fila.id) continue; // sin id no se puede guardar (no debería pasar)
+      await guardarFilaPosicion(fila.id, { pj: fila.pj, g: fila.g, e: fila.e, p: fila.p, pf: fila.pf, pc: fila.pc, bo: fila.bo, bd: fila.bd });
+    }
+    setGuardando(false);
+    setEditando(false);
+    onGuardado?.();
+  }
+
+  const CampoEditable = ({ i, clave }) => (
+    <input
+      value={filas[i][clave] ?? 0}
+      onChange={(e) => campo(i, clave, e.target.value)}
+      style={{ width: 34, background: "#0e0e0f", border: "1px solid #2a2a2c", borderRadius: 4, color: "#f5f4f0", fontSize: 12, textAlign: "right", padding: "3px 4px" }}
+    />
+  );
+
   return (
-    <div style={{ overflowX: "auto" }}>
+    <div>
+      {puedeGestionar(perfil) && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          {editando ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={guardarTodo} disabled={guardando} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none", fontSize: 11.5 }}>
+                {guardando ? "Guardando…" : "Guardar cambios"}
+              </button>
+              <button
+                onClick={() => {
+                  setFilas(data);
+                  setEditando(false);
+                }}
+                style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c", fontSize: 11.5 }}
+              >
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setEditando(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c", fontSize: 11.5 }}>
+              Editar tabla
+            </button>
+          )}
+        </div>
+      )}
+      <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 640 }}>
         <thead>
           <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
@@ -314,7 +427,7 @@ function TablaPosiciones({ data }) {
           </tr>
         </thead>
         <tbody>
-          {data.map((t, i) => {
+          {filas.map((t, i) => {
             const isObras = t.equipo === "Obras Sanitarias";
             return (
               <tr
@@ -332,23 +445,41 @@ function TablaPosiciones({ data }) {
                     {t.equipo}
                   </span>
                 </td>
-                <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.pj}</td>
-                <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.g}</td>
-                <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.e}</td>
-                <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.p}</td>
-                <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.pf}</td>
-                <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.pc}</td>
-                <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.dif}</td>
-                <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.bo}</td>
-                <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.bd}</td>
-                <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10, fontWeight: 600, color: isObras ? "#f2c230" : "#f5f4f0" }}>
-                  {t.pts}
-                </td>
+                {editando ? (
+                  <>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="pj" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="g" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="e" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="p" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="pf" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="pc" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.dif}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="bo" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="bd" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10, fontWeight: 600, color: isObras ? "#f2c230" : "#f5f4f0" }}>{t.pts}</td>
+                  </>
+                ) : (
+                  <>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.pj}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.g}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.e}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.p}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.pf}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.pc}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.dif}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.bo}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.bd}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10, fontWeight: 600, color: isObras ? "#f2c230" : "#f5f4f0" }}>
+                      {t.pts}
+                    </td>
+                  </>
+                )}
               </tr>
             );
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -852,6 +983,23 @@ function CalendarioPage({ perfil }) {
   const [nuevaFecha, setNuevaFecha] = useState("");
   const [nuevaDate, setNuevaDate] = useState("");
   const [nuevaCond, setNuevaCond] = useState("Local");
+  const [sincronizando, setSincronizando] = useState(false);
+  const [msgSync, setMsgSync] = useState("");
+
+  async function sincronizarUrba() {
+    setSincronizando(true);
+    setMsgSync("");
+    const { error } = await supabase.functions.invoke("sync-urba");
+    if (error) {
+      setMsgSync("No se pudo conectar con URBA. Probá de nuevo en un rato.");
+    } else {
+      await cargarCalendario();
+      forceUpdate((n) => n + 1);
+      setMsgSync("✓ Actualizado con los datos reales de URBA.");
+    }
+    setSincronizando(false);
+    setTimeout(() => setMsgSync(""), 4000);
+  }
 
   const fixture = FIXTURE[cat];
   const proximos = PROXIMOS[cat];
@@ -913,9 +1061,21 @@ function CalendarioPage({ perfil }) {
           </div>
         </div>
         {puedeGestionar(perfil) && !agregando && (
-          <button onClick={() => setAgregando(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}>
-            + Agregar partido
-          </button>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={sincronizarUrba}
+                disabled={sincronizando}
+                style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}
+              >
+                {sincronizando ? "Actualizando…" : "🔄 Actualizar desde URBA"}
+              </button>
+              <button onClick={() => setAgregando(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}>
+                + Agregar partido
+              </button>
+            </div>
+            {msgSync && <div style={{ fontSize: 11, color: msgSync.startsWith("✓") ? "#5fbf7a" : "#e0665c" }}>{msgSync}</div>}
+          </div>
         )}
       </div>
 
@@ -1069,7 +1229,14 @@ function CalendarioPage({ perfil }) {
           <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 12 }}>
             Hasta fecha 17 · Berazategui-San José (fecha 17) postergado, por eso tienen un partido menos
           </div>
-          <TablaPosiciones data={POSICIONES[cat]} />
+          <TablaPosiciones
+            data={POSICIONES[cat]}
+            perfil={perfil}
+            onGuardado={async () => {
+              await cargarCalendario();
+              forceUpdate((n) => n + 1);
+            }}
+          />
         </div>
       </div>
     </div>
@@ -6645,6 +6812,7 @@ const NOTI_DESTINO = {
   video_partido: "veo",
   informe_partido: "reportes",
   lesion_reportada: "rtp",
+  sync_urba: "calendario",
 };
 
 function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfiguracion }) {
