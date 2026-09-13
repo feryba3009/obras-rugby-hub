@@ -989,7 +989,7 @@ function CalendarioPage({ perfil }) {
   async function sincronizarUrba() {
     setSincronizando(true);
     setMsgSync("");
-    const { error } = await supabase.functions.invoke("sync-urba");
+    const { error } = await supabase.functions.invoke("smooth-api");
     if (error) {
       setMsgSync("No se pudo conectar con URBA. Probá de nuevo en un rato.");
     } else {
