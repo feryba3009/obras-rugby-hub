@@ -3349,20 +3349,655 @@ function generarEventos(partido, categoria) {
   return eventos.sort((a, b) => a.minNum - b.minNum);
 }
 
+function formatoRelojMMSS(seg) {
+  const m = Math.floor(seg / 60).toString().padStart(2, "0");
+  const s = Math.floor(seg % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+// Panel de anotación mientras se mira el video: el cuerpo técnico marca en juego/fuera,
+// posesión y territorio con toggles, y obtención con las mismas opciones reales del informe
+// (ganados/perdidos/robados/del rival, más "torcidas" en line) — la app calcula sola el
+// ball-in-play, la cantidad de secuencias, la más larga, y los % de posesión/territorio.
+// En mobile no se embebe el video (queda pesado y tapa el panel) — solo el anotador, con un
+// link para abrir el video aparte.
+function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
+  const isMobile = useIsMobile();
+  const [enJuego, setEnJuego] = useState(false);
+  const [tiempoSecuenciaActual, setTiempoSecuenciaActual] = useState(0);
+  const [secuencias, setSecuencias] = useState([]);
+
+  const [posesion, setPosesion] = useState("Obras");
+  const [tPosesionObras, setTPosesionObras] = useState(0);
+  const [tPosesionRival, setTPosesionRival] = useState(0);
+
+  const [territorio, setTerritorio] = useState("Propio");
+  const [tTerritorioPropio, setTTerritorioPropio] = useState(0);
+  const [tTerritorioRival, setTTerritorioRival] = useState(0);
+
+  const [scrum, setScrum] = useState({ ganados: 0, perdidos: 0, robados: 0, delRival: 0 });
+  const [line, setLine] = useState({ ganados: 0, perdidos: 0, robados: 0, torcidas: 0, delRival: 0 });
+  const [pelotasRecuperadas, setPelotasRecuperadas] = useState(0);
+  const [perdidasPelota, setPerdidasPelota] = useState(0);
+  const [penalesAFavor, setPenalesAFavor] = useState(0);
+  const [penalesEnContra, setPenalesEnContra] = useState(0);
+
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState("");
+  const intervaloRef = React.useRef(null);
+
+  useEffect(() => {
+    if (enJuego) {
+      intervaloRef.current = setInterval(() => {
+        setTiempoSecuenciaActual((t) => t + 1);
+        if (posesion === "Obras") setTPosesionObras((t) => t + 1);
+        else setTPosesionRival((t) => t + 1);
+        if (territorio === "Propio") setTTerritorioPropio((t) => t + 1);
+        else setTTerritorioRival((t) => t + 1);
+      }, 1000);
+    } else if (intervaloRef.current) {
+      clearInterval(intervaloRef.current);
+    }
+    return () => clearInterval(intervaloRef.current);
+  }, [enJuego, posesion, territorio]);
+
+  function toggleEnJuego() {
+    if (enJuego) {
+      setSecuencias((prev) => [...prev, tiempoSecuenciaActual]);
+      setTiempoSecuenciaActual(0);
+    }
+    setEnJuego((v) => !v);
+  }
+
+  function sumar(setter, campo) {
+    setter((prev) => ({ ...prev, [campo]: prev[campo] + 1 }));
+  }
+
+  // Atajos de teclado — solo en escritorio, para anotar sin soltar el mouse del video.
+  useEffect(() => {
+    if (isMobile) return;
+    function onKeyDown(e) {
+      if (e.repeat) return;
+      const k = e.key.toLowerCase();
+      if (k === " ") {
+        e.preventDefault();
+        toggleEnJuego();
+        return;
+      }
+      const acciones = {
+        "1": () => setPosesion("Obras"),
+        "2": () => setPosesion("Rival"),
+        "3": () => setTerritorio("Propio"),
+        "4": () => setTerritorio("Rival"),
+        q: () => sumar(setScrum, "ganados"),
+        w: () => sumar(setScrum, "perdidos"),
+        e: () => sumar(setScrum, "robados"),
+        r: () => sumar(setScrum, "delRival"),
+        a: () => sumar(setLine, "ganados"),
+        s: () => sumar(setLine, "perdidos"),
+        d: () => sumar(setLine, "robados"),
+        f: () => sumar(setLine, "torcidas"),
+        g: () => sumar(setLine, "delRival"),
+        z: () => setPelotasRecuperadas((v) => v + 1),
+        x: () => setPerdidasPelota((v) => v + 1),
+        c: () => setPenalesAFavor((v) => v + 1),
+        v: () => setPenalesEnContra((v) => v + 1),
+      };
+      if (acciones[k]) {
+        e.preventDefault();
+        acciones[k]();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMobile]);
+
+  const secuenciasTotales = [...secuencias, ...(enJuego ? [tiempoSecuenciaActual] : [])];
+  const ballInPlay = secuenciasTotales.reduce((a, b) => a + b, 0);
+  const cantidadSecuencias = secuencias.length + (enJuego ? 1 : 0);
+  const secuenciaMasLarga = secuenciasTotales.length ? Math.max(...secuenciasTotales) : 0;
+  const totalPosesion = tPosesionObras + tPosesionRival;
+  const pctPosesionObras = totalPosesion ? Math.round((tPosesionObras / totalPosesion) * 100) : 0;
+  const totalTerritorio = tTerritorioPropio + tTerritorioRival;
+  const pctTerritorioRival = totalTerritorio ? Math.round((tTerritorioRival / totalTerritorio) * 100) : 0;
+
+  async function guardarAnalisis() {
+    setGuardando(true);
+    const secuenciasFinal = enJuego ? [...secuencias, tiempoSecuenciaActual] : secuencias;
+    const ballInPlayFinal = secuenciasFinal.reduce((a, b) => a + b, 0);
+
+    const informe = partido.informe ? JSON.parse(JSON.stringify(partido.informe)) : STATS_VACIO();
+    informe.scrum = { ...informe.scrum, ...scrum };
+    informe.line = { ...informe.line, ...line };
+    informe.favorables = { ...informe.favorables, pelotasRecuperadas, penalesAFavor };
+    informe.desfavorables = { ...informe.desfavorables, perdidasContacto: perdidasPelota, penalesEnContra };
+    informe.analisisVideo = {
+      posesionObras: pctPosesionObras,
+      posesionRival: 100 - pctPosesionObras,
+      territorioPropio: 100 - pctTerritorioRival,
+      territorioRival: pctTerritorioRival,
+      ballInPlaySegundos: ballInPlayFinal,
+      secuencias: secuenciasFinal.length,
+      secuenciaMasLargaSegundos: secuenciasFinal.length ? Math.max(...secuenciasFinal) : 0,
+    };
+
+    const { error } = await supabase.from("partidos").update({ informe }).eq("id", partido.id);
+    if (!error) {
+      partido.informe = informe;
+      crearNotificacion("informe_partido", `🔍 Análisis de video listo: ${categoria} vs ${partido.rival}.`, null, perfil?.id);
+      setMsg("✓ Guardado — ya se ve en VEO Cam y en el Informe de partido.");
+    } else {
+      setMsg("No se pudo guardar. Probá de nuevo.");
+    }
+    setGuardando(false);
+  }
+
+  const panelStyle = {
+    background: "linear-gradient(180deg, #161617, #121213)",
+    border: "1px solid #232324",
+    borderRadius: 14,
+    padding: 16,
+  };
+  const tituloPanel = { fontSize: 10.5, color: "#8f8f8c", letterSpacing: 0.8, marginBottom: 10, fontWeight: 600 };
+
+  const ToggleBoton = ({ activo, onClick, children, colorActivo = "#f2c230" }) => (
+    <button
+      onClick={onClick}
+      style={{
+        flex: 1, padding: "10px 8px", borderRadius: 10, fontSize: 12.5, cursor: "pointer", fontWeight: 600,
+        transition: "all 0.15s",
+        background: activo ? "#1d1a0c" : "#1a1a1b",
+        border: "1px solid " + (activo ? colorActivo : "#262627"),
+        color: activo ? colorActivo : "#8f8f8c",
+      }}
+    >
+      {children}
+    </button>
+  );
+
+  const BotonObtencion = ({ label, valor, onClick, tono = "ok" }) => {
+    const colores = {
+      ok: { bg: "#111a12", color: "#5fbf7a" },
+      mal: { bg: "#2a120f", color: "#e0665c" },
+      neutro: { bg: "#1a1a1b", color: "#c9c9c6" },
+    }[tono];
+    return (
+      <button
+        onClick={onClick}
+        style={{
+          background: colores.bg, color: colores.color, border: "none", borderRadius: 10,
+          padding: "9px 6px", fontSize: 11, cursor: "pointer", display: "flex", flexDirection: "column",
+          alignItems: "center", gap: 2, fontWeight: 600,
+        }}
+      >
+        <span>{label}</span>
+        <span style={{ fontFamily: "'Oswald', sans-serif", fontSize: 15, fontWeight: 700 }}>{valor}</span>
+      </button>
+    );
+  };
+
+  const statsResumen = (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+      <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
+        <div style={{ fontSize: 10, color: "#8f8f8c" }}>Posesión Obras</div>
+        <div style={{ fontSize: 20, color: "#f2c230", fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>{pctPosesionObras}%</div>
+      </div>
+      <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
+        <div style={{ fontSize: 10, color: "#8f8f8c" }}>Territorio rival</div>
+        <div style={{ fontSize: 20, color: "#f2c230", fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>{pctTerritorioRival}%</div>
+      </div>
+      <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
+        <div style={{ fontSize: 10, color: "#8f8f8c" }}>Ball in play</div>
+        <div style={{ fontSize: 20, color: "#f2c230", fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>{formatoRelojMMSS(ballInPlay)}</div>
+      </div>
+      <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
+        <div style={{ fontSize: 10, color: "#8f8f8c" }}>Secuencias</div>
+        <div style={{ fontSize: 20, color: "#f2c230", fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+          {cantidadSecuencias} <span style={{ fontSize: 11, color: "#8f8f8c", fontWeight: 400 }}>· más larga {formatoRelojMMSS(secuenciaMasLarga)}</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  const panelAnotador = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {!isMobile && (
+        <div style={{ ...panelStyle, padding: "10px 14px", fontSize: 10.5, color: "#8f8f8c", lineHeight: 1.7 }}>
+          <b style={{ color: "#c9c9c6" }}>⌨️ Atajos:</b> <b style={{ color: "#f2c230" }}>Espacio</b> en/fuera de juego ·{" "}
+          <b style={{ color: "#f2c230" }}>1</b>/<b style={{ color: "#f2c230" }}>2</b> posesión Obras/Rival ·{" "}
+          <b style={{ color: "#f2c230" }}>3</b>/<b style={{ color: "#f2c230" }}>4</b> territorio propio/rival
+          <br />
+          <b style={{ color: "#f2c230" }}>Q W E R</b> scrum (ganado/perdido/robado/del rival) ·{" "}
+          <b style={{ color: "#f2c230" }}>A S D F G</b> line (ganado/perdido/robado/torcida/del rival)
+          <br />
+          <b style={{ color: "#f2c230" }}>Z X C V</b> recuperada/pérdida/penal a favor/penal en contra
+        </div>
+      )}
+      <button
+        onClick={toggleEnJuego}
+        style={{
+          padding: "18px", borderRadius: 14, border: "none", fontSize: 15, fontWeight: 700, cursor: "pointer",
+          background: enJuego ? "linear-gradient(135deg, #16321c, #0f1f13)" : "linear-gradient(135deg, #321714, #1f100e)",
+          color: enJuego ? "#5fbf7a" : "#e0665c",
+          boxShadow: enJuego ? "0 0 0 1px #2a4a30 inset" : "0 0 0 1px #4a2a26 inset",
+          letterSpacing: 0.3,
+        }}
+      >
+        {enJuego ? `▶  EN JUEGO  ·  ${formatoRelojMMSS(tiempoSecuenciaActual)}` : "⏸  FUERA DE JUEGO"}
+      </button>
+
+      <div style={panelStyle}>
+        <div style={tituloPanel}>POSESIÓN</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <ToggleBoton activo={posesion === "Obras"} onClick={() => setPosesion("Obras")}>
+            🟡 Obras
+          </ToggleBoton>
+          <ToggleBoton activo={posesion === "Rival"} onClick={() => setPosesion("Rival")}>
+            ⚫ {partido.rival}
+          </ToggleBoton>
+        </div>
+      </div>
+
+      <div style={panelStyle}>
+        <div style={tituloPanel}>TERRITORIO</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <ToggleBoton activo={territorio === "Propio"} onClick={() => setTerritorio("Propio")}>
+            Campo propio
+          </ToggleBoton>
+          <ToggleBoton activo={territorio === "Rival"} onClick={() => setTerritorio("Rival")}>
+            Campo rival
+          </ToggleBoton>
+        </div>
+      </div>
+
+      <div style={panelStyle}>
+        <div style={tituloPanel}>SCRUM · OBRAS</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
+          <BotonObtencion label="Ganado" valor={scrum.ganados} tono="ok" onClick={() => sumar(setScrum, "ganados")} />
+          <BotonObtencion label="Perdido" valor={scrum.perdidos} tono="mal" onClick={() => sumar(setScrum, "perdidos")} />
+          <BotonObtencion label="Robado" valor={scrum.robados} tono="ok" onClick={() => sumar(setScrum, "robados")} />
+          <BotonObtencion label="Del rival" valor={scrum.delRival} tono="ok" onClick={() => sumar(setScrum, "delRival")} />
+        </div>
+      </div>
+
+      <div style={panelStyle}>
+        <div style={tituloPanel}>LINE-OUT · OBRAS</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 6 }}>
+          <BotonObtencion label="Ganado" valor={line.ganados} tono="ok" onClick={() => sumar(setLine, "ganados")} />
+          <BotonObtencion label="Perdido" valor={line.perdidos} tono="mal" onClick={() => sumar(setLine, "perdidos")} />
+          <BotonObtencion label="Robado" valor={line.robados} tono="ok" onClick={() => sumar(setLine, "robados")} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+          <BotonObtencion label="Torcida" valor={line.torcidas} tono="neutro" onClick={() => sumar(setLine, "torcidas")} />
+          <BotonObtencion label="Del rival" valor={line.delRival} tono="ok" onClick={() => sumar(setLine, "delRival")} />
+        </div>
+      </div>
+
+      <div style={panelStyle}>
+        <div style={tituloPanel}>SITUACIONES</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+          <BotonObtencion label="Recuperada" valor={pelotasRecuperadas} tono="ok" onClick={() => setPelotasRecuperadas((v) => v + 1)} />
+          <BotonObtencion label="Pérdida" valor={perdidasPelota} tono="mal" onClick={() => setPerdidasPelota((v) => v + 1)} />
+          <BotonObtencion label="Penal a favor" valor={penalesAFavor} tono="ok" onClick={() => setPenalesAFavor((v) => v + 1)} />
+          <BotonObtencion label="Penal en contra" valor={penalesEnContra} tono="mal" onClick={() => setPenalesEnContra((v) => v + 1)} />
+        </div>
+      </div>
+
+      <button
+        onClick={guardarAnalisis}
+        disabled={guardando}
+        style={{ ...buttonStyle, background: "#f2c230", color: "#141415", fontWeight: 700, letterSpacing: 0.3 }}
+      >
+        {guardando ? "Guardando…" : "💾 Guardar análisis"}
+      </button>
+      {msg && <div style={{ fontSize: 11.5, color: msg.startsWith("✓") ? "#5fbf7a" : "#e0665c", textAlign: "center" }}>{msg}</div>}
+    </div>
+  );
+
+  return (
+    <div>
+      <button onClick={onSalir} style={{ background: "transparent", border: "none", color: "#f2c230", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}>
+        ← Volver a VEO Cam
+      </button>
+      <div style={{ fontSize: 13, color: "#8f8f8c", marginBottom: 16 }}>
+        {categoria} vs {partido.rival} · Analizando video
+      </div>
+
+      {isMobile ? (
+        <div>
+          {partido.veoLink && (
+            <a
+              href={partido.veoLink}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#f2c230",
+                background: "#1d1a0c", border: "1px solid #3a2f0f", borderRadius: 10, padding: "10px 14px", marginBottom: 16,
+              }}
+            >
+              ▶ Abrir el video en VEO (otra pestaña o app)
+            </a>
+          )}
+          {statsResumen}
+          {panelAnotador}
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ flex: "1 1 55%", minWidth: 0 }}>
+            {partido.veoLink ? (
+              <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "#141415", border: "1px solid #232324" }}>
+                <iframe
+                  src={partido.veoLink}
+                  title="Video del partido"
+                  allow="fullscreen"
+                  style={{ width: "100%", height: "100%", border: "none" }}
+                />
+              </div>
+            ) : (
+              <div style={{ ...panelStyle, padding: 20, textAlign: "center", color: "#6b6b68", fontSize: 12.5 }}>
+                No hay link de VEO cargado para este partido.
+              </div>
+            )}
+            {partido.veoLink && (
+              <a href={partido.veoLink} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#6b6b68", display: "block", marginTop: 6 }}>
+                Si no carga acá, abrilo en una pestaña nueva ↗
+              </a>
+            )}
+            {statsResumen}
+          </div>
+          <div style={{ flex: "1 1 45%", minWidth: 0 }}>{panelAnotador}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+const SITUACIONES_PENAL = [
+  { key: "Ruck", campo: "penalEnContraRuck" },
+  { key: "Maul", campo: "penalEnContraMaul" },
+  { key: "Juego general", campo: "penalEnContraJuego" },
+  { key: "Inconducta", campo: "penalEnContraInconducta" },
+];
+
+function datosVacioJugador() {
+  return {
+    tackleHecho: 0, tacklePositivo: 0, tackleErrado: 0,
+    quiebreConTry: 0, quiebreSinTry: 0,
+    penalAFavor: 0,
+    penalEnContraRuck: 0, penalEnContraMaul: 0, penalEnContraJuego: 0, penalEnContraInconducta: 0,
+    esPateador: false, dropConvertido: 0, cincuenta22: 0,
+  };
+}
+
+function accPlusDe(d) {
+  return d.tacklePositivo + d.quiebreConTry + d.quiebreSinTry + d.penalAFavor + (d.esPateador ? d.dropConvertido + d.cincuenta22 : 0);
+}
+
+function FilaJugadorAnalisis({ slot, datos, onCambiar, abierto, onAbrir }) {
+  const [paso, setPaso] = useState(null); // null | "quiebre" | "penal-tipo" | "penal-situacion"
+  const d = datos;
+
+  function sumar(campo) {
+    onCambiar({ ...d, [campo]: d[campo] + 1 });
+  }
+
+  const botonMini = (label, onClick, tono = "neutro") => {
+    const colores = {
+      ok: { bg: "#111a12", color: "#5fbf7a" },
+      mal: { bg: "#2a120f", color: "#e0665c" },
+      neutro: { bg: "#1a1a1b", color: "#c9c9c6" },
+    }[tono];
+    return (
+      <button
+        onClick={onClick}
+        style={{ background: colores.bg, color: colores.color, border: "none", borderRadius: 8, padding: "8px 4px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+      >
+        {label}
+      </button>
+    );
+  };
+
+  return (
+    <div style={{ borderBottom: "1px solid #202021" }}>
+      <button
+        onClick={() => {
+          onAbrir(abierto ? null : slot.numero);
+          setPaso(null);
+        }}
+        style={{
+          display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+          background: abierto ? "#1d1a0c" : "transparent", border: "none", borderRadius: 8, padding: "10px 8px", cursor: "pointer",
+        }}
+      >
+        <span style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#f2c230", fontSize: 12.5, minWidth: 16, textAlign: "center" }}>{slot.numero}</span>
+        <span style={{ flex: 1, fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>{slot.jugadorId}</span>
+        <span style={{ fontSize: 10.5, color: "#8f8f8c" }}>ACC+ <b style={{ color: "#f2c230" }}>{accPlusDe(d)}</b></span>
+        <span style={{ color: "#6b6b68", fontSize: 11 }}>{abierto ? "▲" : "▾"}</span>
+      </button>
+
+      {abierto && (
+        <div style={{ padding: "4px 8px 16px" }}>
+          <div style={{ fontSize: 10, color: "#8f8f8c", letterSpacing: 0.6, marginBottom: 6, fontWeight: 600 }}>TACKLE</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 12 }}>
+            {botonMini(`Positivo (${d.tacklePositivo})`, () => sumar("tacklePositivo"), "ok")}
+            {botonMini(`Hecho (${d.tackleHecho})`, () => sumar("tackleHecho"), "neutro")}
+            {botonMini(`Errado (${d.tackleErrado})`, () => sumar("tackleErrado"), "mal")}
+          </div>
+
+          <div style={{ fontSize: 10, color: "#8f8f8c", letterSpacing: 0.6, marginBottom: 6, fontWeight: 600 }}>QUIEBRE</div>
+          {paso === "quiebre" ? (
+            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+              <div style={{ flex: 1, fontSize: 11, color: "#c9c9c6", alignSelf: "center" }}>¿Termina en try?</div>
+              {botonMini("Sí", () => { sumar("quiebreConTry"); setPaso(null); }, "ok")}
+              {botonMini("No", () => { sumar("quiebreSinTry"); setPaso(null); }, "neutro")}
+            </div>
+          ) : (
+            <div style={{ marginBottom: 12 }}>
+              <button
+                onClick={() => setPaso("quiebre")}
+                style={{ ...pillButton, width: "100%", background: "#1a1a1b", border: "none", color: "#c9c9c6", fontSize: 11.5 }}
+              >
+                + Quiebre ({d.quiebreConTry + d.quiebreSinTry})
+              </button>
+            </div>
+          )}
+
+          <div style={{ fontSize: 10, color: "#8f8f8c", letterSpacing: 0.6, marginBottom: 6, fontWeight: 600 }}>PENAL</div>
+          {paso === "penal-tipo" ? (
+            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+              {botonMini("A favor", () => { sumar("penalAFavor"); setPaso(null); }, "ok")}
+              {botonMini("En contra", () => setPaso("penal-situacion"), "mal")}
+            </div>
+          ) : paso === "penal-situacion" ? (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 12 }}>
+              {SITUACIONES_PENAL.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => { sumar(s.campo); setPaso(null); }}
+                  style={{ background: "#2a120f", color: "#e0665c", border: "none", borderRadius: 8, padding: "8px 4px", fontSize: 10.5, fontWeight: 600, cursor: "pointer" }}
+                >
+                  {s.key}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div style={{ marginBottom: 12 }}>
+              <button
+                onClick={() => setPaso("penal-tipo")}
+                style={{ ...pillButton, width: "100%", background: "#1a1a1b", border: "none", color: "#c9c9c6", fontSize: 11.5 }}
+              >
+                + Penal (favor {d.penalAFavor} · contra {d.penalEnContraRuck + d.penalEnContraMaul + d.penalEnContraJuego + d.penalEnContraInconducta})
+              </button>
+            </div>
+          )}
+
+          <button
+            onClick={() => onCambiar({ ...d, esPateador: !d.esPateador })}
+            style={{
+              ...pillButton, width: "100%", fontSize: 11.5, marginBottom: d.esPateador ? 8 : 0,
+              background: d.esPateador ? "#1d1a0c" : "transparent", border: "1px solid " + (d.esPateador ? "#f2c230" : "#2a2a2c"),
+              color: d.esPateador ? "#f2c230" : "#8f8f8c",
+            }}
+          >
+            🦶 {d.esPateador ? "Es pateador" : "Marcar como pateador"}
+          </button>
+          {d.esPateador && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              {botonMini(`Drop convertido (${d.dropConvertido})`, () => sumar("dropConvertido"), "ok")}
+              {botonMini(`50/22 (${d.cincuenta22})`, () => sumar("cincuenta22"), "ok")}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
+  const isMobile = useIsMobile();
+  const [datosPorJugador, setDatosPorJugador] = useState({});
+  const [cargando, setCargando] = useState(true);
+  const [abierto, setAbierto] = useState(null);
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const convocados = (LINEUPS_INICIALES[categoria] || []).filter((s) => s.jugadorId);
+
+  useEffect(() => {
+    cargarAnalisisIndividual(partido.id).then((real) => {
+      const iniciales = {};
+      convocados.forEach((s) => {
+        const jugadorDb = POOL.find((p) => p.id === s.jugadorId);
+        const r = jugadorDb && real[jugadorDb.dbId];
+        iniciales[s.jugadorId] = r
+          ? {
+              tackleHecho: r.tackle_hecho, tacklePositivo: r.tackle_positivo, tackleErrado: r.tackle_errado,
+              quiebreConTry: r.quiebre_con_try, quiebreSinTry: r.quiebre_sin_try,
+              penalAFavor: r.penal_a_favor,
+              penalEnContraRuck: r.penal_en_contra_ruck, penalEnContraMaul: r.penal_en_contra_maul,
+              penalEnContraJuego: r.penal_en_contra_juego, penalEnContraInconducta: r.penal_en_contra_inconducta,
+              esPateador: r.es_pateador, dropConvertido: r.drop_convertido, cincuenta22: r.cincuenta_22,
+            }
+          : datosVacioJugador();
+      });
+      setDatosPorJugador(iniciales);
+      setCargando(false);
+    });
+  }, [partido.id]);
+
+  async function guardarTodo() {
+    setGuardando(true);
+    for (const s of convocados) {
+      const jugadorDb = POOL.find((p) => p.id === s.jugadorId);
+      if (!jugadorDb) continue;
+      await guardarAnalisisJugador(partido.id, jugadorDb.dbId, datosPorJugador[s.jugadorId], perfil?.id);
+    }
+    setGuardando(false);
+    setMsg("✓ Guardado — se ve en la planilla del Informe de partido.");
+    setTimeout(() => setMsg(""), 3500);
+  }
+
+  if (cargando) return <div style={{ color: "#8f8f8c", fontSize: 13 }}>Cargando…</div>;
+
+  const listaJugadores = (
+    <div>
+      <div style={{ background: "linear-gradient(180deg, #161617, #121213)", border: "1px solid #232324", borderRadius: 14, padding: "6px 8px", marginBottom: 16 }}>
+        {convocados.map((s) => (
+          <FilaJugadorAnalisis
+            key={s.numero}
+            slot={s}
+            datos={datosPorJugador[s.jugadorId] || datosVacioJugador()}
+            onCambiar={(d) => setDatosPorJugador((prev) => ({ ...prev, [s.jugadorId]: d }))}
+            abierto={abierto === s.numero}
+            onAbrir={setAbierto}
+          />
+        ))}
+      </div>
+
+      <button onClick={guardarTodo} disabled={guardando} style={{ ...buttonStyle, background: "#f2c230", color: "#141415", fontWeight: 700 }}>
+        {guardando ? "Guardando…" : "💾 Guardar análisis individual"}
+      </button>
+      {msg && <div style={{ fontSize: 11.5, color: "#5fbf7a", textAlign: "center", marginTop: 8 }}>{msg}</div>}
+    </div>
+  );
+
+  return (
+    <div>
+      <button onClick={onSalir} style={{ background: "transparent", border: "none", color: "#f2c230", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}>
+        ← Volver a VEO Cam
+      </button>
+      <div style={{ fontSize: 13, color: "#8f8f8c", marginBottom: 4 }}>
+        {categoria} vs {partido.rival} · Análisis individual
+      </div>
+      <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 16 }}>
+        ACC+ = tackle positivo + quiebres + penal a favor {"\u00b7"} pateadores suman con drop convertido y 50/22.
+      </div>
+
+      {isMobile ? (
+        <div>
+          {partido.veoLink && (
+            <a
+              href={partido.veoLink}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#f2c230",
+                background: "#1d1a0c", border: "1px solid #3a2f0f", borderRadius: 10, padding: "10px 14px", marginBottom: 16,
+              }}
+            >
+              ▶ Abrir el video en VEO (otra pestaña o app)
+            </a>
+          )}
+          {listaJugadores}
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ flex: "1 1 50%", minWidth: 0 }}>
+            {partido.veoLink ? (
+              <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "#141415", border: "1px solid #232324" }}>
+                <iframe src={partido.veoLink} title="Video del partido" allow="fullscreen" style={{ width: "100%", height: "100%", border: "none" }} />
+              </div>
+            ) : (
+              <div style={{ background: "linear-gradient(180deg, #161617, #121213)", border: "1px solid #232324", borderRadius: 14, padding: 20, textAlign: "center", color: "#6b6b68", fontSize: 12.5 }}>
+                No hay link de VEO cargado para este partido.
+              </div>
+            )}
+            {partido.veoLink && (
+              <a href={partido.veoLink} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#6b6b68", display: "block", marginTop: 6 }}>
+                Si no carga acá, abrilo en una pestaña nueva ↗
+              </a>
+            )}
+          </div>
+          <div style={{ flex: "1 1 50%", minWidth: 0 }}>{listaJugadores}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VeoPage({ perfil }) {
   const [categoria, setCategoria] = useState("Superior");
   const partidos = FIXTURE[categoria.toLowerCase()];
   const [fecha, setFecha] = useState(partidos[partidos.length - 1].fecha);
   const partido = partidos.find((p) => p.fecha === fecha) || partidos[partidos.length - 1];
-  const eventos = generarEventos(partido, categoria);
+  const jugadoresParaTries = categoria === "Superior" ? jugadoresConGps() : jugadoresTitulares("Intermedia");
+  const trysGenerados = generarTries(partido, jugadoresParaTries, partido.informe?.triesReales).filter((t) => t.pts === 5 || t.pts === 7);
+  const trysVeo = partido.informe?.triesVeo;
+  const trysDelPartido = trysVeo || trysGenerados;
+  const analisis = partido.informe?.analisisVideo;
   const seed = partido.fecha * 11;
-  const posesion = 32 + (seed % 30);
-  const territorio = 30 + ((seed * 3) % 32);
+  const posesion = analisis ? analisis.posesionObras : 32 + (seed % 30);
+  const territorio = analisis ? analisis.territorioRival : 30 + ((seed * 3) % 32);
   const lineBreaks = 2 + (seed % 5);
   const turnovers = 3 + ((seed * 2) % 6);
 
   const [editandoLink, setEditandoLink] = useState(false);
   const [linkInput, setLinkInput] = useState("");
+  const [modoAnalisis, setModoAnalisis] = useState(null); // null | "general" | "individual"
+  const [importandoTrys, setImportandoTrys] = useState(false);
+  const [textoTrys, setTextoTrys] = useState("");
+  const [msgImport, setMsgImport] = useState("");
   const [, forzar] = useState(0);
 
   function cambiarCategoria(c) {
@@ -3380,6 +4015,42 @@ function VeoPage({ perfil }) {
       forzar((n) => n + 1);
       crearNotificacion("video_partido", `🎥 Video de ${categoria} vs ${partido.rival} ya está disponible.`, null, perfil?.id);
     }
+  }
+
+  async function guardarTrysVeo() {
+    const lineas = textoTrys.split("\n").map((l) => l.trim()).filter(Boolean);
+    const nuevos = [];
+    for (const linea of lineas) {
+      const matchTiempo = linea.match(/(\d{1,2}):(\d{2})/);
+      if (!matchTiempo) continue;
+      const esRival = /rival/i.test(linea);
+      nuevos.push({ equipo: esRival ? partido.rival : "Obras", minuto: matchTiempo[0] });
+    }
+    if (nuevos.length === 0) {
+      setMsgImport("No encontré ningún try con formato de minuto (mm:ss) — revisá el texto.");
+      return;
+    }
+    const informe = partido.informe ? JSON.parse(JSON.stringify(partido.informe)) : STATS_VACIO();
+    informe.triesVeo = nuevos;
+    const { error } = await supabase.from("partidos").update({ informe }).eq("id", partido.id);
+    if (!error) {
+      partido.informe = informe;
+      setImportandoTrys(false);
+      setTextoTrys("");
+      forzar((n) => n + 1);
+      setMsgImport(`✓ ${nuevos.length} trys importados desde VEO.`);
+      crearNotificacion("informe_partido", `📈 Trys importados desde VEO: ${categoria} vs ${partido.rival}.`, null, perfil?.id);
+    } else {
+      setMsgImport("No se pudo guardar. Probá de nuevo.");
+    }
+    setTimeout(() => setMsgImport(""), 4000);
+  }
+
+  if (modoAnalisis === "general") {
+    return <AnalizarVideoPage partido={partido} categoria={categoria} perfil={perfil} onSalir={() => setModoAnalisis(null)} />;
+  }
+  if (modoAnalisis === "individual") {
+    return <AnalisisIndividualPage partido={partido} categoria={categoria} perfil={perfil} onSalir={() => setModoAnalisis(null)} />;
   }
 
   return (
@@ -3433,7 +4104,19 @@ function VeoPage({ perfil }) {
               ▶ Ver video completo del partido
             </a>
             {esEntrenador(perfil) && (
-              <div style={{ marginTop: 10 }}>
+              <div style={{ marginTop: 10, display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                <button
+                  onClick={() => setModoAnalisis("general")}
+                  style={{ ...pillButton, background: "transparent", border: "1px solid #f2c230", color: "#f2c230", fontSize: 11.5 }}
+                >
+                  🔍 Análisis general
+                </button>
+                <button
+                  onClick={() => setModoAnalisis("individual")}
+                  style={{ ...pillButton, background: "transparent", border: "1px solid #f2c230", color: "#f2c230", fontSize: 11.5 }}
+                >
+                  🔍 Análisis individual
+                </button>
                 <button
                   onClick={() => {
                     setLinkInput(partido.veoLink || "");
@@ -3464,40 +4147,87 @@ function VeoPage({ perfil }) {
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
-        <StatCard label="Posesión" value={posesion + "%"} tone="warn" />
-        <StatCard label="Territorio" value={territorio + "%"} tone="warn" />
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 6 }}>
+        <StatCard label="Posesión" value={posesion + "%"} tone={analisis ? "ok" : "warn"} />
+        <StatCard label="Territorio" value={territorio + "%"} tone={analisis ? "ok" : "warn"} />
         <StatCard label="Line breaks" value={lineBreaks} tone="ok" />
         <StatCard label="Turnovers ganados" value={turnovers} tone="ok" />
+        {analisis && (
+          <>
+            <StatCard label="Ball in play" value={formatoRelojMMSS(analisis.ballInPlaySegundos)} tone="ok" />
+            <StatCard label="Secuencias" value={analisis.secuencias} tone="ok" />
+            <StatCard label="Secuencia más larga" value={formatoRelojMMSS(analisis.secuenciaMasLargaSegundos)} tone="ok" />
+          </>
+        )}
+      </div>
+      <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 18 }}>
+        {analisis ? "✓ Posesión/territorio/ball-in-play analizados a mano del video real." : "Line breaks y turnovers son de referencia hasta que se analice el video."}
       </div>
 
-      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>Eventos del partido</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>Trys del partido</div>
+        {esEntrenador(perfil) && !importandoTrys && (
+          <button onClick={() => setImportandoTrys(true)} style={{ background: "transparent", border: "none", color: "#f2c230", fontSize: 11.5, cursor: "pointer" }}>
+            📋 Importar desde VEO
+          </button>
+        )}
+      </div>
+      <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 12 }}>
+        {trysVeo
+          ? "✓ Minutos reales, importados de la IA de VEO."
+          : "El minuto exacto solo está disponible en los tries cargados en vivo (Matchday) o importados de VEO."}
+      </div>
+
+      {importandoTrys && (
+        <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+          <div style={{ fontSize: 11.5, color: "#c9c9c6", marginBottom: 8 }}>
+            Una línea por try, copiando lo que ves en el panel de VEO. Escribí "Rival" en la línea si el try fue del
+            otro equipo (si no dice nada, se toma como de Obras). Ejemplos:
+          </div>
+          <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 10, fontFamily: "monospace" }}>
+            Ensayo 08:59
+            <br />
+            Ensayo Rival 23:10
+          </div>
+          <textarea
+            value={textoTrys}
+            onChange={(e) => setTextoTrys(e.target.value)}
+            placeholder={"Ensayo 08:59\nEnsayo Rival 23:10"}
+            rows={4}
+            style={{ ...inputStyle, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button onClick={guardarTrysVeo} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+              Guardar
+            </button>
+            <button
+              onClick={() => {
+                setImportandoTrys(false);
+                setTextoTrys("");
+              }}
+              style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+      {msgImport && <div style={{ fontSize: 11.5, color: msgImport.startsWith("✓") ? "#5fbf7a" : "#e0665c", marginBottom: 10 }}>{msgImport}</div>}
+
       <div style={{ ...cardStyle, padding: "8px 16px" }}>
-        {eventos.map((e, i) => (
+        {trysDelPartido.length === 0 && <div style={{ padding: "10px 0", color: "#6b6b68", fontSize: 12.5 }}>No hay tries cargados para este partido.</div>}
+        {trysDelPartido.map((t, i) => (
           <div
             key={i}
-            style={{
-              display: "flex",
-              gap: 14,
-              alignItems: "center",
-              padding: "10px 0",
-              borderTop: i === 0 ? "none" : "1px solid #232324",
-              fontSize: 13,
-            }}
+            style={{ display: "flex", gap: 14, alignItems: "center", padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #232324", fontSize: 13 }}
           >
-            <span style={{ color: "#f2c230", fontFamily: "'Oswald', sans-serif", fontWeight: 600, width: 34 }}>
-              {e.minNum}'
+            <span style={{ color: "#f2c230", fontFamily: "'Oswald', sans-serif", fontWeight: 600, width: 40 }}>
+              {t.minuto || "—"}
             </span>
-            <span
-              style={{
-                ...tagStyle,
-                background: e.tipo === "Try" ? (e.equipo === "obras" ? "#111a12" : "#2a120f") : "#1c1c1d",
-                color: e.tipo === "Try" ? (e.equipo === "obras" ? "#5fbf7a" : "#e0665c") : "#c9c9c6",
-              }}
-            >
-              {e.tipo}
+            <span style={{ ...tagStyle, background: t.equipo === "Obras" ? "#111a12" : "#2a120f", color: t.equipo === "Obras" ? "#5fbf7a" : "#e0665c" }}>
+              {t.equipo}
             </span>
-            <span style={{ color: "#c9c9c6" }}>{e.detalle}</span>
+            <span style={{ color: "#c9c9c6" }}>{t.obs}</span>
           </div>
         ))}
       </div>
@@ -3810,6 +4540,18 @@ function InformePartidoPage({ perfil }) {
   const tries = generarTries(partido, jugadoresTry, partido.informe?.triesReales);
   const totalPerdidas = Object.values(stats.desfavorables).reduce((a, b) => a + b, 0) - stats.desfavorables.penalesEnContra;
 
+  const [analisisReal, setAnalisisReal] = useState({});
+  useEffect(() => {
+    cargarAnalisisIndividual(partido.id).then((porDbId) => {
+      const porNombre = {};
+      Object.entries(porDbId).forEach(([dbId, r]) => {
+        const jugador = POOL.find((p) => p.dbId === dbId);
+        if (jugador) porNombre[jugador.id] = r;
+      });
+      setAnalisisReal(porNombre);
+    });
+  }, [partido.id]);
+
   // Cuántos tries anotó cada jugador en este partido (solo Obras).
   const triesPorJugador = {};
   tries.forEach((t) => {
@@ -3819,6 +4561,15 @@ function InformePartidoPage({ perfil }) {
   });
 
   const jugadores = jugadoresTry.map((s) => {
+    const real = analisisReal[s.jugadorId];
+    if (real) {
+      const tackles = real.tackle_hecho + real.tackle_positivo + real.tackle_errado;
+      const quiebres = real.quiebre_con_try + real.quiebre_sin_try;
+      const qbreXTry = real.quiebre_con_try;
+      const pk = real.penal_en_contra_ruck + real.penal_en_contra_maul + real.penal_en_contra_juego + real.penal_en_contra_inconducta;
+      const accPos = real.tackle_positivo + quiebres + real.penal_a_favor + (real.es_pateador ? real.drop_convertido + real.cincuenta_22 : 0);
+      return { ...s, tackles, tacklesPositivos: real.tackle_positivo, recuperadas: 0, errados: real.tackle_errado, pk, quiebres, qbreXTry, accPos };
+    }
     const base = statsJugadorBase(s.jugadorId, fecha);
     const qbreXTry = triesPorJugador[s.jugadorId] || 0;
     const quiebres = base.quiebresSinTry + qbreXTry; // el quiebre que termina en try es un quiebre más
@@ -4545,6 +5296,43 @@ async function lesionActivaDe(jugadorId) {
     .limit(1)
     .maybeSingle();
   return data || null;
+}
+
+// Análisis individual por jugador de un partido puntual (lo carga el cuerpo técnico mirando el video).
+async function cargarAnalisisIndividual(partidoId) {
+  const { data, error } = await supabase.from("analisis_individual_partido").select("*").eq("partido_id", partidoId);
+  if (error) {
+    console.error("Error cargando análisis individual:", error);
+    return {};
+  }
+  return Object.fromEntries((data || []).map((r) => [r.jugador_id, r]));
+}
+
+async function guardarAnalisisJugador(partidoId, jugadorId, datos, perfilId) {
+  const { error } = await supabase.from("analisis_individual_partido").upsert(
+    {
+      partido_id: partidoId,
+      jugador_id: jugadorId,
+      tackle_hecho: datos.tackleHecho,
+      tackle_positivo: datos.tacklePositivo,
+      tackle_errado: datos.tackleErrado,
+      quiebre_con_try: datos.quiebreConTry,
+      quiebre_sin_try: datos.quiebreSinTry,
+      penal_a_favor: datos.penalAFavor,
+      penal_en_contra_ruck: datos.penalEnContraRuck,
+      penal_en_contra_maul: datos.penalEnContraMaul,
+      penal_en_contra_juego: datos.penalEnContraJuego,
+      penal_en_contra_inconducta: datos.penalEnContraInconducta,
+      es_pateador: datos.esPateador,
+      drop_convertido: datos.dropConvertido,
+      cincuenta_22: datos.cincuenta22,
+      creado_por: perfilId,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "partido_id,jugador_id" }
+  );
+  if (error) console.error("Error guardando análisis individual:", error);
+  return !error;
 }
 
 async function abrirWellnessHoy(perfilId) {
