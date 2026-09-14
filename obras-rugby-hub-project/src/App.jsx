@@ -3413,6 +3413,12 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
     setter((prev) => ({ ...prev, [campo]: prev[campo] + 1 }));
   }
 
+  // Robado (scrum o line) = posesión recuperada · Perdido o Torcida (line) = posesión perdida.
+  function sumarConPosesion(setter, campo, nuevaPosesion) {
+    sumar(setter, campo);
+    setPosesion(nuevaPosesion);
+  }
+
   // Atajos de teclado — solo en escritorio, para anotar sin soltar el mouse del video.
   useEffect(() => {
     if (isMobile) return;
@@ -3430,16 +3436,22 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
         "3": () => setTerritorio("Propio"),
         "4": () => setTerritorio("Rival"),
         q: () => sumar(setScrum, "ganados"),
-        w: () => sumar(setScrum, "perdidos"),
-        e: () => sumar(setScrum, "robados"),
+        w: () => sumarConPosesion(setScrum, "perdidos", "Rival"),
+        e: () => sumarConPosesion(setScrum, "robados", "Obras"),
         r: () => sumar(setScrum, "delRival"),
         a: () => sumar(setLine, "ganados"),
-        s: () => sumar(setLine, "perdidos"),
-        d: () => sumar(setLine, "robados"),
-        f: () => sumar(setLine, "torcidas"),
+        s: () => sumarConPosesion(setLine, "perdidos", "Rival"),
+        d: () => sumarConPosesion(setLine, "robados", "Obras"),
+        f: () => sumarConPosesion(setLine, "torcidas", "Rival"),
         g: () => sumar(setLine, "delRival"),
-        z: () => setPelotasRecuperadas((v) => v + 1),
-        x: () => setPerdidasPelota((v) => v + 1),
+        z: () => {
+          setPelotasRecuperadas((v) => v + 1);
+          setPosesion("Obras");
+        },
+        x: () => {
+          setPerdidasPelota((v) => v + 1);
+          setPosesion("Rival");
+        },
         c: () => setPenalesAFavor((v) => v + 1),
         v: () => setPenalesEnContra((v) => v + 1),
       };
@@ -3614,8 +3626,8 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
         <div style={tituloPanel}>SCRUM · OBRAS</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
           <BotonObtencion label="Ganado" valor={scrum.ganados} tono="ok" onClick={() => sumar(setScrum, "ganados")} />
-          <BotonObtencion label="Perdido" valor={scrum.perdidos} tono="mal" onClick={() => sumar(setScrum, "perdidos")} />
-          <BotonObtencion label="Robado" valor={scrum.robados} tono="ok" onClick={() => sumar(setScrum, "robados")} />
+          <BotonObtencion label="Perdido" valor={scrum.perdidos} tono="mal" onClick={() => sumarConPosesion(setScrum, "perdidos", "Rival")} />
+          <BotonObtencion label="Robado" valor={scrum.robados} tono="ok" onClick={() => sumarConPosesion(setScrum, "robados", "Obras")} />
           <BotonObtencion label="Del rival" valor={scrum.delRival} tono="ok" onClick={() => sumar(setScrum, "delRival")} />
         </div>
       </div>
@@ -3624,11 +3636,11 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
         <div style={tituloPanel}>LINE-OUT · OBRAS</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 6 }}>
           <BotonObtencion label="Ganado" valor={line.ganados} tono="ok" onClick={() => sumar(setLine, "ganados")} />
-          <BotonObtencion label="Perdido" valor={line.perdidos} tono="mal" onClick={() => sumar(setLine, "perdidos")} />
-          <BotonObtencion label="Robado" valor={line.robados} tono="ok" onClick={() => sumar(setLine, "robados")} />
+          <BotonObtencion label="Perdido" valor={line.perdidos} tono="mal" onClick={() => sumarConPosesion(setLine, "perdidos", "Rival")} />
+          <BotonObtencion label="Robado" valor={line.robados} tono="ok" onClick={() => sumarConPosesion(setLine, "robados", "Obras")} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-          <BotonObtencion label="Torcida" valor={line.torcidas} tono="neutro" onClick={() => sumar(setLine, "torcidas")} />
+          <BotonObtencion label="Torcida" valor={line.torcidas} tono="neutro" onClick={() => sumarConPosesion(setLine, "torcidas", "Rival")} />
           <BotonObtencion label="Del rival" valor={line.delRival} tono="ok" onClick={() => sumar(setLine, "delRival")} />
         </div>
       </div>
@@ -3636,8 +3648,24 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
       <div style={panelStyle}>
         <div style={tituloPanel}>SITUACIONES</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-          <BotonObtencion label="Recuperada" valor={pelotasRecuperadas} tono="ok" onClick={() => setPelotasRecuperadas((v) => v + 1)} />
-          <BotonObtencion label="Pérdida" valor={perdidasPelota} tono="mal" onClick={() => setPerdidasPelota((v) => v + 1)} />
+          <BotonObtencion
+            label="Recuperada"
+            valor={pelotasRecuperadas}
+            tono="ok"
+            onClick={() => {
+              setPelotasRecuperadas((v) => v + 1);
+              setPosesion("Obras"); // al recuperar, la pelota pasa a ser de Obras
+            }}
+          />
+          <BotonObtencion
+            label="Pérdida"
+            valor={perdidasPelota}
+            tono="mal"
+            onClick={() => {
+              setPerdidasPelota((v) => v + 1);
+              setPosesion("Rival"); // al perderla, pasa a ser del rival
+            }}
+          />
           <BotonObtencion label="Penal a favor" valor={penalesAFavor} tono="ok" onClick={() => setPenalesAFavor((v) => v + 1)} />
           <BotonObtencion label="Penal en contra" valor={penalesEnContra} tono="mal" onClick={() => setPenalesEnContra((v) => v + 1)} />
         </div>
