@@ -20,7 +20,7 @@
 begin;
 
 -- Las funciones se crean antes que algunas columnas que usan; se validan al ejecutarse.
-set local check_function_bodies = off;
+set check_function_bodies = off;
 
 -- -------------------------------------------------------------------------------------
 -- 1. Clubes y administradores de ADN Sports

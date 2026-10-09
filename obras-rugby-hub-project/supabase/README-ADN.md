@@ -48,15 +48,19 @@ psql -d adn -f migrations/20261009120000_adn_multiclub_videoteca.sql
 psql -d adn -f tests/02_tests.sql | grep -E "PASS|FAIL"
 ```
 
-## Antes de aplicarla en producción
+## Estado en producción (09/10/2026)
 
-1. Hacer un backup de la base (Supabase → Database → Backups).
-2. Aplicar la migración (Supabase → SQL Editor, o `supabase db push`).
-3. Publicar la nueva versión de la app en Railway (sale sola al subir el código a GitHub).
-4. Agregar en Railway la variable `VITE_CLUB_SLUG=obras`.
+- La base ya tiene aplicadas las dos migraciones. Hay un respaldo previo completo en el
+  esquema `respaldo_20261009` (tablas, políticas y funciones).
+- Mientras siga publicada la app anterior, una regla temporal deja leer la lista de jugadores
+  de Obras sin sesión (el registro la necesita).
 
-Las dos cosas (base y app) tienen que salir juntas: la app vieja lee la lista de jugadores
-del registro sin iniciar sesión, y la base nueva ya no lo permite.
+## Al publicar la app nueva
+
+1. Subir este código a GitHub (Railway lo publica solo).
+2. Agregar en Railway la variable `VITE_CLUB_SLUG=obras`.
+3. Probar el registro y la Videoteca, y después borrar la regla temporal:
+   `drop policy "temporal: registro app anterior" on public.jugadores;`
 
 ## Tareas de ADN Sports (por ahora, por SQL)
 
