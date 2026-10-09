@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "./adn/supabaseClient";
 import { CLUB_SLUG, useClub, iniciales } from "./adn/club";
 import VideotecaPage from "./adn/VideotecaPage";
+import FeedbackPage from "./adn/FeedbackPage";
 
 // Conexión a Supabase (proyecto "HUB RUGBY"). Vive en src/adn/supabaseClient.js; se re-exporta
 // acá para que el resto del código lo siga importando como antes.
@@ -44,6 +45,7 @@ const NAV = [
     items: [
       { key: "reportes", label: "📈 Reportes" },
       { key: "videoteca", label: "🎬 Videoteca" },
+      { key: "feedback-adn", label: "💬 Feedback a ADN" },
     ],
   },
 ];
@@ -7885,6 +7887,8 @@ function ObrasHub({ perfil }) {
           <ReportesPage perfil={perfil} />
         ) : active === "videoteca" ? (
           <VideotecaPage perfil={perfil} />
+        ) : active === "feedback-adn" ? (
+          <FeedbackPage perfil={perfil} />
         ) : active === CONFIG_ITEM.key ? (
           <ConfiguracionPage
             menuPref={menuPref}
