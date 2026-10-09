@@ -50,17 +50,9 @@ psql -d adn -f tests/02_tests.sql | grep -E "PASS|FAIL"
 
 ## Estado en producción (09/10/2026)
 
-- La base ya tiene aplicadas las dos migraciones. Hay un respaldo previo completo en el
-  esquema `respaldo_20261009` (tablas, políticas y funciones).
-- Mientras siga publicada la app anterior, una regla temporal deja leer la lista de jugadores
-  de Obras sin sesión (el registro la necesita).
-
-## Al publicar la app nueva
-
-1. Subir este código a GitHub (Railway lo publica solo).
-2. Agregar en Railway la variable `VITE_CLUB_SLUG=obras`.
-3. Probar el registro y la Videoteca, y después borrar la regla temporal:
-   `drop policy "temporal: registro app anterior" on public.jugadores;`
+- Base: migraciones aplicadas. Respaldo previo completo en el esquema `respaldo_20261009`.
+- App: publicada en Railway con `VITE_CLUB_SLUG=obras`.
+- La regla temporal de registro ya se borró: sin iniciar sesión no se lee ningún dato del club.
 
 ## Tareas de ADN Sports (por ahora, por SQL)
 
