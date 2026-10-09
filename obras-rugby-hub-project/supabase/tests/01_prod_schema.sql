@@ -1,0 +1,121 @@
+-- Copia de la estructura actual de producción (HUB RUGBY), sin datos reales
+create table public.analisis_individual_partido (id uuid default gen_random_uuid() not null, partido_id uuid not null, jugador_id uuid not null, tackle_hecho integer default 0 not null, tackle_positivo integer default 0 not null, tackle_errado integer default 0 not null, quiebre_con_try integer default 0 not null, quiebre_sin_try integer default 0 not null, penal_a_favor integer default 0 not null, penal_en_contra_ruck integer default 0 not null, penal_en_contra_maul integer default 0 not null, penal_en_contra_juego integer default 0 not null, penal_en_contra_inconducta integer default 0 not null, es_pateador boolean default false not null, drop_convertido integer default 0 not null, cincuenta_22 integer default 0 not null, creado_por uuid, updated_at timestamp with time zone default now());
+create table public.app_secrets (clave text not null, valor text not null);
+create table public.asistencias (id uuid default gen_random_uuid() not null, jugador_id uuid not null, fecha date not null, dia text, presente boolean not null, temporada text not null, marcado_por uuid, created_at timestamp with time zone default now());
+create table public.categorias (id uuid default gen_random_uuid() not null, nombre text not null, temporada text default '2026'::text not null, emoji text default '🏉'::text, activa boolean default true);
+create table public.config (clave text not null, valor jsonb not null, updated_at timestamp with time zone default now());
+create table public.equipos_rivales (id uuid default gen_random_uuid() not null, nombre text not null, emoji text default '🏉'::text, escudo_url text);
+create table public.evaluaciones (id uuid default gen_random_uuid() not null, jugador_id uuid not null, fecha date not null, potencia numeric, reactividad numeric, fuerza numeric, velocidad numeric, resistencia numeric, cargado_por uuid);
+create table public.gps_datos (id uuid default gen_random_uuid() not null, partido_id uuid not null, jugador_id uuid, minutos integer, distancia integer, alta_int integer, acc integer, "dec" integer, vel_max numeric);
+create table public.historial_medico (id uuid default gen_random_uuid() not null, jugador_id uuid not null, descripcion text not null, cargado_por uuid, created_at timestamp with time zone default now());
+create table public.jugadores (id uuid default gen_random_uuid() not null, nombre text not null, posicion_ideal text not null, posicion_alternativa text, posicion_emergencia text, altura_cm integer, peso_kg integer, apto text default 'Pendiente'::text not null, estado text default 'Disponible'::text not null, zona_lesion text, created_at timestamp with time zone default now(), updated_at timestamp with time zone default now(), foto_url text);
+create table public.lesiones (id uuid default gen_random_uuid() not null, jugador_id uuid not null, zona text not null, descripcion text, fecha_lesion date default CURRENT_DATE not null, semanas_estimadas integer, fecha_vuelta_estimada date, activa boolean default true, creado_por uuid, created_at timestamp with time zone default now());
+create table public.lineup_slots (id uuid default gen_random_uuid() not null, categoria_id uuid not null, numero integer not null, puesto text not null, grupo text not null, jugador_id uuid);
+create table public.notificaciones (id uuid default gen_random_uuid() not null, tipo text not null, mensaje text not null, roles_destino text[], creado_por uuid, created_at timestamp with time zone default now());
+create table public.notificaciones_leidas (notificacion_id uuid not null, perfil_id uuid not null, leida_en timestamp with time zone default now());
+create table public.partidos (id uuid default gen_random_uuid() not null, categoria_id uuid not null, fecha_numero integer not null, fecha date not null, rival_id uuid, condicion text, goles_favor integer, goles_contra integer, resultado text, temporada text default '2026'::text not null, veo_link text, informe jsonb);
+create table public.plan_gimnasio (id uuid default gen_random_uuid() not null, dia text not null, bloque text not null, orden_bloque integer not null, ejercicio text not null, detalle text, valor text, orden_ejercicio integer not null);
+create table public.posiciones (id uuid default gen_random_uuid() not null, categoria_id uuid not null, equipo_id uuid, es_obras boolean default false, pj integer, g integer, e integer, p integer, pf integer, pc integer, dif integer, bo integer, bd integer, pts integer, temporada text default '2026'::text not null);
+create table public.profiles (id uuid default gen_random_uuid() not null, auth_user_id uuid, nombre text not null, usuario text not null, rol text not null, jugador_id uuid, created_at timestamp with time zone default now(), avatar_url text, confirmado boolean default true not null, bloqueado boolean default false not null);
+create table public.push_subscriptions (id uuid default gen_random_uuid() not null, perfil_id uuid not null, endpoint text not null, p256dh text not null, auth text not null, created_at timestamp with time zone default now());
+create table public.sesiones (id uuid default gen_random_uuid() not null, dia text not null, fecha date, grupo text not null, orden integer not null, tiempo text, contenido text, explicacion text, sector text);
+create table public.wellness_respuestas (id uuid default gen_random_uuid() not null, jugador_id uuid not null, fecha date not null, estres integer, sueno integer, doms integer, fatiga integer, observacion text, estado_entrenamiento text, observaciones text);
+create table public.wellness_ventanas (fecha date not null, abierta boolean default true not null, abierta_por uuid, abierta_en timestamp with time zone default now());
+alter table lesiones add constraint lesiones_pkey PRIMARY KEY (id);
+alter table partidos add constraint partidos_condicion_check CHECK ((condicion = ANY (ARRAY['Local'::text, 'Visitante'::text])));
+alter table profiles add constraint profiles_rol_check CHECK ((rol = ANY (ARRAY['Jugador'::text, 'Cuerpo técnico'::text, 'Manager'::text, 'Cuerpo médico'::text])));
+alter table profiles add constraint profiles_pkey PRIMARY KEY (id);
+alter table profiles add constraint profiles_auth_user_id_key UNIQUE (auth_user_id);
+alter table profiles add constraint profiles_usuario_key UNIQUE (usuario);
+alter table jugadores add constraint jugadores_apto_check CHECK ((apto = ANY (ARRAY['Apto'::text, 'No apto'::text, 'Pendiente'::text])));
+alter table jugadores add constraint jugadores_estado_check CHECK ((estado = ANY (ARRAY['Disponible'::text, 'Lesionado'::text, 'A vigilar'::text])));
+alter table jugadores add constraint jugadores_pkey PRIMARY KEY (id);
+alter table jugadores add constraint jugadores_nombre_key UNIQUE (nombre);
+alter table historial_medico add constraint historial_medico_pkey PRIMARY KEY (id);
+alter table categorias add constraint categorias_pkey PRIMARY KEY (id);
+alter table categorias add constraint categorias_nombre_key UNIQUE (nombre);
+alter table lineup_slots add constraint lineup_slots_grupo_check CHECK ((grupo = ANY (ARRAY['forwards'::text, 'backs'::text, 'suplentes'::text])));
+alter table lineup_slots add constraint lineup_slots_pkey PRIMARY KEY (id);
+alter table lineup_slots add constraint lineup_slots_categoria_id_numero_key UNIQUE (categoria_id, numero);
+alter table equipos_rivales add constraint equipos_rivales_pkey PRIMARY KEY (id);
+alter table equipos_rivales add constraint equipos_rivales_nombre_key UNIQUE (nombre);
+alter table partidos add constraint partidos_resultado_check CHECK ((resultado = ANY (ARRAY['Ganado'::text, 'Perdido'::text, 'Empate'::text, 'Próximo'::text])));
+alter table partidos add constraint partidos_pkey PRIMARY KEY (id);
+alter table partidos add constraint partidos_categoria_id_fecha_numero_temporada_key UNIQUE (categoria_id, fecha_numero, temporada);
+alter table posiciones add constraint posiciones_pkey PRIMARY KEY (id);
+alter table sesiones add constraint sesiones_grupo_check CHECK ((grupo = ANY (ARRAY['grupo1'::text, 'grupo2'::text])));
+alter table sesiones add constraint sesiones_pkey PRIMARY KEY (id);
+alter table plan_gimnasio add constraint plan_gimnasio_pkey PRIMARY KEY (id);
+alter table evaluaciones add constraint evaluaciones_pkey PRIMARY KEY (id);
+alter table asistencias add constraint asistencias_jugador_id_fecha_key UNIQUE (jugador_id, fecha);
+alter table wellness_respuestas add constraint wellness_respuestas_pkey PRIMARY KEY (id);
+alter table wellness_respuestas add constraint wellness_respuestas_jugador_id_fecha_key UNIQUE (jugador_id, fecha);
+alter table config add constraint config_pkey PRIMARY KEY (clave);
+alter table wellness_ventanas add constraint wellness_ventanas_pkey PRIMARY KEY (fecha);
+alter table gps_datos add constraint gps_datos_pkey PRIMARY KEY (id);
+alter table gps_datos add constraint gps_datos_partido_id_jugador_id_key UNIQUE (partido_id, jugador_id);
+alter table profiles add constraint profiles_auth_user_id_unique UNIQUE (auth_user_id);
+alter table notificaciones add constraint notificaciones_pkey PRIMARY KEY (id);
+alter table notificaciones_leidas add constraint notificaciones_leidas_pkey PRIMARY KEY (notificacion_id, perfil_id);
+alter table push_subscriptions add constraint push_subscriptions_pkey PRIMARY KEY (id);
+alter table push_subscriptions add constraint push_subscriptions_endpoint_key UNIQUE (endpoint);
+alter table app_secrets add constraint app_secrets_pkey PRIMARY KEY (clave);
+alter table asistencias add constraint asistencias_pkey PRIMARY KEY (id);
+alter table analisis_individual_partido add constraint analisis_individual_partido_pkey PRIMARY KEY (id);
+alter table analisis_individual_partido add constraint analisis_individual_partido_partido_id_jugador_id_key UNIQUE (partido_id, jugador_id);
+alter table asistencias add constraint asistencias_marcado_por_fkey FOREIGN KEY (marcado_por) REFERENCES profiles(id);
+alter table lesiones add constraint lesiones_jugador_id_fkey FOREIGN KEY (jugador_id) REFERENCES jugadores(id) ON DELETE CASCADE;
+alter table profiles add constraint profiles_auth_user_id_fkey FOREIGN KEY (auth_user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+alter table historial_medico add constraint historial_medico_jugador_id_fkey FOREIGN KEY (jugador_id) REFERENCES jugadores(id) ON DELETE CASCADE;
+alter table lineup_slots add constraint lineup_slots_categoria_id_fkey FOREIGN KEY (categoria_id) REFERENCES categorias(id) ON DELETE CASCADE;
+alter table partidos add constraint partidos_categoria_id_fkey FOREIGN KEY (categoria_id) REFERENCES categorias(id) ON DELETE CASCADE;
+alter table partidos add constraint partidos_rival_id_fkey FOREIGN KEY (rival_id) REFERENCES equipos_rivales(id);
+alter table posiciones add constraint posiciones_categoria_id_fkey FOREIGN KEY (categoria_id) REFERENCES categorias(id) ON DELETE CASCADE;
+alter table posiciones add constraint posiciones_equipo_id_fkey FOREIGN KEY (equipo_id) REFERENCES equipos_rivales(id);
+alter table evaluaciones add constraint evaluaciones_jugador_id_fkey FOREIGN KEY (jugador_id) REFERENCES jugadores(id) ON DELETE CASCADE;
+alter table asistencias add constraint asistencias_jugador_id_fkey FOREIGN KEY (jugador_id) REFERENCES jugadores(id) ON DELETE CASCADE;
+alter table wellness_respuestas add constraint wellness_respuestas_jugador_id_fkey FOREIGN KEY (jugador_id) REFERENCES jugadores(id) ON DELETE CASCADE;
+alter table lineup_slots add constraint lineup_slots_jugador_id_fkey FOREIGN KEY (jugador_id) REFERENCES jugadores(id) ON DELETE SET NULL;
+alter table profiles add constraint profiles_jugador_id_fkey FOREIGN KEY (jugador_id) REFERENCES jugadores(id) ON DELETE SET NULL;
+alter table wellness_ventanas add constraint wellness_ventanas_abierta_por_fkey FOREIGN KEY (abierta_por) REFERENCES profiles(id);
+alter table gps_datos add constraint gps_datos_partido_id_fkey FOREIGN KEY (partido_id) REFERENCES partidos(id) ON DELETE CASCADE;
+alter table gps_datos add constraint gps_datos_jugador_id_fkey FOREIGN KEY (jugador_id) REFERENCES jugadores(id) ON DELETE SET NULL;
+alter table notificaciones add constraint notificaciones_creado_por_fkey FOREIGN KEY (creado_por) REFERENCES profiles(id);
+alter table notificaciones_leidas add constraint notificaciones_leidas_notificacion_id_fkey FOREIGN KEY (notificacion_id) REFERENCES notificaciones(id) ON DELETE CASCADE;
+alter table notificaciones_leidas add constraint notificaciones_leidas_perfil_id_fkey FOREIGN KEY (perfil_id) REFERENCES profiles(id) ON DELETE CASCADE;
+alter table push_subscriptions add constraint push_subscriptions_perfil_id_fkey FOREIGN KEY (perfil_id) REFERENCES profiles(id) ON DELETE CASCADE;
+alter table lesiones add constraint lesiones_creado_por_fkey FOREIGN KEY (creado_por) REFERENCES profiles(id);
+alter table analisis_individual_partido add constraint analisis_individual_partido_partido_id_fkey FOREIGN KEY (partido_id) REFERENCES partidos(id) ON DELETE CASCADE;
+alter table analisis_individual_partido add constraint analisis_individual_partido_jugador_id_fkey FOREIGN KEY (jugador_id) REFERENCES jugadores(id) ON DELETE CASCADE;
+alter table analisis_individual_partido add constraint analisis_individual_partido_creado_por_fkey FOREIGN KEY (creado_por) REFERENCES profiles(id);
+
+-- RLS y políticas actuales (resumen fiel de producción)
+do $$ declare t text; begin
+  foreach t in array array['analisis_individual_partido','app_secrets','asistencias','categorias','config','equipos_rivales','evaluaciones','gps_datos','historial_medico','jugadores','lesiones','lineup_slots','notificaciones','notificaciones_leidas','partidos','plan_gimnasio','posiciones','profiles','push_subscriptions','sesiones','wellness_respuestas','wellness_ventanas'] loop
+    execute format('alter table public.%I enable row level security', t);
+  end loop;
+  foreach t in array array['analisis_individual_partido','asistencias','categorias','config','equipos_rivales','evaluaciones','gps_datos','jugadores','lesiones','lineup_slots','notificaciones','notificaciones_leidas','partidos','plan_gimnasio','posiciones','sesiones','wellness_ventanas'] loop
+    execute format('create policy "lectura publica" on public.%I for select using (true)', t);
+  end loop;
+  foreach t in array array['categorias','config','equipos_rivales','evaluaciones','gps_datos','historial_medico','jugadores','lineup_slots','notificaciones','notificaciones_leidas','partidos','plan_gimnasio','posiciones','profiles','sesiones','wellness_respuestas','wellness_ventanas'] loop
+    execute format('create policy "escritura autenticados" on public.%I for all using (auth.role() = ''authenticated'') with check (auth.role() = ''authenticated'')', t);
+  end loop;
+end $$;
+create policy "lectura autenticados" on public.historial_medico for select using (auth.role() = 'authenticated');
+create policy "lectura autenticados" on public.wellness_respuestas for select using (auth.role() = 'authenticated');
+create policy "propio perfil o autenticado" on public.profiles for select using (auth.role() = 'authenticated');
+
+-- Triggers actuales
+create function public.handle_new_user() returns trigger language plpgsql security definer set search_path = public as $$ begin return new; end $$;
+create trigger on_auth_user_created after insert on auth.users for each row execute function public.handle_new_user();
+create function public.notificar_usuario_pendiente() returns trigger language plpgsql security definer set search_path = public as $$ begin return new; end $$;
+create trigger on_profile_pendiente after insert on public.profiles for each row execute function public.notificar_usuario_pendiente();
+
+-- Datos de muestra tipo Obras
+insert into categorias (nombre) values ('Superior'), ('Intermedia');
+insert into jugadores (nombre, posicion_ideal, altura_cm, peso_kg) values ('Jugador Obras 1', 'Pilar', 180, 110), ('Jugador Obras 2', 'Centro', 178, 88);
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-00000000000a', 'staff@obras');
+insert into profiles (auth_user_id, nombre, usuario, rol) values ('00000000-0000-0000-0000-00000000000a', 'Staff Obras', 'staffobras', 'Cuerpo técnico');
+insert into config (clave, valor) values ('temporada_activa', '"2026"');
+insert into wellness_ventanas (fecha) values (current_date);
+insert into partidos (categoria_id, fecha_numero, fecha, resultado) select id, 1, current_date - 20, 'Próximo' from categorias where nombre = 'Superior';
