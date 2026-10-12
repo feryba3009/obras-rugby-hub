@@ -52,23 +52,45 @@ const ANTES = [
   "Un Excel con pesos y alturas que nadie actualiza desde marzo",
   "La lista de asistencia en un papel que se moja en el vestuario",
   "El video del partido en el celular de alguien que no contesta",
+  "El resultado y las tarjetas anotados en un papel al costado de la cancha",
 ];
 const CON_HUB = [
   "El plantel con su estado: disponible, a vigilar o lesionado",
   "El wellness de cada jugador antes de entrenar o jugar",
   "Asistencia, sesiones y plan de gimnasio en el mismo lugar",
+  "El partido cargado en vivo y el informe listo al terminar",
   "Los partidos de tu club y los de tu próximo rival, a un toque",
 ];
 
-const MODULOS = [
-  ["Plantel y disponibilidad", "Puestos, datos físicos y estado de cada jugador, con los puestos de tu deporte. Sabés quién está disponible sin preguntar."],
-  ["Wellness diario", "Cuatro preguntas que el jugador responde en 20 segundos desde el celular. El staff ve las alertas al instante."],
-  ["Asistencia y sesiones", "La sesión del día, el plan de gimnasio y quién vino a cada entrenamiento."],
-  ["Partidos y posiciones", "Fixture, resultados, tabla y estadísticas propias de tu deporte. El resultado se carga una vez y queda para los dos clubes."],
-  ["Videoteca", "Los partidos de tu club y los del próximo rival, sin salir de la app."],
-  ["GPS y análisis", "Si tu club usa GPS, distancia, alta intensidad y velocidad por jugador en cada partido y entrenamiento."],
-  ["Cuerpo médico", "Lesiones, tiempos de vuelta e historial, visibles solo para quien tiene que verlos."],
-  ["Avisos", "Notificaciones al celular: wellness abierto, video nuevo, resultado cargado."],
+const MOMENTOS = [
+  {
+    titulo: "Durante la semana",
+    modulos: [
+      ["Plantel y disponibilidad", "Puestos, datos físicos y estado de cada jugador, con los puestos de tu deporte. Sabés quién está disponible sin preguntar."],
+      ["Wellness diario", "Cuatro preguntas que el jugador responde en 20 segundos desde el celular. El staff ve las alertas al instante."],
+      ["Sesiones y gimnasio", "La sesión del día, el plan de gimnasio de cada jugador y quién vino a cada entrenamiento."],
+      ["Evaluaciones físicas", "Los tests del preparador físico, con el último resultado siempre a mano en la ficha del jugador."],
+      ["Cuerpo médico y Return to Play", "Lesiones, tiempos de vuelta, alta médica e historial. Solo lo ve quien tiene que verlo."],
+    ],
+  },
+  {
+    titulo: "El día del partido",
+    modulos: [
+      ["Equipos", "Titulares y suplentes armados sobre la formación de tu deporte, con los disponibles de la semana."],
+      ["Matchday en vivo", "Reloj, marcador, tries, penales y tarjetas cargados desde el costado de la cancha. Avisa cuándo vuelve cada amonestado y el club ve el resultado al instante."],
+      ["Avisos", "Notificaciones al celular: wellness abierto, video nuevo, resultado cargado."],
+    ],
+  },
+  {
+    titulo: "Después del partido",
+    modulos: [
+      ["Informe de partido", "Estadísticas del equipo y de cada jugador. Lo que se cargó en el Matchday ya está adentro."],
+      ["Análisis de video", "Mientras mirás el partido, marcás posesión, territorio y obtención. El Hub calcula solo el tiempo de juego efectivo y las secuencias."],
+      ["Videoteca", "Los partidos de tu club y los del próximo rival, sin salir de la app."],
+      ["GPS", "Si tu club usa GPS, distancia, alta intensidad y velocidad por jugador en cada partido y entrenamiento."],
+      ["Reportes individuales", "Cualidades físicas, estadísticas de la temporada e historial médico de cada jugador en una sola página."],
+    ],
+  },
 ];
 
 const PASOS = [
@@ -116,7 +138,7 @@ export default function Landing() {
           <div className="hero-txt">
             <h1>Todo tu club, en un solo lugar.</h1>
             <p className="bajada">
-              Plantel, wellness, asistencia, partidos, GPS y video. Nació en el rugby, para nuestro propio cuerpo técnico, y
+              Plantel, wellness, Matchday en vivo, análisis de video, GPS y cuerpo médico. Nació en el rugby, para nuestro propio cuerpo técnico, y
               lo adaptamos al deporte de tu club: básquet, fútbol, hockey y más.
             </p>
             <div className="acciones">
@@ -168,15 +190,20 @@ export default function Landing() {
 
         <section id="hub" className="ancho modulos" aria-labelledby="hub-t">
           <h2 id="hub-t">Qué tiene el Hub</h2>
-          <p className="bajada">Cada club tiene su propio Hub, con su escudo y sus colores. Se activan los módulos que usa.</p>
-          <dl className="modulos-lista">
-            {MODULOS.map(([t, d]) => (
-              <div key={t} className="modulo">
-                <dt>{t}</dt>
-                <dd>{d}</dd>
-              </div>
-            ))}
-          </dl>
+          <p className="bajada">Toda la semana del staff, de lunes al partido y después. Cada club tiene su propio Hub, con su escudo y sus colores, y activa los módulos que usa.</p>
+          {MOMENTOS.map((m) => (
+            <div key={m.titulo} className="momento">
+              <h3 className="momento-t">{m.titulo}</h3>
+              <dl className="modulos-lista">
+                {m.modulos.map(([t, d]) => (
+                  <div key={t} className={`modulo${t === "Matchday en vivo" ? " estrella" : ""}`}>
+                    <dt>{t}</dt>
+                    <dd>{d}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ))}
         </section>
 
         <section className="red" aria-labelledby="red-t">

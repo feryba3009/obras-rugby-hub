@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { CLUB, JUGADORES, PARTIDOS, TABLA, VIDEOS_RIVAL, SESION_HOY, wellnessHoy, wellnessDia, tendencia } from "./datos";
 import { MENSAJE_URL } from "../config";
 
@@ -10,7 +10,8 @@ const SECCIONES = [
   { key: "plantel", label: "Plantel", icono: "M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM2 20c0-3 3-5 6-5s6 2 6 5M16 11a3 3 0 1 0 0-6M18 15c2 .6 4 2.2 4 5" },
   { key: "wellness", label: "Wellness", icono: "M3 12h4l3-7 4 14 3-7h4" },
   { key: "partidos", label: "Partidos", icono: "M12 3c4 3 6 6 6 9s-2 6-6 9c-4-3-6-6-6-9s2-6 6-9zM9 9l6 6M15 9l-6 6" },
-  { key: "videoteca", label: "Videoteca", icono: "M3 6h13v12H3zM16 10l5-3v10l-5-3" },
+  { key: "matchday", label: "Matchday", icono: "M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 9v4l2.5 2M10 2h4" },
+  { key: "videoteca", label: "Videoteca", corto: "Video", icono: "M3 6h13v12H3zM16 10l5-3v10l-5-3" },
   { key: "gps", label: "GPS", icono: "M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11zM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z" },
 ];
 
@@ -73,7 +74,9 @@ export default function Demo() {
           ) : seccion === "wellness" ? (
             <Wellness verJugador={setJugadorId} />
           ) : seccion === "partidos" ? (
-            <Partidos />
+            <Partidos ir={ir} />
+          ) : seccion === "matchday" ? (
+            <Matchday />
           ) : seccion === "videoteca" ? (
             <Videoteca />
           ) : (
@@ -85,7 +88,7 @@ export default function Demo() {
         {SECCIONES.map((s) => (
           <button key={s.key} type="button" className={`d-inf${seccion === s.key ? " activo" : ""}`} aria-current={seccion === s.key ? "page" : undefined} onClick={() => ir(s.key)}>
             <Icono d={s.icono} size={22} />
-            <span>{s.label}</span>
+            <span>{s.corto || s.label}</span>
           </button>
         ))}
       </nav>
@@ -145,7 +148,10 @@ function Hoy({ ir, verJugador }) {
             <div className="d-sub">Sábado {proximo.fecha} · 15:30 · {proximo.condicion}</div>
           </div>
         </div>
-        <button type="button" className="d-link" onClick={() => ir("videoteca")}>Ver sus últimos 3 partidos</button>
+        <div className="d-links">
+          <button type="button" className="d-link" onClick={() => ir("videoteca")}>Ver sus últimos 3 partidos</button>
+          <button type="button" className="d-link" onClick={() => ir("matchday")}>Probar el Matchday</button>
+        </div>
       </section>
 
       <section className="d-tarjeta">
@@ -300,7 +306,7 @@ function Wellness({ verJugador }) {
 }
 
 // ------------------------------------------------------------------ Partidos
-function Partidos() {
+function Partidos({ ir }) {
   return (
     <>
       <Encabezado titulo="Partidos" sub="Torneo de ejemplo · Primera" />
@@ -336,6 +342,171 @@ function Partidos() {
         </div>
         <p className="d-sub">Cuando los dos clubes usan el Hub, el resultado se carga una sola vez y aparece en los dos.</p>
       </section>
+      <button type="button" className="d-tarjeta d-cta-md" onClick={() => ir("matchday")}>
+        <span className="d-vivo">● Sábado: día de partido</span>
+        <b>Abrir el Matchday vs Atlético Llanura</b>
+        <span className="d-sub">Reloj, marcador, tarjetas y registro del partido en vivo.</span>
+      </button>
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ Matchday
+const reloj = (seg) => `${String(Math.floor(seg / 60)).padStart(2, "0")}:${String(seg % 60).padStart(2, "0")}`;
+const apellido = (j) => j.nombre.split(" ").slice(1).join(" ");
+
+function Matchday() {
+  const rival = PARTIDOS.find((p) => p.gf === null).rival;
+  const titulares = useMemo(() => JUGADORES.filter((j) => j.estado === "Disponible").slice(0, 15), []);
+  const [seg, setSeg] = useState(0);
+  const [corre, setCorre] = useState(false);
+  const [gf, setGf] = useState(0);
+  const [gc, setGc] = useState(0);
+  const [pendiente, setPendiente] = useState(null);
+  const [eligiendo, setEligiendo] = useState(null);
+  const [afuera, setAfuera] = useState({});
+  const [expulsados, setExpulsados] = useState([]);
+  const [registro, setRegistro] = useState([]);
+  const [terminado, setTerminado] = useState(false);
+
+  useEffect(() => {
+    if (!corre) return undefined;
+    const t = setInterval(() => {
+      setSeg((s) => s + 1);
+      setAfuera((a) => Object.fromEntries(Object.entries(a).filter(([, v]) => v > 1).map(([k, v]) => [k, v - 1])));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [corre]);
+
+  const anotar = (texto, extra = {}) =>
+    setRegistro((r) => [{ id: Date.now() + Math.random(), min: Math.floor(seg / 60), texto, ...extra }, ...r]);
+
+  function resolver(convierte) {
+    const { equipo, tipo } = pendiente;
+    const pts = tipo === "Try" ? (convierte ? 7 : 5) : convierte ? 3 : 0;
+    if (equipo === "club") setGf((v) => v + pts);
+    else setGc((v) => v + pts);
+    const nombre = equipo === "club" ? CLUB.corto : rival;
+    const detalle = tipo === "Try" ? (convierte ? "convertido" : "sin convertir") : convierte ? "adentro" : "errado";
+    anotar(`${nombre}: ${tipo.toLowerCase()} ${detalle}`, { equipo, puntos: pts, tipo });
+    setPendiente(null);
+  }
+
+  function tarjeta(j) {
+    const n = apellido(j);
+    if (eligiendo === "amarilla") {
+      setAfuera((a) => ({ ...a, [n]: 600 }));
+      anotar(`🟨 ${n}: amarilla, 10 minutos afuera`);
+    } else {
+      setExpulsados((e) => [...e, n]);
+      anotar(`🟥 ${n}: roja, no vuelve a entrar`);
+    }
+    setEligiendo(null);
+  }
+
+  function borrar(i) {
+    if (i.puntos) (i.equipo === "club" ? setGf : setGc)((v) => Math.max(0, v - i.puntos));
+    setRegistro((r) => r.filter((x) => x.id !== i.id));
+  }
+
+  if (terminado) {
+    const tries = (eq) => registro.filter((i) => i.equipo === eq && i.tipo === "Try").length;
+    return (
+      <>
+        <Encabezado titulo="Partido finalizado" sub={`${CLUB.corto} vs ${rival}`} />
+        <section className="d-tarjeta d-md-fin">
+          <div className="d-md-res">{gf} – {gc}</div>
+          <p className="d-sub">Tries: {tries("club")} a {tries("rival")} · Tarjetas: {registro.filter((i) => /^🟨|^🟥/.test(i.texto)).length} · Duración: {reloj(seg)}</p>
+          <p className="d-txt">En el Hub real, el resultado se guarda en el calendario, el minuto de cada try pasa al análisis del partido y las tarjetas quedan en la ficha de cada jugador.</p>
+          <button type="button" className="d-filtro" onClick={() => { setTerminado(false); setSeg(0); setGf(0); setGc(0); setRegistro([]); setAfuera({}); setExpulsados([]); }}>Empezar otro partido</button>
+        </section>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Encabezado titulo="Matchday" sub={`Primera · vs ${rival} · simulación`} />
+      <section className="d-tarjeta d-md">
+        <div className="d-md-marcador">
+          <div className="d-md-eq"><span className="d-escudo grande" style={{ background: CLUB.color }}>{CLUB.siglas}</span><span>{CLUB.corto}</span></div>
+          <div className="d-md-centro">
+            <div className="d-md-res" aria-live="polite">{gf} – {gc}</div>
+            <div className="d-md-reloj">{reloj(seg)}</div>
+          </div>
+          <div className="d-md-eq"><span className="d-escudo grande d-escudo-rival">AL</span><span>{rival}</span></div>
+        </div>
+        <div className="d-md-botones">
+          <button type="button" className={`d-filtro${corre ? "" : " activo"}`} onClick={() => setCorre((c) => !c)}>{corre ? "Pausar" : seg ? "Reanudar" : "Empezar partido"}</button>
+          <button type="button" className="d-filtro" onClick={() => { setCorre(false); setTerminado(true); }} disabled={!seg && !registro.length}>Finalizar</button>
+        </div>
+      </section>
+
+      {pendiente ? (
+        <section className="d-tarjeta d-md-pregunta">
+          <b>{pendiente.equipo === "club" ? CLUB.corto : rival}: {pendiente.tipo}. ¿Convierte?</b>
+          <div className="d-md-botones">
+            <button type="button" className="d-filtro activo" onClick={() => resolver(true)}>Sí</button>
+            <button type="button" className="d-filtro" onClick={() => resolver(false)}>No</button>
+          </div>
+        </section>
+      ) : eligiendo ? (
+        <section className="d-tarjeta d-md-pregunta">
+          <b>{eligiendo === "amarilla" ? "🟨 ¿Quién recibe la amarilla?" : "🟥 ¿Quién recibe la roja?"}</b>
+          <div className="d-md-jugadores">
+            {titulares.map((j) => {
+              const n = apellido(j);
+              const bloqueado = expulsados.includes(n) || n in afuera;
+              return <button key={j.id} type="button" className="d-filtro" disabled={bloqueado} onClick={() => tarjeta(j)}>{j.numero ? `${j.numero}. ` : ""}{n}</button>;
+            })}
+          </div>
+          <button type="button" className="d-link" onClick={() => setEligiendo(null)}>Cancelar</button>
+        </section>
+      ) : (
+        <div className="d-md-acciones">
+          {[["club", CLUB.corto], ["rival", rival]].map(([eq, nombre]) => (
+            <section key={eq} className="d-tarjeta">
+              <h2>{nombre}</h2>
+              {["Try", "Penal", "Drop"].map((t) => (
+                <button key={t} type="button" className={`d-md-accion ${eq}`} onClick={() => setPendiente({ equipo: eq, tipo: t })}>+ {t}</button>
+              ))}
+            </section>
+          ))}
+          <section className="d-tarjeta">
+            <h2>Tarjetas</h2>
+            <button type="button" className="d-md-accion amarilla" onClick={() => setEligiendo("amarilla")}>Amarilla</button>
+            <button type="button" className="d-md-accion roja" onClick={() => setEligiendo("roja")}>Roja</button>
+          </section>
+        </div>
+      )}
+
+      {(Object.keys(afuera).length > 0 || expulsados.length > 0) && (
+        <section className="d-tarjeta">
+          <h2>Afuera</h2>
+          {Object.entries(afuera).map(([n, v]) => (
+            <div key={n} className="d-md-afuera"><span>🟨 {n}</span><span className="d-md-cuenta">vuelve en {reloj(v)}</span></div>
+          ))}
+          {expulsados.map((n) => (
+            <div key={n} className="d-md-afuera"><span>🟥 {n}</span><span className="d-sub">expulsado</span></div>
+          ))}
+        </section>
+      )}
+
+      <section className="d-tarjeta">
+        <h2>Registro del partido</h2>
+        {registro.length === 0 ? (
+          <p className="d-sub">Tocá «Empezar partido» y cargá un try, un penal o una tarjeta. Cada acción queda con su minuto.</p>
+        ) : (
+          registro.map((i) => (
+            <div key={i.id} className="d-md-log">
+              <span className="d-hora">{i.min}′</span>
+              <span>{i.texto}</span>
+              <button type="button" className="d-md-borrar" onClick={() => borrar(i)} aria-label={`Borrar: ${i.texto}`}>×</button>
+            </div>
+          ))
+        )}
+      </section>
+      <p className="d-sub d-pie">Lo carga una persona del staff desde el costado de la cancha. El resto del club ve el resultado al instante.</p>
     </>
   );
 }

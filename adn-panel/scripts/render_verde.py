@@ -202,6 +202,69 @@ POSTS["08-rival"] = [
     </div>""", 6, T),
 ]
 
+# ---------- 10 · Matchday ----------
+T = 5
+def panel(contenido):
+    return f'<div style="background:{NOCHE};color:{CREMA};border-radius:28px;padding:44px 48px">{contenido}</div>'
+
+def boton(txt, fondo, color):
+    return f'<div style="flex:1;background:{fondo};color:{color};border-radius:16px;padding:26px 0;text-align:center;font:800 44px BC">{txt}</div>'
+
+MARCADOR = panel(f"""
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <div style="font:700 34px BC;letter-spacing:.06em;color:#9AA3AD">TU CLUB</div>
+    <div style="font:700 30px B;color:{VERDE};display:flex;align-items:center;gap:12px"><span style="width:16px;height:16px;border-radius:50%;background:#FF7A6B;display:inline-block"></span>EN VIVO</div>
+    <div style="font:700 34px BC;letter-spacing:.06em;color:#9AA3AD">RIVAL</div>
+  </div>
+  <div style="text-align:center;font:800 210px/1 BC;margin:26px 0 6px;font-variant-numeric:tabular-nums">17 – 10</div>
+  <div style="text-align:center;font:700 64px BC;color:{VERDE};font-variant-numeric:tabular-nums">52:14</div>
+  <div style="display:flex;gap:16px;margin-top:36px">{boton("+ Try", VERDE, NOCHE)}{boton("+ Penal", "#20262E", CREMA)}{boton("+ Drop", "#20262E", CREMA)}</div>""")
+
+AFUERA = panel(f"""
+  <div style="font:700 34px BC;letter-spacing:.12em;color:#9AA3AD;margin-bottom:22px">AFUERA</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:22px 0;border-top:2px solid #2A313A">
+    <div style="font:500 50px B">🟨 Jugador 6</div><div style="font:800 64px BC;color:#F2B33D">vuelve en 06:42</div></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:22px 0;border-top:2px solid #2A313A">
+    <div style="font:500 50px B">🟨 Jugador 12</div><div style="font:800 64px BC;color:#F2B33D">vuelve en 09:10</div></div>""")
+
+REGISTRO = panel(f"""
+  <div style="font:700 34px BC;letter-spacing:.12em;color:#9AA3AD;margin-bottom:12px">REGISTRO DEL PARTIDO</div>
+  {''.join(f'<div style="display:flex;gap:30px;padding:20px 0;border-top:2px solid #2A313A;font:500 44px B"><span style="font:800 44px BC;color:{VERDE};width:80px">{m}′</span><span>{t}</span></div>' for m, t in [("12", "Try convertido"), ("25", "Penal adentro"), ("31", "Try del rival"), ("38", "🟨 Amarilla, Jugador 6"), ("49", "Try sin convertir")])}""")
+
+POSTS["10-matchday"] = [
+    placa(f"""
+    <div class="c" style="gap:48px">
+      <div class="k">Matchday</div>
+      <h1 class="t" style="font-size:190px">El partido, <span class="n">en vivo.</span></h1>
+      <p class="s">Reloj, marcador y tarjetas cargados desde el costado de la cancha. Sin papel, sin planillas.</p>
+    </div>""", 1, T),
+    placa(f"""
+    <div class="c" style="gap:52px">
+      <h1 class="t" style="font-size:120px">Un toque <span class="n">y suma.</span></h1>
+      {MARCADOR}
+      <p class="s">Try, penal o drop: el Hub pregunta si convirtió y calcula el resultado.</p>
+    </div>""", 2, T),
+    placa(f"""
+    <div class="c" style="gap:52px">
+      <h1 class="t" style="font-size:120px">Sabés cuándo <span class="n">vuelve cada uno.</span></h1>
+      {AFUERA}
+      <p class="s">Cada amarilla arranca su cuenta regresiva. La roja deja al jugador afuera del resto del partido.</p>
+    </div>""", 3, T),
+    placa(f"""
+    <div class="c" style="gap:52px">
+      <h1 class="t" style="font-size:120px">Cada jugada, <span class="n">con su minuto.</span></h1>
+      {REGISTRO}
+    </div>""", 4, T),
+    placa(f"""
+    <div class="c" style="gap:48px">
+      <div class="k">Al terminar</div>
+      <h1 class="t" style="font-size:165px">El informe <span class="n">ya está armado.</span></h1>
+      <div style="width:140px;height:12px;background:{VERDE}"></div>
+      <p class="s">El resultado pasa al calendario, el minuto de cada try al análisis y las tarjetas a la ficha de cada jugador.</p>
+      <div style="align-self:flex-start;background:{VERDE};color:{NOCHE};font:800 52px BC;padding:22px 40px;border-radius:14px">Probalo en la demo</div>
+    </div>""", 5, T),
+]
+
 with sync_playwright() as p:
     b = p.chromium.launch()
     pg = b.new_page(viewport={"width": 1080, "height": 1350}, device_scale_factor=1)
