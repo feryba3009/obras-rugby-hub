@@ -138,9 +138,12 @@ export default function Landing() {
           <p className="bajada">La base es la misma para todos. Los puestos, la formación y las estadísticas se adaptan a lo que juega tu club.</p>
           <ul className="deportes-lista">
             {DEPORTES.map(([t, d]) => (
-              <li key={t}>
-                <b>{t}</b>
-                <span>{d}</span>
+              <li key={t} className={t === "Rugby" ? "activo" : undefined}>
+                <span className="deportes-cab">
+                  <b>{t}</b>
+                  <span className="deportes-estado">{t === "Rugby" ? "En uso" : "A medida"}</span>
+                </span>
+                <span className="deportes-txt">{d}</span>
               </li>
             ))}
           </ul>
