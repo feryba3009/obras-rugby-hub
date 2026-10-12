@@ -55,17 +55,18 @@ def placa(cuerpo, pagina=None, total=None, fondo=CREMA):
     .p{{width:1080px;height:1350px;position:relative;overflow:hidden;background:{fondo};color:{NOCHE};font-family:B}}
     .t{{font-family:BC;font-weight:800;line-height:.95;letter-spacing:-.005em;margin:0}}
     .k{{font:700 30px BC;letter-spacing:.24em;color:{NARANJA};text-transform:uppercase}}
-    .s{{font:400 44px/1.32 B;color:{SUB};margin:0}}
+    .s{{font:400 52px/1.3 B;color:{SUB};margin:0}}
+    .c{{position:absolute;left:84px;right:84px;top:110px;bottom:190px;display:flex;flex-direction:column;justify-content:center}}
     .n{{color:{NARANJA}}}
     </style></head><body><div class="p">{cuerpo}{marca(pagina, total)}</div></body></html>"""
 
 
-def texto(kicker, titulo, sub, pagina, total, tam=128):
+def texto(kicker, titulo, sub, pagina, total, tam=170):
     return placa(f"""
-    <div style="position:absolute;left:84px;right:84px;top:170px;display:flex;flex-direction:column;gap:44px">
+    <div class="c" style="gap:44px">
       <div class="k">{kicker}</div>
       <h1 class="t" style="font-size:{tam}px">{titulo}</h1>
-      <div style="width:120px;height:10px;background:{VERDE}"></div>
+      <div style="width:140px;height:12px;background:{VERDE}"></div>
       <p class="s">{sub}</p>
     </div>""", pagina, total)
 
@@ -92,11 +93,11 @@ POSTS["01-presentacion"] = [
     texto("El problema", 'Nos cansamos de <span class="n">las planillas.</span>',
           "Grupos de WhatsApp, un Excel que nadie actualiza y la lista de asistencia en papel. Todo en lugares distintos.", 3, T),
     texto("La solución", 'Armamos <span class="n">el Hub.</span>',
-          "Plantel, wellness, partidos, GPS y video de los partidos en un solo lugar, desde el celular.", 4, T, 150),
+          "Plantel, wellness, partidos, GPS y video de los partidos en un solo lugar, desde el celular.", 4, T, 180),
     placa(f"""
-    <div style="position:absolute;left:84px;right:84px;top:170px;display:flex;flex-direction:column;gap:44px">
+    <div class="c" style="gap:44px">
       <div class="k">Ahora</div>
-      <h1 class="t" style="font-size:128px">Lo puede usar <span class="n">tu club.</span></h1>
+      <h1 class="t" style="font-size:150px">Lo puede usar <span class="n">tu club.</span></h1>
       <div style="width:120px;height:10px;background:{VERDE}"></div>
       <p class="s">Rugby, hockey, fútbol, básquet y más. Escribinos por mensaje directo y coordinamos una demo con los datos de tu club.</p>
       <div style="margin-top:20px;align-self:flex-start;background:{VERDE};color:{NOCHE};font:800 52px BC;padding:22px 40px;border-radius:14px;letter-spacing:.02em">@adn.sporthub</div>
@@ -105,35 +106,42 @@ POSTS["01-presentacion"] = [
 
 # ---------- 4 · Wellness en 4 preguntas ----------
 T = 6
-def pregunta(n, nombre, pregunta_txt, mira):
+def pregunta(n, nombre, pregunta_txt, mira, ejemplo):
+    escala = ''.join(
+        f'<div style="flex:1;height:120px;border-radius:16px;display:flex;align-items:center;justify-content:center;font:800 58px BC;'
+        + (f'background:{VERDE};color:{NOCHE}">' if i == ejemplo else f'background:{TARJETA};color:{NOCHE}">')
+        + f'{i}</div>' for i in range(1, 8))
     return placa(f"""
-    <div style="position:absolute;left:84px;right:84px;top:150px;display:flex;flex-direction:column;gap:40px">
-      <div style="display:flex;align-items:baseline;gap:28px">
-        <div class="t n" style="font-size:220px">{n}</div>
-        <h1 class="t" style="font-size:128px">{nombre}</h1>
+    <div class="c" style="gap:44px">
+      <div style="display:flex;align-items:baseline;gap:32px">
+        <div class="t n" style="font-size:280px">{n}</div>
+        <h1 class="t" style="font-size:150px">{nombre}</h1>
       </div>
-      <p class="s" style="font-size:50px;color:{NOCHE};font-weight:500">{pregunta_txt}</p>
-      <div style="display:flex;gap:12px;margin:8px 0">
-        {''.join(f'<div style="flex:1;height:84px;border-radius:12px;background:{TARJETA};display:flex;align-items:center;justify-content:center;font:700 44px BC;color:{NOCHE}">{i}</div>' for i in range(1, 8))}
+      <p class="s" style="font-size:58px;color:{NOCHE};font-weight:500">{pregunta_txt}</p>
+      <div>
+        <div style="display:flex;gap:12px">{escala}</div>
+        <div style="display:flex;justify-content:space-between;font:600 30px B;color:{GRIS};margin-top:14px"><span>1 · peor</span><span>7 · mejor</span></div>
       </div>
-      <p class="s"><b style="color:{NOCHE};font-weight:600">Qué mirar:</b> {mira}</p>
+      <div style="background:#FFFFFF;border-left:10px solid {VERDE};border-radius:0 16px 16px 0;padding:32px 36px">
+        <p class="s" style="font-size:46px"><b style="color:{NOCHE};font-weight:600">Qué mirar:</b> {mira}</p>
+      </div>
     </div>""", n + 1, T)
 
 POSTS["04-wellness"] = [
     placa(f"""
-    <div style="position:absolute;left:84px;right:84px;top:200px;display:flex;flex-direction:column;gap:48px">
+    <div class="c" style="gap:48px">
       <div class="k">Método</div>
-      <h1 class="t" style="font-size:170px">Wellness en <span class="n">4 preguntas.</span></h1>
-      <p class="s">Lo que todo staff debería saber de cada jugador antes de que pise la cancha.</p>
+      <h1 class="t" style="font-size:190px">Wellness en <span class="n">4 preguntas.</span></h1>
+      <p class="s">Lo que todo staff debería saber de cada jugador antes de entrenar o jugar.</p>
     </div>""", 1, T),
-    pregunta(1, "Sueño", "¿Cómo dormiste anoche?", "dos o tres noches malas seguidas pesan más que una sola."),
-    pregunta(2, "Estrés", "¿Cuánto estrés tenés hoy, entre trabajo, estudio y casa?", "el deporte amateur se juega después de una jornada entera."),
-    pregunta(3, "Dolor muscular", "¿Cuánto dolor muscular sentís?", "si dura más de 48 horas después del partido, hay que hablar."),
-    pregunta(4, "Fatiga", "¿Qué tan cansado llegás al entrenamiento?", "comparalo siempre contra el promedio de ese mismo jugador."),
+    pregunta(1, "Sueño", "¿Cómo dormiste anoche?", "dos o tres noches malas seguidas pesan más que una sola.", 5),
+    pregunta(2, "Estrés", "¿Cuánto estrés tenés hoy, entre trabajo, estudio y casa?", "el deporte amateur se juega después de una jornada entera.", 3),
+    pregunta(3, "Dolor muscular", "¿Cuánto dolor muscular sentís?", "si dura más de 48 horas después del partido, hay que hablar.", 4),
+    pregunta(4, "Fatiga", "¿Qué tan cansado llegás al entrenamiento?", "comparalo siempre contra el promedio de ese mismo jugador.", 6),
     placa(f"""
-    <div style="position:absolute;left:84px;right:84px;top:200px;display:flex;flex-direction:column;gap:48px">
+    <div class="c" style="gap:48px">
       <div class="k">La clave</div>
-      <h1 class="t" style="font-size:150px">No hace falta un laboratorio. <span class="n">Hace falta constancia.</span></h1>
+      <h1 class="t" style="font-size:165px">No hace falta un laboratorio. <span class="n">Hace falta constancia.</span></h1>
       <p class="s">Las mismas 4 preguntas, cada día de entrenamiento. Guardá esta publicación para tu próxima pretemporada.</p>
     </div>""", 6, T),
 ]
@@ -144,11 +152,11 @@ POSTS["06-video"] = [
     <div style="position:absolute;left:84px;right:84px;top:170px;display:flex;flex-direction:column;gap:30px">
       <div style="display:flex;align-items:center;gap:20px;padding-bottom:26px;border-bottom:2px solid #D6D1C8">
         <div style="width:84px;height:84px;border-radius:50%;background:#1FA37A;color:#0E1620;display:flex;align-items:center;justify-content:center;font:800 36px BC">ST</div>
-        <div><div style="font:600 40px B">Staff Primera 🏉</div><div style="font:400 30px B;color:{GRIS}">23 participantes</div></div>
+        <div><div style="font:600 40px B">Staff Primera</div><div style="font:400 30px B;color:{GRIS}">23 participantes</div></div>
       </div>
       <div style="align-self:flex-start;max-width:820px;background:#FFFFFF;border:2px solid #E2DDD3;border-radius:8px 32px 32px 32px;padding:34px 40px">
         <div style="font:600 30px B;color:{NARANJA};margin-bottom:10px">Entrenador de backs</div>
-        <div style="font:500 62px/1.2 B">¿Alguien tiene el video del sábado?</div>
+        <div style="font:500 62px/1.2 B">¿Alguien tiene el video del partido?</div>
         <div style="font:400 28px B;color:{GRIS};text-align:right;margin-top:14px">Lunes 21:47</div>
       </div>
       <div style="align-self:flex-start;font:500 34px B;color:{GRIS};padding-left:8px">Visto por 23 · 0 respuestas</div>
@@ -161,19 +169,25 @@ POSTS["06-video"] = [
 # ---------- 8 · Qué mirar del rival ----------
 T = 6
 def item(n, nombre, preguntas):
+    tarjetas = ''.join(
+        f'<div style="background:#FFFFFF;border-left:10px solid {VERDE};border-radius:0 16px 16px 0;padding:30px 36px">'
+        f'<p class="s" style="font-size:50px;color:{NOCHE}">{q}</p></div>' for q in preguntas)
+    tam = 150 if len(nombre) > 10 else 190
     return placa(f"""
-    <div style="position:absolute;left:84px;right:84px;top:170px;display:flex;flex-direction:column;gap:44px">
+    <div class="c" style="gap:44px">
       <div class="k">Análisis del rival · {n} de 4</div>
-      <h1 class="t" style="font-size:180px">{nombre}</h1>
-      <div style="width:120px;height:10px;background:{VERDE}"></div>
-      {''.join(f'<p class="s" style="display:flex;gap:24px"><span class="n" style="font-weight:600">—</span><span>{q}</span></p>' for q in preguntas)}
+      <div style="display:flex;align-items:baseline;gap:32px">
+        <div class="t n" style="font-size:280px">{n}</div>
+        <h1 class="t" style="font-size:{tam}px">{nombre}</h1>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:22px">{tarjetas}</div>
     </div>""", n + 1, T)
 
 POSTS["08-rival"] = [
     placa(f"""
-    <div style="position:absolute;left:84px;right:84px;top:200px;display:flex;flex-direction:column;gap:48px">
+    <div class="c" style="gap:48px">
       <div class="k">Rugby y método</div>
-      <h1 class="t" style="font-size:160px">Qué mirar del rival <span class="n">antes del sábado.</span></h1>
+      <h1 class="t" style="font-size:175px">Qué mirar del rival <span class="n">antes del partido.</span></h1>
       <p class="s">Tener el video sirve si sabés qué buscar. Cuatro cosas que miramos de cada rival.</p>
     </div>""", 1, T),
     item(1, "Scrum", ["¿Empuja recto o gira?", "¿Cuántas veces sale por octavo y por dónde?"]),
@@ -181,9 +195,9 @@ POSTS["08-rival"] = [
     item(3, "Salidas", ["¿Patea largo, corto o juega desde su campo?", "¿Quién persigue y quién recibe?"]),
     item(4, "Defensa en las 22", ["¿Sube rápido o se desliza?", "¿Dónde quedan los huecos cuando se cansa?"]),
     placa(f"""
-    <div style="position:absolute;left:84px;right:84px;top:200px;display:flex;flex-direction:column;gap:48px">
+    <div class="c" style="gap:48px">
       <div class="k">Tu turno</div>
-      <h1 class="t" style="font-size:170px">¿Qué <span class="n">agregarías vos?</span></h1>
+      <h1 class="t" style="font-size:200px">¿Qué <span class="n">agregarías vos?</span></h1>
       <p class="s">Dejalo en los comentarios. Las mejores ideas van a la próxima publicación.</p>
     </div>""", 6, T),
 ]
