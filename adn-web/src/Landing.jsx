@@ -48,23 +48,23 @@ function useDolar() {
 const pesos = (n) => "$ " + Math.round(n).toLocaleString("es-AR");
 
 const ANTES = [
-  "Un grupo de WhatsApp para preguntar quién está para el sábado",
+  "Un grupo de WhatsApp para preguntar quién está para el fin de semana",
   "Un Excel con pesos y alturas que nadie actualiza desde marzo",
   "La lista de asistencia en un papel que se moja en el vestuario",
   "El video del partido en el celular de alguien que no contesta",
 ];
 const CON_HUB = [
   "El plantel con su estado: disponible, a vigilar o lesionado",
-  "El wellness de cada jugador antes de que pise la cancha",
+  "El wellness de cada jugador antes de entrenar o jugar",
   "Asistencia, sesiones y plan de gimnasio en el mismo lugar",
   "Los partidos de tu club y los de tu próximo rival, a un toque",
 ];
 
 const MODULOS = [
-  ["Plantel y disponibilidad", "Puestos, datos físicos y estado de cada jugador. Sabés quién está para el sábado sin preguntar."],
+  ["Plantel y disponibilidad", "Puestos, datos físicos y estado de cada jugador, con los puestos de tu deporte. Sabés quién está disponible sin preguntar."],
   ["Wellness diario", "Cuatro preguntas que el jugador responde en 20 segundos desde el celular. El staff ve las alertas al instante."],
   ["Asistencia y sesiones", "La sesión del día, el plan de gimnasio y quién vino a cada entrenamiento."],
-  ["Partidos y posiciones", "Fixture, resultados y tabla. El resultado se carga una vez y queda para los dos clubes."],
+  ["Partidos y posiciones", "Fixture, resultados, tabla y estadísticas propias de tu deporte. El resultado se carga una vez y queda para los dos clubes."],
   ["Videoteca", "Los partidos de tu club y los del próximo rival, sin salir de la app."],
   ["GPS y análisis", "Si tu club usa GPS, distancia, alta intensidad y velocidad por jugador en cada partido y entrenamiento."],
   ["Cuerpo médico", "Lesiones, tiempos de vuelta e historial, visibles solo para quien tiene que verlos."],
@@ -72,12 +72,20 @@ const MODULOS = [
 ];
 
 const PASOS = [
-  ["Nos escribís", "Por mensaje directo en Instagram. Vemos qué categorías tiene tu club y qué módulos necesitás."],
+  ["Nos escribís", "Por mensaje directo en Instagram. Vemos qué deporte y qué categorías tiene tu club, y qué módulos necesitás."],
   ["Armamos tu Hub", "Con el nombre, el escudo y los colores de tu club. Cargamos el plantel y le explicamos al staff cómo usarlo."],
   ["Pagás con Mercado Pago", "Elegís el plan mensual o el anual. Se paga en pesos, al dólar oficial del Banco Nación del día del pago."],
 ];
 
+const DEPORTES = [
+  ["Rugby", "Donde nació el Hub. Puestos del 1 al 15, formaciones y análisis de partido."],
+  ["Hockey", "Plantel por línea, rotaciones, córners cortos y carga de partido."],
+  ["Fútbol", "Esquemas tácticos, minutos jugados, tarjetas y carga semanal."],
+  ["Básquet", "Rotaciones, minutos, estadísticas por cuarto y carga en temporada larga."],
+];
+
 const PREGUNTAS = [
+  ["¿Sirve para mi deporte?", "Sí. Wellness, asistencia, sesiones, cuerpo médico, videoteca y avisos funcionan igual en cualquier deporte. Lo que cambia según el deporte (puestos, formación, estadísticas del partido) lo adaptamos para tu club durante la puesta en marcha."],
   ["¿Quién ve los datos de mi club?", "Solo las personas de tu club, según su rol: el jugador ve lo suyo, el cuerpo médico ve las lesiones y el staff ve el plantel. Otros clubes nunca ven tus datos. ADN Sports solo ve cantidades de uso para dar soporte, nunca datos de jugadores."],
   ["¿Los jugadores tienen que instalar algo?", "No. El Hub se abre desde el navegador del celular y se puede agregar a la pantalla de inicio como una app."],
   ["¿Sirve para juveniles?", "Sí. En juveniles los videos solo los ven los dos clubes que jugaron ese partido, y los datos de menores nunca se comparten."],
@@ -106,16 +114,16 @@ export default function Landing() {
       <main id="contenido">
         <section className="hero ancho">
           <div className="hero-txt">
-            <h1>Todo tu club de rugby, en un solo lugar.</h1>
+            <h1>Todo tu club, en un solo lugar.</h1>
             <p className="bajada">
-              Plantel, wellness, asistencia, partidos, GPS y video. Lo armamos para nuestro propio cuerpo técnico y ahora lo
-              puede usar tu club.
+              Plantel, wellness, asistencia, partidos, GPS y video. Nació en el rugby, para nuestro propio cuerpo técnico, y
+              lo adaptamos al deporte de tu club: básquet, fútbol, hockey y más.
             </p>
             <div className="acciones">
               <a className="boton" href="/demo">Probar la demo</a>
               <a className="boton secundario" href="#planes">Ver planes</a>
             </div>
-            <p className="nota">La demo usa un club y jugadores ficticios. No hace falta registrarse.</p>
+            <p className="nota">La demo muestra un club de rugby ficticio. No hace falta registrarse.</p>
           </div>
           <div className="telefono" aria-label="Demo del Hub funcionando">
             <div className="telefono-marco">
@@ -123,6 +131,20 @@ export default function Landing() {
             </div>
             <a className="telefono-pie" href="/demo">Abrir la demo en pantalla completa</a>
           </div>
+        </section>
+
+        <section className="deportes ancho" aria-labelledby="deportes-t">
+          <h2 id="deportes-t">Un Hub para cada deporte</h2>
+          <p className="bajada">La base es la misma para todos. Los puestos, la formación y las estadísticas se adaptan a lo que juega tu club.</p>
+          <ul className="deportes-lista">
+            {DEPORTES.map(([t, d]) => (
+              <li key={t}>
+                <b>{t}</b>
+                <span>{d}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="nota">¿Tu club juega otro deporte? Escribinos y lo vemos.</p>
         </section>
 
         <section className="semana" aria-labelledby="semana-t">
@@ -160,7 +182,7 @@ export default function Landing() {
               <h2 id="red-t">Cuantos más clubes, más vale tu Hub.</h2>
               <p>
                 Los clubes de una misma división comparten los videos de sus partidos de Primera. Antes del sábado, tu staff
-                mira los últimos tres partidos del rival.
+                mira los últimos tres partidos del rival. Funciona igual en cualquier deporte con liga.
               </p>
             </div>
             <ul className="red-reglas">
@@ -253,7 +275,7 @@ export default function Landing() {
       <footer className="pie">
         <div className="ancho pie-fila">
           <Marca />
-          <p>Hecho por gente de rugby, en Buenos Aires.</p>
+          <p>Hecho por gente del deporte, en Buenos Aires.</p>
           <a href={INSTAGRAM_URL} target="_blank" rel="noreferrer">Instagram @{INSTAGRAM}</a>
         </div>
       </footer>
