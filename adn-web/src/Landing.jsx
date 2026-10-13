@@ -145,7 +145,7 @@ export default function Landing() {
               <a className="boton" href="/demo">Probar la demo</a>
               <a className="boton secundario" href="#planes">Ver planes</a>
             </div>
-            <p className="nota">La demo muestra un club de rugby ficticio. No hace falta registrarse.</p>
+            <p className="nota">La demo muestra un club de rugby ficticio: probala como staff o como jugador. No hace falta registrarse.</p>
           </div>
           <div className="telefono" aria-label="Demo de un Hub funcionando">
             <div className="telefono-marco">
