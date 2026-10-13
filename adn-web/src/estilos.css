@@ -356,3 +356,25 @@ button.d-tarjeta:hover { border-color: var(--d-sub); }
 /* La demo embebida en el teléfono no muestra barra de scroll */
 html:has(.d-embed) { scrollbar-width: none; }
 html:has(.d-embed)::-webkit-scrollbar { display: none; }
+
+/* Demo: selector Staff / Jugador y vista del jugador */
+.d-modo { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--d-panel2); border-radius: 12px; padding: 4px; margin: 4px 0 12px; }
+.d-modo button { border: 0; background: none; border-radius: 9px; padding: 8px 6px; font: 600 14px var(--texto); color: var(--d-sub); cursor: pointer; min-height: 36px; }
+.d-modo button.activo { background: var(--d-panel); color: var(--d-texto); box-shadow: 0 1px 2px rgba(14,22,32,.12); }
+.d-modo-movil { display: none; }
+.d-j-cta { display: flex; flex-direction: column; gap: 4px; cursor: pointer; border-color: var(--d-club); width: 100%; }
+.d-j-ok { display: flex; flex-direction: column; gap: 4px; border-left: 4px solid var(--d-ok); }
+.d-j-pregunta h2 { margin-bottom: 2px; }
+.d-j-escala { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+.d-j-escala button { border: 1px solid var(--d-borde); background: var(--d-panel2); color: var(--d-texto); border-radius: 10px; font: 700 18px var(--titulo); min-height: 44px; cursor: pointer; }
+.d-j-escala button.activo { background: var(--d-club); border-color: var(--d-club); color: #fff; }
+.d-boton-j { width: 100%; border: 0; border-radius: 12px; padding: 14px; background: var(--d-club); color: #fff; font: 700 17px var(--titulo); cursor: pointer; min-height: 48px; }
+.d-boton-j:disabled { opacity: .45; cursor: not-allowed; }
+.d-j-resultado { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.d-j-resultado .d-dato-n { font-size: 56px; }
+.d-j-test { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--d-borde); }
+.d-j-test b { font: 700 18px var(--titulo); }
+@media (max-width: 760px) {
+  .d-modo-movil { display: block; }
+  .d-inferior.tres { grid-template-columns: repeat(3, 1fr); }
+}

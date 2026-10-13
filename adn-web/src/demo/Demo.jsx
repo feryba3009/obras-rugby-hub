@@ -23,6 +23,14 @@ function Icono({ d, size = 20 }) {
   );
 }
 
+// Vista del jugador: lo que ve un jugador cuando entra a su Hub.
+const SECCIONES_JUGADOR = [
+  { key: "j-hoy", grupo: "Mi semana", label: "Mi día", icono: "M4 5h16v15H4zM4 9h16M9 3v4M15 3v4" },
+  { key: "j-wellness", grupo: "Mi semana", label: "Mi wellness", corto: "Wellness", icono: "M3 12h4l3-7 4 14 3-7h4" },
+  { key: "j-perfil", grupo: "Mi perfil", label: "Mi perfil", corto: "Perfil", icono: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c0-4 4-6 8-6s8 2 8 6" },
+];
+const YO = JUGADORES[9];
+
 const colorEstado = { Disponible: "var(--d-ok)", "A vigilar": "var(--d-alerta)", Lesionado: "var(--d-error)" };
 function colorWellness(v) {
   return v >= 70 ? "var(--d-ok)" : v >= 55 ? "var(--d-alerta)" : "var(--d-error)";
@@ -31,13 +39,26 @@ function colorWellness(v) {
 export default function Demo() {
   const [seccion, setSeccion] = useState("hoy");
   const [jugadorId, setJugadorId] = useState(null);
+  const [modo, setModo] = useState("staff");
+  const [miWellness, setMiWellness] = useState(null);
   const jugador = JUGADORES.find((j) => j.id === jugadorId);
+  const secciones = modo === "staff" ? SECCIONES : SECCIONES_JUGADOR;
 
   function ir(key) {
     setSeccion(key);
     setJugadorId(null);
     document.querySelector(".d-main")?.scrollTo?.({ top: 0 });
   }
+  function cambiarModo(m) {
+    setModo(m);
+    ir(m === "staff" ? "hoy" : "j-hoy");
+  }
+  const selectorModo = (
+    <div className="d-modo" role="group" aria-label="Ver la demo como">
+      <button type="button" className={modo === "staff" ? "activo" : ""} aria-pressed={modo === "staff"} onClick={() => cambiarModo("staff")}>Staff</button>
+      <button type="button" className={modo === "jugador" ? "activo" : ""} aria-pressed={modo === "jugador"} onClick={() => cambiarModo("jugador")}>Jugador</button>
+    </div>
+  );
 
   return (
     <div className={`d-app${embebida ? " d-embed" : ""}`}>
@@ -57,9 +78,10 @@ export default function Demo() {
             <span className="d-escudo" style={{ background: CLUB.color }}>{CLUB.siglas}</span>
             <span className="d-club-txt">{CLUB.nombre}<small>Hub del club</small></span>
           </div>
-          {SECCIONES.map((s, i) => (
+          {selectorModo}
+          {secciones.map((s, i) => (
             <React.Fragment key={s.key}>
-              {s.grupo !== SECCIONES[i - 1]?.grupo && <div className="d-grupo">{s.grupo}</div>}
+              {s.grupo !== secciones[i - 1]?.grupo && <div className="d-grupo">{s.grupo}</div>}
               <button type="button" className={`d-nav${seccion === s.key ? " activo" : ""}`} aria-current={seccion === s.key ? "page" : undefined} onClick={() => ir(s.key)}>
                 <Icono d={s.icono} />
                 {s.label}
@@ -72,7 +94,16 @@ export default function Demo() {
           </a>
         </nav>
         <main className="d-main">
-          {jugador ? (
+          <div className="d-modo-movil">{selectorModo}</div>
+          {modo === "jugador" ? (
+            seccion === "j-wellness" ? (
+              <JugadorWellness respuesta={miWellness} onEnviar={setMiWellness} />
+            ) : seccion === "j-perfil" ? (
+              <JugadorPerfil respuesta={miWellness} />
+            ) : (
+              <JugadorHoy ir={ir} respuesta={miWellness} />
+            )
+          ) : jugador ? (
             <Ficha j={jugador} onVolver={() => setJugadorId(null)} />
           ) : seccion === "hoy" ? (
             <Hoy ir={ir} verJugador={setJugadorId} />
@@ -91,8 +122,8 @@ export default function Demo() {
           )}
         </main>
       </div>
-      <nav className="d-inferior" aria-label="Secciones del Hub">
-        {SECCIONES.map((s) => (
+      <nav className={`d-inferior${modo === "jugador" ? " tres" : ""}`} aria-label="Secciones del Hub">
+        {secciones.map((s) => (
           <button key={s.key} type="button" className={`d-inf${seccion === s.key ? " activo" : ""}`} aria-current={seccion === s.key ? "page" : undefined} onClick={() => ir(s.key)}>
             <Icono d={s.icono} size={22} />
             <span>{s.corto || s.label}</span>
@@ -229,10 +260,18 @@ function Plantel({ verJugador }) {
 
 // ------------------------------------------------------------------ Ficha
 function Ficha({ j, onVolver }) {
-  const dias = ["Mié", "Jue", "Vie", "Sáb", "Dom", "Lun", "Mar"];
   return (
     <>
       <button type="button" className="d-volver" onClick={onVolver}>‹ Volver</button>
+      <FichaCuerpo j={j} />
+    </>
+  );
+}
+
+function FichaCuerpo({ j, semana = j.semana, tituloWellness = "Wellness, últimos 7 días" }) {
+  const dias = ["Mié", "Jue", "Vie", "Sáb", "Dom", "Lun", "Mar"];
+  return (
+    <>
       <header className="d-ficha">
         <span className="d-avatar grande">{j.nombre.split(" ").map((p) => p[0]).slice(0, 2).join("")}</span>
         <div>
@@ -253,9 +292,9 @@ function Ficha({ j, onVolver }) {
         <div className="d-tarjeta d-dato"><span className="d-dato-n">{j.asistencia}<small>%</small></span><span>Asistencia</span></div>
       </div>
       <section className="d-tarjeta">
-        <h2>Wellness, últimos 7 días</h2>
-        <div className="d-barras" role="img" aria-label={`Wellness de los últimos 7 días: ${j.semana.map(wellnessDia).join(", ")} por ciento`}>
-          {j.semana.map((d, i) => {
+        <h2>{tituloWellness}</h2>
+        <div className="d-barras" role="img" aria-label={`Wellness de los últimos 7 días: ${semana.map(wellnessDia).join(", ")} por ciento`}>
+          {semana.map((d, i) => {
             const v = wellnessDia(d);
             return (
               <div key={i} className="d-barra">
@@ -277,6 +316,122 @@ function Ficha({ j, onVolver }) {
           </div>
         </section>
       )}
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ Vista del jugador
+const PREGUNTAS_WELLNESS = [
+  ["sueno", "Sueño", "¿Cómo dormiste anoche?"],
+  ["estres", "Estrés", "¿Cuánto estrés tenés hoy?"],
+  ["dolor", "Dolor muscular", "¿Cómo están tus músculos?"],
+  ["fatiga", "Fatiga", "¿Qué tan descansado llegás?"],
+];
+const miNormal = () => Math.round(YO.semana.slice(0, 6).map(wellnessDia).reduce((a, b) => a + b, 0) / 6);
+
+function JugadorHoy({ ir, respuesta }) {
+  const proximo = PARTIDOS.find((p) => p.gf === null);
+  return (
+    <>
+      <Encabezado titulo={`Hola, ${YO.nombre.split(" ")[0]}`} sub={`${CLUB.nombre} · ${YO.puesto} · Camiseta ${YO.numero}`} />
+      {respuesta ? (
+        <section className="d-tarjeta d-j-ok">
+          <b>Wellness de hoy: {wellnessDia(respuesta)}%</b>
+          <span className="d-sub">Listo. El staff ya lo ve. Tu normal es {miNormal()}%.</span>
+        </section>
+      ) : (
+        <button type="button" className="d-tarjeta d-j-cta" onClick={() => ir("j-wellness")}>
+          <span className="d-vivo">● Pendiente</span>
+          <b>Completá tu wellness de hoy</b>
+          <span className="d-sub">Cuatro preguntas, 20 segundos. Antes del entrenamiento de las 19:30.</span>
+        </button>
+      )}
+      <section className="d-tarjeta">
+        <h2>Sábado: estás citado</h2>
+        <div className="d-partido">
+          <span className="d-escudo grande" style={{ background: CLUB.color }}>{CLUB.siglas}</span>
+          <div>
+            <div className="d-partido-vs">vs {proximo.rival}</div>
+            <div className="d-sub">Sábado {proximo.fecha} · 15:30 · {proximo.condicion} · Titular, camiseta {YO.numero}</div>
+          </div>
+        </div>
+      </section>
+      <section className="d-tarjeta">
+        <h2>Sesión de hoy</h2>
+        <ol className="d-sesion">
+          {SESION_HOY.map((b) => (
+            <li key={b.hora}>
+              <span className="d-hora">{b.hora}</span>
+              <span>{b.bloque}</span>
+              <span className="d-sub">{b.min}′</span>
+            </li>
+          ))}
+        </ol>
+      </section>
+      <button type="button" className="d-link" onClick={() => ir("j-perfil")}>Ver mi perfil</button>
+    </>
+  );
+}
+
+function JugadorWellness({ respuesta, onEnviar }) {
+  const [valores, setValores] = useState(respuesta || {});
+  const completo = PREGUNTAS_WELLNESS.every(([k]) => valores[k]);
+  if (respuesta) {
+    const hoy = wellnessDia(respuesta);
+    const normal = miNormal();
+    const dif = hoy - normal;
+    return (
+      <>
+        <Encabezado titulo="Mi wellness" sub="Martes · ya respondiste" />
+        <section className="d-tarjeta d-j-resultado">
+          <span className="d-dato-n" style={{ color: colorWellness(hoy) }}>{hoy}%</span>
+          <p className="d-txt">
+            {dif >= 0 ? `Estás ${dif} puntos por encima de tu normal (${normal}%).` : `Estás ${-dif} puntos por debajo de tu normal (${normal}%). Si algo te molesta, avisale al staff.`}
+          </p>
+          <p className="d-sub">El cuerpo técnico y el preparador físico ya lo ven en su tablero.</p>
+          <button type="button" className="d-filtro" onClick={() => onEnviar(null)}>Cambiar respuestas</button>
+        </section>
+      </>
+    );
+  }
+  return (
+    <>
+      <Encabezado titulo="Mi wellness" sub="Martes · 1 es lo peor, 7 lo mejor" />
+      {PREGUNTAS_WELLNESS.map(([k, titulo, pregunta]) => (
+        <section key={k} className="d-tarjeta d-j-pregunta">
+          <h2>{titulo}</h2>
+          <p className="d-sub">{pregunta}</p>
+          <div className="d-j-escala" role="group" aria-label={titulo}>
+            {[1, 2, 3, 4, 5, 6, 7].map((v) => (
+              <button key={v} type="button" className={valores[k] === v ? "activo" : ""} aria-pressed={valores[k] === v} onClick={() => setValores((x) => ({ ...x, [k]: v }))}>{v}</button>
+            ))}
+          </div>
+        </section>
+      ))}
+      <button type="button" className="d-boton-j" disabled={!completo} onClick={() => onEnviar(valores)}>
+        {completo ? "Enviar" : "Respondé las cuatro preguntas"}
+      </button>
+    </>
+  );
+}
+
+function JugadorPerfil({ respuesta }) {
+  const semana = respuesta ? [...YO.semana.slice(1), respuesta] : YO.semana;
+  const tests = [["Salto (CMJ)", "41 cm", "+2 cm"], ["Sprint 30 m", "4,21 s", "−0,06 s"], ["Yo-Yo IR1", "1.480 m", "+120 m"]];
+  return (
+    <>
+      <FichaCuerpo j={YO} semana={semana} tituloWellness="Mi wellness, últimos 7 días" />
+      <section className="d-tarjeta">
+        <h2>Mis evaluaciones físicas</h2>
+        {tests.map(([t, v, d]) => (
+          <div key={t} className="d-j-test">
+            <span>{t}</span>
+            <b>{v}</b>
+            <span className="d-sub">{d} vs anterior</span>
+          </div>
+        ))}
+      </section>
+      <p className="d-sub d-pie">Cada jugador ve solo lo suyo. Las lesiones y las notas del cuerpo médico las ve solo el staff que corresponde.</p>
     </>
   );
 }
