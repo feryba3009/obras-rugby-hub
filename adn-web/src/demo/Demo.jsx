@@ -539,6 +539,7 @@ function Matchday() {
   const [eligiendo, setEligiendo] = useState(null);
   const [afuera, setAfuera] = useState({});
   const [expulsados, setExpulsados] = useState([]);
+  const [amarillas, setAmarillas] = useState({});
   const [registro, setRegistro] = useState([]);
   const [terminado, setTerminado] = useState(false);
 
@@ -565,20 +566,37 @@ function Matchday() {
     setPendiente(null);
   }
 
-  function tarjeta(j) {
-    const n = apellido(j);
-    if (eligiendo === "amarilla") {
+  // Tarjetas para los dos equipos. Del rival se elige el número de camiseta.
+  function tarjeta(n) {
+    const { tipo, equipo } = eligiendo;
+    const previas = amarillas[n] || 0;
+    if (tipo === "amarilla" && previas === 0) {
+      setAmarillas((a) => ({ ...a, [n]: 1 }));
       setAfuera((a) => ({ ...a, [n]: 600 }));
-      anotar(`🟨 ${n}: amarilla, 10 minutos afuera`);
+      anotar(`🟨 ${n}: amarilla, 10 minutos afuera`, { equipo, tarjeta: true, jugador: n });
     } else {
+      setAfuera((a) => Object.fromEntries(Object.entries(a).filter(([k]) => k !== n)));
       setExpulsados((e) => [...e, n]);
-      anotar(`🟥 ${n}: roja, no vuelve a entrar`);
+      anotar(tipo === "amarilla" ? `🟨🟥 ${n}: segunda amarilla, no vuelve a entrar` : `🟥 ${n}: roja, no vuelve a entrar`, { equipo, tarjeta: true, jugador: n, segunda: tipo === "amarilla" });
     }
     setEligiendo(null);
   }
+  const enCancha = (eq) => {
+    const fuera = [...Object.keys(afuera), ...expulsados].filter((n) => (eq === "rival") === n.startsWith(rival));
+    return 15 - fuera.length;
+  };
 
   function borrar(i) {
     if (i.puntos) (i.equipo === "club" ? setGf : setGc)((v) => Math.max(0, v - i.puntos));
+    if (i.tarjeta) {
+      const n = i.jugador;
+      if (i.texto.startsWith("🟨 ")) {
+        setAfuera((a) => Object.fromEntries(Object.entries(a).filter(([k]) => k !== n)));
+        setAmarillas((a) => ({ ...a, [n]: 0 }));
+      } else {
+        setExpulsados((e) => e.filter((x) => x !== n));
+      }
+    }
     setRegistro((r) => r.filter((x) => x.id !== i.id));
   }
 
@@ -589,9 +607,9 @@ function Matchday() {
         <Encabezado titulo="Partido finalizado" sub={`${CLUB.corto} vs ${rival}`} />
         <section className="d-tarjeta d-md-fin">
           <div className="d-md-res">{gf} – {gc}</div>
-          <p className="d-sub">Tries: {tries("club")} a {tries("rival")} · Tarjetas: {registro.filter((i) => /^🟨|^🟥/.test(i.texto)).length} · Duración: {reloj(seg)}</p>
+          <p className="d-sub">Tries: {tries("club")} a {tries("rival")} · Tarjetas: {registro.filter((i) => i.tarjeta && i.equipo === "club").length} a {registro.filter((i) => i.tarjeta && i.equipo === "rival").length} · Duración: {reloj(seg)}</p>
           <p className="d-txt">En un Hub real, el resultado se guarda en el calendario, el minuto de cada try pasa al análisis del partido y las tarjetas quedan en la ficha de cada jugador.</p>
-          <button type="button" className="d-filtro" onClick={() => { setTerminado(false); setSeg(0); setGf(0); setGc(0); setRegistro([]); setAfuera({}); setExpulsados([]); }}>Empezar otro partido</button>
+          <button type="button" className="d-filtro" onClick={() => { setTerminado(false); setSeg(0); setGf(0); setGc(0); setRegistro([]); setAfuera({}); setExpulsados([]); setAmarillas({}); }}>Empezar otro partido</button>
         </section>
       </>
     );
@@ -606,6 +624,7 @@ function Matchday() {
           <div className="d-md-centro">
             <div className="d-md-res" aria-live="polite">{gf} – {gc}</div>
             <div className="d-md-reloj">{reloj(seg)}</div>
+            {(enCancha("club") < 15 || enCancha("rival") < 15) && <div className="d-sub">En cancha: {enCancha("club")} vs {enCancha("rival")}</div>}
           </div>
           <div className="d-md-eq"><span className="d-escudo grande d-escudo-rival">AL</span><span>{rival}</span></div>
         </div>
@@ -625,13 +644,21 @@ function Matchday() {
         </section>
       ) : eligiendo ? (
         <section className="d-tarjeta d-md-pregunta">
-          <b>{eligiendo === "amarilla" ? "🟨 ¿Quién recibe la amarilla?" : "🟥 ¿Quién recibe la roja?"}</b>
+          <b>
+            {eligiendo.tipo === "amarilla" ? "🟨" : "🟥"} {eligiendo.equipo === "club" ? `¿Quién de ${CLUB.corto} recibe la ${eligiendo.tipo}?` : `¿Qué número de ${rival} recibe la ${eligiendo.tipo}?`}
+          </b>
           <div className="d-md-jugadores">
-            {titulares.map((j) => {
-              const n = apellido(j);
-              const bloqueado = expulsados.includes(n) || n in afuera;
-              return <button key={j.id} type="button" className="d-filtro" disabled={bloqueado} onClick={() => tarjeta(j)}>{j.numero ? `${j.numero}. ` : ""}{n}</button>;
-            })}
+            {eligiendo.equipo === "club"
+              ? titulares.map((j) => {
+                  const n = apellido(j);
+                  const bloqueado = expulsados.includes(n) || n in afuera;
+                  return <button key={j.id} type="button" className="d-filtro" disabled={bloqueado} onClick={() => tarjeta(n)}>{j.numero ? `${j.numero}. ` : ""}{n}{amarillas[n] && !bloqueado ? " 🟨" : ""}</button>;
+                })
+              : Array.from({ length: 23 }, (_, i) => i + 1).map((num) => {
+                  const n = `${rival} N.º ${num}`;
+                  const bloqueado = expulsados.includes(n) || n in afuera;
+                  return <button key={num} type="button" className="d-filtro d-md-num" disabled={bloqueado} onClick={() => tarjeta(n)}>{num}{amarillas[n] && !bloqueado ? " 🟨" : ""}</button>;
+                })}
           </div>
           <button type="button" className="d-link" onClick={() => setEligiendo(null)}>Cancelar</button>
         </section>
@@ -643,13 +670,12 @@ function Matchday() {
               {["Try", "Penal", "Drop"].map((t) => (
                 <button key={t} type="button" className={`d-md-accion ${eq}`} onClick={() => setPendiente({ equipo: eq, tipo: t })}>+ {t}</button>
               ))}
+              <div className="d-md-tarjetas">
+                <button type="button" className="d-md-accion amarilla" onClick={() => setEligiendo({ tipo: "amarilla", equipo: eq })} aria-label={`Amarilla para ${nombre}`}>Amarilla</button>
+                <button type="button" className="d-md-accion roja" onClick={() => setEligiendo({ tipo: "roja", equipo: eq })} aria-label={`Roja para ${nombre}`}>Roja</button>
+              </div>
             </section>
           ))}
-          <section className="d-tarjeta">
-            <h2>Tarjetas</h2>
-            <button type="button" className="d-md-accion amarilla" onClick={() => setEligiendo("amarilla")}>Amarilla</button>
-            <button type="button" className="d-md-accion roja" onClick={() => setEligiendo("roja")}>Roja</button>
-          </section>
         </div>
       )}
 

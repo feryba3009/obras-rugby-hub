@@ -311,7 +311,10 @@ button.d-tarjeta:hover { border-color: var(--d-sub); }
 .d-md-jugadores { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .d-md-jugadores .d-filtro { padding: 6px 10px; font-size: 13px; min-height: 36px; }
 .d-filtro:disabled { opacity: .35; cursor: not-allowed; }
-.d-md-acciones { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.d-md-acciones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.d-md-tarjetas { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px; }
+.d-md-tarjetas .d-md-accion { font-size: 13px; padding: 8px 4px; min-height: 38px; }
+.d-md-num { min-width: 44px; justify-content: center; }
 .d-md-acciones .d-tarjeta { display: flex; flex-direction: column; gap: 6px; padding: 12px; }
 .d-md-acciones h2 { font-size: 14px; margin: 0 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-md-accion { border: 0; border-radius: 10px; padding: 10px 8px; font: 700 15px var(--titulo); cursor: pointer; min-height: 42px; }
@@ -346,9 +349,6 @@ button.d-tarjeta:hover { border-color: var(--d-sub); }
   .d-gps { grid-template-columns: minmax(0, 1fr) 70px 74px; }
   .d-inf { font-size: 10px; }
   .d-md-acciones { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .d-md-acciones .d-tarjeta:last-child { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
-  .d-md-acciones .d-tarjeta:last-child h2 { width: 100%; }
-  .d-md-acciones .d-tarjeta:last-child .d-md-accion { flex: 1; }
 }
 .d-embed { min-height: 100vh; }
 .d-embed .d-main { scrollbar-width: none; }
