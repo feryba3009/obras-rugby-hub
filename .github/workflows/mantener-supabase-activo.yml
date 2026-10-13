@@ -13,12 +13,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Panel de ADN
+        if: always()
         run: |
-          curl -fsS -o /dev/null -w "Panel ADN: HTTP %{http_code}\n" \
+          # Cualquier respuesta de la base (aunque sea "sin permiso") cuenta como actividad.
+          code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 60 \
             "https://jjbpkdthnokfkivifpkr.supabase.co/rest/v1/planes?select=codigo&limit=1" \
-            -H "apikey: sb_publishable_rKocUz3tE3obSdQhwmh9XA_qralPW_1"
+            -H "apikey: sb_publishable_rKocUz3tE3obSdQhwmh9XA_qralPW_1" || echo 000)
+          echo "Panel ADN: HTTP $code"
+          [ "$code" -ge 200 ] && [ "$code" -lt 500 ]
       - name: Hub de Obras
+        if: always()
         run: |
-          curl -fsS -o /dev/null -w "Hub Obras: HTTP %{http_code}\n" \
+          code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 60 \
             "https://xnyleewcwrriodkaklqo.supabase.co/rest/v1/clubes?select=id&limit=1" \
-            -H "apikey: sb_publishable_AXWyRi8sy_ZoSA7oTkHRUQ_YrqASf5a"
+            -H "apikey: sb_publishable_AXWyRi8sy_ZoSA7oTkHRUQ_YrqASf5a" || echo 000)
+          echo "Hub Obras: HTTP $code"
+          [ "$code" -ge 200 ] && [ "$code" -lt 500 ]
