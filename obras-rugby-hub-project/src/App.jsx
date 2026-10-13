@@ -1824,7 +1824,11 @@ function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDele
 
 function GimnasioPage({ perfil }) {
   const [plan, setPlan] = useState(PLAN_GYM_INICIAL);
-  const [dia, setDia] = useState("Lunes");
+  // Abre en el día de gimnasio de hoy si corresponde (lunes, miércoles o viernes).
+  const [dia, setDia] = useState(() => {
+    const hoy = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date().getDay()];
+    return DIAS_GYM.includes(hoy) ? hoy : "Lunes";
+  });
   const [editMode, setEditMode] = useState(false);
   const bloques = plan[dia];
 
@@ -2064,7 +2068,7 @@ function RegistroCargas({ perfil, dia, bloques }) {
       {jugadorId && (
         <>
           <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 16 }}>
-            <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 600, marginBottom: 4 }}>Sesión de hoy · {dia}</div>
+            <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 600, marginBottom: 4 }}>Cargas de hoy · plan del {dia.toLowerCase()}</div>
             {ejercicios.length === 0 ? (
               <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Este día no tiene ejercicios con series y repeticiones para registrar.</div>
             ) : (
