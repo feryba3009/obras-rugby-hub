@@ -6,13 +6,13 @@ import { MENSAJE_URL } from "../config";
 const embebida = new URLSearchParams(window.location.search).has("embed");
 
 const SECCIONES = [
-  { key: "hoy", label: "Hoy", icono: "M4 5h16v15H4zM4 9h16M9 3v4M15 3v4" },
-  { key: "plantel", label: "Plantel", icono: "M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM2 20c0-3 3-5 6-5s6 2 6 5M16 11a3 3 0 1 0 0-6M18 15c2 .6 4 2.2 4 5" },
-  { key: "wellness", label: "Wellness", icono: "M3 12h4l3-7 4 14 3-7h4" },
-  { key: "partidos", label: "Partidos", icono: "M12 3c4 3 6 6 6 9s-2 6-6 9c-4-3-6-6-6-9s2-6 6-9zM9 9l6 6M15 9l-6 6" },
-  { key: "matchday", label: "Matchday", icono: "M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 9v4l2.5 2M10 2h4" },
-  { key: "videoteca", label: "Videoteca", corto: "Video", icono: "M3 6h13v12H3zM16 10l5-3v10l-5-3" },
-  { key: "gps", label: "GPS", icono: "M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11zM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z" },
+  { key: "hoy", grupo: "La semana", label: "Hoy", icono: "M4 5h16v15H4zM4 9h16M9 3v4M15 3v4" },
+  { key: "plantel", grupo: "La semana", label: "Plantel", icono: "M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM2 20c0-3 3-5 6-5s6 2 6 5M16 11a3 3 0 1 0 0-6M18 15c2 .6 4 2.2 4 5" },
+  { key: "wellness", grupo: "La semana", label: "Wellness", icono: "M3 12h4l3-7 4 14 3-7h4" },
+  { key: "partidos", grupo: "El partido", label: "Partidos", icono: "M12 3c4 3 6 6 6 9s-2 6-6 9c-4-3-6-6-6-9s2-6 6-9zM9 9l6 6M15 9l-6 6" },
+  { key: "matchday", grupo: "El partido", label: "Matchday", icono: "M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 9v4l2.5 2M10 2h4" },
+  { key: "videoteca", grupo: "Después", label: "Videoteca", corto: "Video", icono: "M3 6h13v12H3zM16 10l5-3v10l-5-3" },
+  { key: "gps", grupo: "Después", label: "GPS", icono: "M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11zM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z" },
 ];
 
 function Icono({ d, size = 20 }) {
@@ -55,14 +55,21 @@ export default function Demo() {
         <nav className="d-lateral" aria-label="Secciones del Hub">
           <div className="d-club">
             <span className="d-escudo" style={{ background: CLUB.color }}>{CLUB.siglas}</span>
-            <span>{CLUB.nombre}</span>
+            <span className="d-club-txt">{CLUB.nombre}<small>Hub del club</small></span>
           </div>
-          {SECCIONES.map((s) => (
-            <button key={s.key} type="button" className={`d-nav${seccion === s.key ? " activo" : ""}`} aria-current={seccion === s.key ? "page" : undefined} onClick={() => ir(s.key)}>
-              <Icono d={s.icono} />
-              {s.label}
-            </button>
+          {SECCIONES.map((s, i) => (
+            <React.Fragment key={s.key}>
+              {s.grupo !== SECCIONES[i - 1]?.grupo && <div className="d-grupo">{s.grupo}</div>}
+              <button type="button" className={`d-nav${seccion === s.key ? " activo" : ""}`} aria-current={seccion === s.key ? "page" : undefined} onClick={() => ir(s.key)}>
+                <Icono d={s.icono} />
+                {s.label}
+              </button>
+            </React.Fragment>
           ))}
+          <a className="d-firma" href="/" aria-label="ADN Sports">
+            <img src="/icon.svg" alt="" width="20" height="20" />
+            Hecho por ADN Sports
+          </a>
         </nav>
         <main className="d-main">
           {jugador ? (
@@ -119,15 +126,41 @@ function Fila({ j, children, onClick }) {
 }
 
 // ------------------------------------------------------------------ Hoy
+// El inicio se arma alrededor del próximo partido: cuántos días faltan y qué hay que mirar.
 function Hoy({ ir, verJugador }) {
   const disponibles = JUGADORES.filter((j) => j.estado === "Disponible").length;
   const respondieron = JUGADORES.filter((j) => j.respondioHoy).length;
   const alertas = JUGADORES.filter((j) => j.estado === "Disponible" && j.respondioHoy && (wellnessHoy(j) < 50 || tendencia(j) <= -20));
   const proximo = PARTIDOS.find((p) => p.gf === null);
+  const dias = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+  const hoy = 1;
 
   return (
     <>
       <Encabezado titulo="Martes" sub="Entrenamiento 19:30 · Cancha 2" />
+      <section className="d-camino" aria-label="Camino al próximo partido">
+        <div className="d-camino-top">
+          <span className="d-escudo grande">{CLUB.siglas}</span>
+          <div>
+            <div className="d-camino-k">Faltan {dias.length - 1 - hoy} días</div>
+            <div className="d-camino-vs">vs {proximo.rival}</div>
+            <div className="d-camino-cuando">Sábado {proximo.fecha} · 15:30 · {proximo.condicion}</div>
+          </div>
+        </div>
+        <div className="d-dias" aria-hidden="true">
+          {dias.map((d, i) => (
+            <span key={d} className={`d-dia${i < hoy ? " pasado" : ""}${i === hoy ? " hoy" : ""}${i === dias.length - 1 ? " partido" : ""}`}>
+              <i />
+              {i === hoy ? "Hoy" : d}
+            </span>
+          ))}
+        </div>
+        <div className="d-camino-acc">
+          <button type="button" className="d-camino-btn" onClick={() => ir("videoteca")}>Ver al rival</button>
+          <button type="button" className="d-camino-btn fuerte" onClick={() => ir("matchday")}>Abrir el Matchday</button>
+        </div>
+      </section>
+
       <div className="d-grilla">
         <button type="button" className="d-tarjeta d-dato" onClick={() => ir("plantel")}>
           <span className="d-dato-n">{disponibles}<small>/{JUGADORES.length}</small></span>
@@ -138,21 +171,6 @@ function Hoy({ ir, verJugador }) {
           <span>Completaron el wellness</span>
         </button>
       </div>
-
-      <section className="d-tarjeta">
-        <h2>Próximo partido</h2>
-        <div className="d-partido">
-          <span className="d-escudo grande" style={{ background: CLUB.color }}>{CLUB.siglas}</span>
-          <div>
-            <div className="d-partido-vs">vs {proximo.rival}</div>
-            <div className="d-sub">Sábado {proximo.fecha} · 15:30 · {proximo.condicion}</div>
-          </div>
-        </div>
-        <div className="d-links">
-          <button type="button" className="d-link" onClick={() => ir("videoteca")}>Ver sus últimos 3 partidos</button>
-          <button type="button" className="d-link" onClick={() => ir("matchday")}>Probar el Matchday</button>
-        </div>
-      </section>
 
       <section className="d-tarjeta">
         <h2>Para mirar hoy</h2>

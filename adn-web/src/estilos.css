@@ -185,29 +185,33 @@ p { margin: 0; }
 
 /* =================================================================== DEMO */
 .d-app {
-  --d-fondo: #101418; --d-panel: #181D23; --d-panel2: #20262E; --d-borde: #2A313A;
-  --d-texto: #F2F1EE; --d-sub: #9AA3AD; --d-acento: #E2B8BE; --d-club: #8C1D2C;
-  --d-ok: #4FC38A; --d-alerta: #F2B33D; --d-error: #FF7A6B;
+  --d-fondo: #F4F2EE; --d-panel: #FFFFFF; --d-panel2: #EDEAE4; --d-borde: #E2DDD3;
+  --d-texto: #0E1620; --d-sub: #5E6B78; --d-acento: #8C1D2C; --d-club: #8C1D2C;
+  --d-ok: #157A5A; --d-alerta: #A86400; --d-error: #B4321F;
   background: var(--d-fondo); color: var(--d-texto); font: 400 15px/1.45 var(--texto);
   min-height: 100vh; display: flex; flex-direction: column;
 }
-.d-aviso { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 16px; background: var(--crema); color: var(--noche); }
-.d-aviso-marca { display: flex; align-items: center; gap: 8px; font: 800 20px var(--titulo); color: var(--noche); text-decoration: none; }
-.d-aviso-txt { flex: 1; min-width: 200px; font-size: 14px; color: var(--gris); }
+.d-aviso { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 16px; background: var(--noche); color: var(--crema); }
+.d-aviso-marca { display: flex; align-items: center; gap: 8px; font: 800 20px var(--titulo); color: var(--crema); text-decoration: none; }
+.d-aviso-txt { flex: 1; min-width: 200px; font-size: 14px; color: #C3CBD5; }
 .d-aviso-btn { background: var(--verde); color: var(--noche); font: 700 16px var(--titulo); padding: 9px 16px; border-radius: 999px; text-decoration: none; min-height: 40px; display: inline-flex; align-items: center; }
 .d-cuerpo { flex: 1; display: flex; min-height: 0; }
-.d-lateral { width: 220px; flex-shrink: 0; border-right: 1px solid var(--d-borde); padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; }
+.d-lateral { width: 232px; flex-shrink: 0; border-right: 1px solid var(--d-borde); background: var(--d-panel); padding: 18px 12px; display: flex; flex-direction: column; gap: 2px; }
+.d-grupo { font: 700 12px var(--titulo); letter-spacing: .16em; text-transform: uppercase; color: var(--d-sub); padding: 16px 12px 6px; }
+.d-firma { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 18px 10px 4px; font-size: 12px; color: var(--d-sub); text-decoration: none; }
+.d-club-txt { display: flex; flex-direction: column; line-height: 1.05; }
+.d-club-txt small { font: 500 12px var(--texto); color: var(--d-sub); }
 .d-club { display: flex; align-items: center; gap: 10px; padding: 4px 8px 18px; font: 700 19px var(--titulo); }
 .d-escudo { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; color: #fff; font: 800 14px var(--titulo); flex-shrink: 0; }
 .d-escudo.grande { width: 48px; height: 48px; font-size: 20px; }
 .d-nav { display: flex; align-items: center; gap: 10px; background: none; border: 0; color: var(--d-sub); font: 500 15px var(--texto); padding: 10px 12px; border-radius: 10px; cursor: pointer; text-align: left; min-height: 44px; }
 .d-nav:hover { color: var(--d-texto); background: var(--d-panel); }
-.d-nav.activo { color: var(--d-texto); background: var(--d-club); }
+.d-nav.activo { color: #fff; background: var(--d-club); }
 .d-main { flex: 1; min-width: 0; padding: 22px; max-width: 760px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
 .d-inferior { display: none; }
 .d-enc h1 { font: 800 36px/1 var(--titulo); }
 .d-enc p { color: var(--d-sub); margin-top: 4px; }
-.d-tarjeta { background: var(--d-panel); border: 1px solid var(--d-borde); border-radius: 16px; padding: 16px; color: var(--d-texto); font: inherit; text-align: left; }
+.d-tarjeta { background: var(--d-panel); border: 1px solid var(--d-borde); border-radius: 16px; padding: 16px; box-shadow: 0 1px 2px rgba(14,22,32,.04); color: var(--d-texto); font: inherit; text-align: left; }
 .d-tarjeta h2 { font: 700 20px var(--titulo); margin-bottom: 10px; }
 button.d-tarjeta { cursor: pointer; }
 button.d-tarjeta:hover { border-color: var(--d-sub); }
@@ -253,7 +257,7 @@ button.d-tarjeta:hover { border-color: var(--d-sub); }
 .d-wl { width: 100%; background: none; border: 0; border-top: 1px solid var(--d-borde); color: var(--d-texto); font: inherit; padding: 10px 0; cursor: pointer; text-align: center; min-height: 46px; }
 .d-wl .d-fila-nombre { text-align: left; }
 .d-wl-v { font: 700 17px var(--titulo); }
-.d-wl-t { font: 700 14px var(--titulo); color: #101418; border-radius: 999px; padding: 3px 0; }
+.d-wl-t { font: 700 14px var(--titulo); color: #fff; border-radius: 999px; padding: 3px 0; }
 .d-pt { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 11px 0; border-top: 1px solid var(--d-borde); }
 .d-pt-rival { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
 .d-pt-res { font: 700 18px var(--titulo); font-variant-numeric: tabular-nums; }
@@ -272,6 +276,25 @@ button.d-tarjeta:hover { border-color: var(--d-sub); }
 .d-video-info { display: flex; flex-direction: column; gap: 4px; }
 .d-video-nota { margin-top: 10px; font-size: 14px; color: var(--d-sub); }
 .d-pie { padding: 4px 2px 20px; }
+
+/* Camino al partido (inicio) */
+.d-camino { background: var(--d-club); color: #fff; border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.d-camino-top { display: flex; align-items: center; gap: 14px; }
+.d-camino .d-escudo { background: #fff; color: var(--d-club); }
+.d-camino-k { font: 700 12px var(--titulo); letter-spacing: .14em; text-transform: uppercase; opacity: .85; }
+.d-camino-vs { font: 800 30px/1 var(--titulo); }
+.d-camino-cuando { font-size: 14px; opacity: .85; }
+.d-dias { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.d-dia { display: flex; flex-direction: column; align-items: center; gap: 6px; font: 600 12px var(--texto); opacity: .75; }
+.d-dia i { width: 100%; height: 6px; border-radius: 3px; background: rgba(255,255,255,.3); }
+.d-dia.pasado i { background: rgba(255,255,255,.75); }
+.d-dia.hoy { opacity: 1; }
+.d-dia.hoy i { background: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.35); }
+.d-dia.partido { opacity: 1; font-weight: 700; }
+.d-dia.partido i { background: var(--verde); }
+.d-camino-acc { display: flex; gap: 8px; flex-wrap: wrap; }
+.d-camino-btn { background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.35); color: #fff; border-radius: 999px; padding: 8px 14px; font: 600 14px var(--texto); cursor: pointer; min-height: 40px; }
+.d-camino-btn.fuerte { background: #fff; color: var(--d-club); border-color: #fff; }
 
 /* Matchday */
 .d-links { display: flex; gap: 18px; flex-wrap: wrap; }
@@ -294,8 +317,8 @@ button.d-tarjeta:hover { border-color: var(--d-sub); }
 .d-md-accion { border: 0; border-radius: 10px; padding: 10px 8px; font: 700 15px var(--titulo); cursor: pointer; min-height: 42px; }
 .d-md-accion.club { background: var(--d-club); color: #fff; }
 .d-md-accion.rival { background: var(--d-panel2); color: var(--d-texto); }
-.d-md-accion.amarilla { background: #4A3B10; color: var(--d-alerta); }
-.d-md-accion.roja { background: #4A1C17; color: var(--d-error); }
+.d-md-accion.amarilla { background: #FBEBC4; color: #7A4A00; }
+.d-md-accion.roja { background: #F8D9D3; color: #8E2414; }
 .d-md-afuera { display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--d-borde); }
 .d-md-cuenta { font: 700 15px var(--titulo); color: var(--d-alerta); font-variant-numeric: tabular-nums; }
 .d-md-log { display: grid; grid-template-columns: 36px minmax(0, 1fr) 32px; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--d-borde); }

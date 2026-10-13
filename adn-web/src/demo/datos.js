@@ -107,13 +107,13 @@ export function tendencia(j) {
 export const RIVALES = ["Atlético del Sur", "Deportivo Ribera", "Club Los Álamos", "Unión Oeste", "Sociedad Norte", "Club Puerto Viejo", "Atlético Llanura"];
 
 export const PARTIDOS = [
-  { fecha: "06/09", rival: "Atlético del Sur", condicion: "Local", gf: 27, gc: 19 },
-  { fecha: "13/09", rival: "Deportivo Ribera", condicion: "Visitante", gf: 14, gc: 22 },
-  { fecha: "20/09", rival: "Club Los Álamos", condicion: "Local", gf: 31, gc: 10 },
-  { fecha: "27/09", rival: "Unión Oeste", condicion: "Visitante", gf: 20, gc: 20 },
-  { fecha: "04/10", rival: "Sociedad Norte", condicion: "Local", gf: 24, gc: 17 },
-  { fecha: "11/10", rival: "Club Puerto Viejo", condicion: "Visitante", gf: 33, gc: 26 },
-  { fecha: "18/10", rival: "Atlético Llanura", condicion: "Local", gf: null, gc: null },
+  { fecha: "05/09", rival: "Atlético del Sur", condicion: "Local", gf: 27, gc: 19 },
+  { fecha: "12/09", rival: "Deportivo Ribera", condicion: "Visitante", gf: 14, gc: 22 },
+  { fecha: "19/09", rival: "Club Los Álamos", condicion: "Local", gf: 31, gc: 10 },
+  { fecha: "26/09", rival: "Unión Oeste", condicion: "Visitante", gf: 20, gc: 20 },
+  { fecha: "03/10", rival: "Sociedad Norte", condicion: "Local", gf: 24, gc: 17 },
+  { fecha: "10/10", rival: "Club Puerto Viejo", condicion: "Visitante", gf: 33, gc: 26 },
+  { fecha: "17/10", rival: "Atlético Llanura", condicion: "Local", gf: null, gc: null },
 ];
 
 export const TABLA = [
@@ -129,9 +129,9 @@ export const TABLA = [
 
 // Videoteca: últimos 3 partidos del próximo rival (Atlético Llanura)
 export const VIDEOS_RIVAL = [
-  { fecha: "11/10", partido: "Atlético Llanura 29 – 15 Sociedad Norte", duracion: "84 min" },
-  { fecha: "04/10", partido: "Unión Oeste 18 – 21 Atlético Llanura", duracion: "81 min" },
-  { fecha: "27/09", partido: "Atlético Llanura 12 – 25 Deportivo Ribera", duracion: "86 min" },
+  { fecha: "10/10", partido: "Atlético Llanura 29 – 15 Sociedad Norte", duracion: "84 min" },
+  { fecha: "03/10", partido: "Unión Oeste 18 – 21 Atlético Llanura", duracion: "81 min" },
+  { fecha: "26/09", partido: "Atlético Llanura 12 – 25 Deportivo Ribera", duracion: "86 min" },
 ];
 
 export const SESION_HOY = [
