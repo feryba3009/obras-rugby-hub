@@ -691,7 +691,7 @@ function convocadosPartido(categoriaNombre) {
     .filter((nombre, i, arr) => arr.indexOf(nombre) === i);
 }
 
-function SelectorJugadorIncidencia({ jugadores, expulsados, onElegir, onCancelar, titulo }) {
+function SelectorJugadorIncidencia({ jugadores, expulsados, onElegir, onCancelar, titulo, etiqueta = (j) => j }) {
   return (
     <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 16 }}>
       <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 600, marginBottom: 10 }}>{titulo}</div>
@@ -710,7 +710,7 @@ function SelectorJugadorIncidencia({ jugadores, expulsados, onElegir, onCancelar
               cursor: expulsados.has(j) ? "not-allowed" : "pointer",
             }}
           >
-            {j}
+            {etiqueta(j)}
           </button>
         ))}
       </div>
@@ -732,7 +732,7 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
 
   // acción pendiente de conversión: { equipo: "Obras"|"Rival", tipo: "Penal"|"Try"|"Drop" }
   const [pendienteConversion, setPendienteConversion] = useState(null);
-  // qué lista de jugadores mostrar: "amarilla" | "roja" | null
+  // tarjeta en curso: { tipo: "amarilla"|"roja", equipo: "Obras"|"Rival" } | null
   const [pidiendoJugador, setPidiendoJugador] = useState(null);
 
   // amarillas: { [jugador]: cantidad }; tiemposAfuera: { [jugador]: segundosRestantes }
@@ -743,6 +743,12 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
   const [guardando, setGuardando] = useState(false);
 
   const jugadores = convocadosPartido(categoria);
+  // Del rival no tenemos el plantel: la tarjeta se carga por número de camiseta.
+  const prefijoRival = `${partido.rival} N.º `;
+  const numerosRival = Array.from({ length: 23 }, (_, i) => `${prefijoRival}${i + 1}`);
+  const esRival = (j) => j.startsWith(prefijoRival);
+  const enCancha = (rival) =>
+    15 - new Set([...Object.entries(tiemposAfuera).filter(([, t]) => t > 0).map(([j]) => j), ...expulsados].filter((j) => esRival(j) === rival)).size;
 
   useEffect(() => {
     if (corriendo) {
@@ -866,7 +872,13 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
     setGuardando(true);
     const informe = STATS_VACIO();
     informe.incidencias = incidencias;
-    informe.tarjetas = { amarillas, expulsados: [...expulsados] };
+    const propias = (obj) => Object.fromEntries(Object.entries(obj).filter(([j]) => !esRival(j)));
+    const delRival = (obj) => Object.fromEntries(Object.entries(obj).filter(([j]) => esRival(j)));
+    informe.tarjetas = {
+      amarillas: propias(amarillas),
+      expulsados: [...expulsados].filter((j) => !esRival(j)),
+      rival: { amarillas: delRival(amarillas), expulsados: [...expulsados].filter(esRival) },
+    };
 
     await guardarResultadoPartido(partido.id, gf, gc);
     const { error } = await supabase.from("partidos").update({ informe }).eq("id", partido.id);
@@ -921,6 +933,11 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
             <div style={{ fontFamily: "var(--h-titulo)", fontSize: 40, color: "var(--h-texto)", fontWeight: 700 }}>{gc}</div>
           </div>
         </div>
+        {(enCancha(false) < 15 || enCancha(true) < 15) && (
+          <div style={{ fontSize: 12, color: "var(--h-sub)", marginBottom: 6 }}>
+            En cancha: Obras {enCancha(false)} · {partido.rival} {enCancha(true)}
+          </div>
+        )}
         <button
           onClick={reiniciarMarcador}
           style={{ background: "transparent", border: "none", color: "var(--h-sub2)", fontSize: 11, cursor: "pointer", textDecoration: "underline" }}
@@ -957,10 +974,16 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
         </div>
       ) : pidiendoJugador ? (
         <SelectorJugadorIncidencia
-          jugadores={jugadores}
+          jugadores={pidiendoJugador.equipo === "Rival" ? numerosRival : jugadores}
+          etiqueta={pidiendoJugador.equipo === "Rival" ? (j) => j.slice(prefijoRival.length) : undefined}
           expulsados={expulsados}
-          titulo={pidiendoJugador === "amarilla" ? "🟨 ¿Quién recibe la amarilla?" : "🟥 ¿Quién recibe la roja?"}
-          onElegir={pidiendoJugador === "amarilla" ? aplicarAmarilla : aplicarRoja}
+          titulo={
+            (pidiendoJugador.tipo === "amarilla" ? "🟨 " : "🟥 ") +
+            (pidiendoJugador.equipo === "Rival"
+              ? `¿Qué número de ${partido.rival} recibe la ${pidiendoJugador.tipo}?`
+              : `¿Quién de Obras recibe la ${pidiendoJugador.tipo}?`)
+          }
+          onElegir={pidiendoJugador.tipo === "amarilla" ? aplicarAmarilla : aplicarRoja}
           onCancelar={() => setPidiendoJugador(null)}
         />
       ) : (
@@ -995,14 +1018,19 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
           </div>
           <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
             <div style={{ fontSize: 11, color: "var(--h-sub)", marginBottom: 8, textAlign: "center" }}>TARJETAS</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <button onClick={() => setPidiendoJugador("amarilla")} style={{ ...pillButton, background: "var(--h-alerta-suave)", border: "none", color: "var(--h-alerta)" }}>
-                🟨 Amarilla
-              </button>
-              <button onClick={() => setPidiendoJugador("roja")} style={{ ...pillButton, background: "var(--h-error-suave)", border: "none", color: "var(--h-error)" }}>
-                🟥 Roja
-              </button>
-            </div>
+            {[["Obras", "Obras"], ["Rival", partido.rival]].map(([equipo, nombre]) => (
+              <div key={equipo} style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 4 }}>{nombre}</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => setPidiendoJugador({ tipo: "amarilla", equipo })} style={{ ...pillButton, flex: 1, background: "var(--h-alerta-suave)", border: "none", color: "var(--h-alerta)" }}>
+                    🟨 Amarilla
+                  </button>
+                  <button onClick={() => setPidiendoJugador({ tipo: "roja", equipo })} style={{ ...pillButton, flex: 1, background: "var(--h-error-suave)", border: "none", color: "var(--h-error)" }}>
+                    🟥 Roja
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
