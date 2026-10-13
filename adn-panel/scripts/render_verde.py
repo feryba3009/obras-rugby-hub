@@ -86,14 +86,14 @@ POSTS["01-presentacion"] = [
           <div style="font:600 60px BC;letter-spacing:.32em">SPORTS</div>
         </div>
       </div>
-      <div style="font:500 42px B;color:{SUB}">Un Hub para tu club, en cualquier deporte.</div>
+      <div style="font:500 42px B;color:{SUB}">Toda la información de tu club, en una app.</div>
     </div>""", 1, T),
     texto("Quiénes somos", 'Venimos <span class="n">del rugby.</span>',
           "Staff, entrenadores y preparadores. Los martes y jueves a la noche, al costado de la cancha.", 2, T),
     texto("El problema", 'Nos cansamos de <span class="n">las planillas.</span>',
           "Grupos de WhatsApp, un Excel que nadie actualiza y la lista de asistencia en papel. Todo en lugares distintos.", 3, T),
     texto("La solución", 'Armamos <span class="n">un Hub.</span>',
-          "Plantel, wellness, partidos, GPS y video de los partidos en un solo lugar, desde el celular.", 4, T, 180),
+          "Toda la información del club resumida en una app, al alcance de la mano: plantel, wellness, partidos, GPS y video.", 4, T, 180),
     placa(f"""
     <div class="c" style="gap:44px">
       <div class="k">Ahora</div>
@@ -242,7 +242,7 @@ POSTS["10-matchday"] = [
     <div class="c" style="gap:52px">
       <h1 class="t" style="font-size:120px">Un toque <span class="n">y suma.</span></h1>
       {MARCADOR}
-      <p class="s">Try, penal o drop: el Hub pregunta si convirtió y calcula el resultado.</p>
+      <p class="s">Try, penal o drop: la app pregunta si convirtió y calcula el resultado.</p>
     </div>""", 2, T),
     placa(f"""
     <div class="c" style="gap:52px">

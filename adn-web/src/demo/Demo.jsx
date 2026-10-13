@@ -48,7 +48,7 @@ export default function Demo() {
             <span>ADN Sports</span>
           </a>
           <span className="d-aviso-txt">Demo con un club y datos ficticios. Tocá todo lo que quieras.</span>
-          <a className="d-aviso-btn" href={MENSAJE_URL} target="_blank" rel="noreferrer">Quiero el Hub para mi club</a>
+          <a className="d-aviso-btn" href={MENSAJE_URL} target="_blank" rel="noreferrer">Quiero un Hub para mi club</a>
         </div>
       )}
       <div className="d-cuerpo">
@@ -299,7 +299,7 @@ function Wellness({ verJugador }) {
       <section className="d-tarjeta">
         <h2>Faltan responder ({faltan.length})</h2>
         <p className="d-txt">{faltan.map((j) => j.nombre).join(", ")}.</p>
-        <p className="d-sub">En el Hub real les llega un recordatorio al celular.</p>
+        <p className="d-sub">En un Hub real les llega un recordatorio al celular.</p>
       </section>
     </>
   );
@@ -340,7 +340,7 @@ function Partidos({ ir }) {
             </tbody>
           </table>
         </div>
-        <p className="d-sub">Cuando los dos clubes usan el Hub, el resultado se carga una sola vez y aparece en los dos.</p>
+        <p className="d-sub">Cuando los dos clubes tienen su Hub, el resultado se carga una sola vez y aparece en los dos.</p>
       </section>
       <button type="button" className="d-tarjeta d-cta-md" onClick={() => ir("matchday")}>
         <span className="d-vivo">● Sábado: día de partido</span>
@@ -417,7 +417,7 @@ function Matchday() {
         <section className="d-tarjeta d-md-fin">
           <div className="d-md-res">{gf} – {gc}</div>
           <p className="d-sub">Tries: {tries("club")} a {tries("rival")} · Tarjetas: {registro.filter((i) => /^🟨|^🟥/.test(i.texto)).length} · Duración: {reloj(seg)}</p>
-          <p className="d-txt">En el Hub real, el resultado se guarda en el calendario, el minuto de cada try pasa al análisis del partido y las tarjetas quedan en la ficha de cada jugador.</p>
+          <p className="d-txt">En un Hub real, el resultado se guarda en el calendario, el minuto de cada try pasa al análisis del partido y las tarjetas quedan en la ficha de cada jugador.</p>
           <button type="button" className="d-filtro" onClick={() => { setTerminado(false); setSeg(0); setGf(0); setGc(0); setRegistro([]); setAfuera({}); setExpulsados([]); }}>Empezar otro partido</button>
         </section>
       </>
@@ -541,7 +541,7 @@ function Videoteca() {
             </span>
           </button>
           {abierto === i && (
-            <p className="d-txt d-video-nota">En el Hub real acá se reproduce el partido completo desde YouTube, sin salir de la app. Solo lo ve el cuerpo técnico.</p>
+            <p className="d-txt d-video-nota">En un Hub real acá se reproduce el partido completo desde YouTube, sin salir de la app. Solo lo ve el cuerpo técnico.</p>
           )}
         </section>
       ))}

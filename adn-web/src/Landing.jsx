@@ -85,7 +85,7 @@ const MOMENTOS = [
     titulo: "Después del partido",
     modulos: [
       ["Informe de partido", "Estadísticas del equipo y de cada jugador. Lo que se cargó en el Matchday ya está adentro."],
-      ["Análisis de video", "Mientras mirás el partido, marcás posesión, territorio y obtención. El Hub calcula solo el tiempo de juego efectivo y las secuencias."],
+      ["Análisis de video", "Mientras mirás el partido, marcás posesión, territorio y obtención. La app calcula sola el tiempo de juego efectivo y las secuencias."],
       ["Videoteca", "Los partidos de tu club y los del próximo rival, sin salir de la app."],
       ["GPS", "Si tu club usa GPS, distancia, alta intensidad y velocidad por jugador en cada partido y entrenamiento."],
       ["Reportes individuales", "Cualidades físicas, estadísticas de la temporada e historial médico de cada jugador en una sola página."],
@@ -100,7 +100,7 @@ const PASOS = [
 ];
 
 const DEPORTES = [
-  ["Rugby", "Donde nació el Hub. Puestos del 1 al 15, formaciones y análisis de partido."],
+  ["Rugby", "Donde nació nuestro primer Hub. Puestos del 1 al 15, formaciones y análisis de partido."],
   ["Hockey", "Plantel por línea, rotaciones, córners cortos y carga de partido."],
   ["Fútbol", "Esquemas tácticos, minutos jugados, tarjetas y carga semanal."],
   ["Básquet", "Rotaciones, minutos, estadísticas por cuarto y carga en temporada larga."],
@@ -109,7 +109,7 @@ const DEPORTES = [
 const PREGUNTAS = [
   ["¿Sirve para mi deporte?", "Sí. Wellness, asistencia, sesiones, cuerpo médico, videoteca y avisos funcionan igual en cualquier deporte. Lo que cambia según el deporte (puestos, formación, estadísticas del partido) lo adaptamos para tu club durante la puesta en marcha."],
   ["¿Quién ve los datos de mi club?", "Solo las personas de tu club, según su rol: el jugador ve lo suyo, el cuerpo médico ve las lesiones y el staff ve el plantel. Otros clubes nunca ven tus datos. ADN Sports solo ve cantidades de uso para dar soporte, nunca datos de jugadores."],
-  ["¿Los jugadores tienen que instalar algo?", "No. El Hub se abre desde el navegador del celular y se puede agregar a la pantalla de inicio como una app."],
+  ["¿Los jugadores tienen que instalar algo?", "No. La app se abre desde el navegador del celular y se puede agregar a la pantalla de inicio como una app."],
   ["¿Sirve para juveniles?", "Sí. En juveniles los videos solo los ven los dos clubes que jugaron ese partido, y los datos de menores nunca se comparten."],
   ["¿Cómo funciona la Videoteca compartida?", "En Primera, los clubes de una misma división comparten los videos de sus partidos. Si tu club sube los suyos, ve los de los demás. Si no sube, no ve."],
   ["¿Puedo cancelar?", "Sí. El plan mensual se cancela cuando quieras desde Mercado Pago. El anual cubre los 12 meses ya pagados."],
@@ -125,7 +125,7 @@ export default function Landing() {
         <div className="ancho cabecera-fila">
           <Marca />
           <nav className="menu" aria-label="Secciones">
-            <a href="#hub">El Hub</a>
+            <a href="#hub">Qué tiene</a>
             <a href="#planes">Planes</a>
             <a href="#pago">Cómo se paga</a>
             <a className="boton chico" href="/demo">Probar la demo</a>
@@ -136,9 +136,9 @@ export default function Landing() {
       <main id="contenido">
         <section className="hero ancho">
           <div className="hero-txt">
-            <h1>Todo tu club, en un solo lugar.</h1>
+            <h1>Toda la información de tu club, en una app.</h1>
             <p className="bajada">
-              Plantel, wellness, Matchday en vivo, análisis de video, GPS y cuerpo médico. Nació en el rugby, para nuestro propio cuerpo técnico, y
+              Plantel, wellness, Matchday en vivo, análisis de video, GPS y cuerpo médico, resumidos y al alcance de tu mano. Nació en el rugby, para nuestro propio cuerpo técnico, y
               lo adaptamos al deporte de tu club: básquet, fútbol, hockey y más.
             </p>
             <div className="acciones">
@@ -147,9 +147,9 @@ export default function Landing() {
             </div>
             <p className="nota">La demo muestra un club de rugby ficticio. No hace falta registrarse.</p>
           </div>
-          <div className="telefono" aria-label="Demo del Hub funcionando">
+          <div className="telefono" aria-label="Demo de un Hub funcionando">
             <div className="telefono-marco">
-              <iframe src="/demo?embed=1" title="Demo del Hub con un club ficticio" loading="lazy" />
+              <iframe src="/demo?embed=1" title="Demo de un Hub con un club ficticio" loading="lazy" />
             </div>
             <a className="telefono-pie" href="/demo">Abrir la demo en pantalla completa</a>
           </div>
@@ -181,7 +181,7 @@ export default function Landing() {
                 <ul>{ANTES.map((t) => <li key={t}>{t}</li>)}</ul>
               </div>
               <div className="semana-col despues">
-                <h3>Con el Hub</h3>
+                <h3>Con un Hub</h3>
                 <ul>{CON_HUB.map((t) => <li key={t}>{t}</li>)}</ul>
               </div>
             </div>
@@ -189,7 +189,7 @@ export default function Landing() {
         </section>
 
         <section id="hub" className="ancho modulos" aria-labelledby="hub-t">
-          <h2 id="hub-t">Qué tiene el Hub</h2>
+          <h2 id="hub-t">Qué tiene tu Hub</h2>
           <p className="bajada">Toda la semana del staff, de lunes al partido y después. Cada club tiene su propio Hub, con su escudo y sus colores, y activa los módulos que usa.</p>
           {MOMENTOS.map((m) => (
             <div key={m.titulo} className="momento">
@@ -225,7 +225,7 @@ export default function Landing() {
 
         <section id="planes" className="ancho planes" aria-labelledby="planes-t">
           <h2 id="planes-t">Planes</h2>
-          <p className="bajada">Los dos planes incluyen el Hub completo para tu club, la puesta en marcha y soporte por mensaje.</p>
+          <p className="bajada">Los dos planes incluyen un Hub completo para tu club, la puesta en marcha y soporte por mensaje.</p>
           <div className="planes-fila">
             {PLANES.map((p) => (
               <article key={p.id} className={`plan${p.id === "anual" ? " destacado" : ""}`}>
