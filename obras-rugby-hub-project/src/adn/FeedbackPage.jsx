@@ -5,17 +5,17 @@ import { supabase } from "./supabaseClient";
 // ADN lo lee con su token; las respuestas de ADN vuelven acá y llegan como notificación.
 
 const C = {
-  card: "#141415", borde: "#232324", texto: "#f5f4f0", suave: "#c9c9c6", apagado: "#8f8f8c",
-  acento: "#f2c230", ok: "#5fbf7a", alerta: "#e8a33d", error: "#e5674f",
+  card: "#131C27", borde: "#223040", texto: "#F4F2EE", suave: "#C8CED6", apagado: "#949EAA",
+  acento: "#f2c230", ok: "#3FC08A", alerta: "#e8a33d", error: "#e5674f",
 };
 const card = { background: C.card, border: `1px solid ${C.borde}`, borderRadius: 10, padding: 16 };
 const boton = {
   padding: "8px 14px", minHeight: 36, borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: "pointer",
-  fontFamily: "'Inter', sans-serif", border: `1px solid ${C.borde}`, background: "#1c1c1d", color: C.texto,
+  fontFamily: "'Barlow', 'Inter', sans-serif", border: `1px solid ${C.borde}`, background: "#1A2431", color: C.texto,
 };
 const input = {
   width: "100%", boxSizing: "border-box", padding: "9px 11px", borderRadius: 6, fontSize: 13,
-  background: "#0f0f10", border: `1px solid ${C.borde}`, color: C.texto, fontFamily: "'Inter', sans-serif",
+  background: "#0D141D", border: `1px solid ${C.borde}`, color: C.texto, fontFamily: "'Barlow', 'Inter', sans-serif",
 };
 const COLOR_ESTADO = { Recibido: C.suave, "En curso": C.alerta, Resuelto: C.ok, Descartado: C.apagado };
 
@@ -105,7 +105,7 @@ export default function FeedbackPage({ perfil }) {
           type="button"
           onClick={enviar}
           disabled={enviando}
-          style={{ ...boton, background: C.acento, color: "#0b0b0c", border: "none", marginTop: 10, opacity: enviando ? 0.6 : 1 }}
+          style={{ ...boton, background: C.acento, color: "#0A1018", border: "none", marginTop: 10, opacity: enviando ? 0.6 : 1 }}
         >
           {enviando ? "Enviando…" : "Enviar"}
         </button>
@@ -122,13 +122,13 @@ export default function FeedbackPage({ perfil }) {
                 <div style={{ fontSize: 12, color: C.apagado }}>
                   {f.tipo} · {fecha(f.created_at)}{f.autor ? ` · ${f.autor}` : ""}
                 </div>
-                <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: "#1c1c1d", color: COLOR_ESTADO[f.estado] }}>
+                <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: "#1A2431", color: COLOR_ESTADO[f.estado] }}>
                   {f.estado}
                 </span>
               </div>
               <div style={{ fontSize: 13.5, color: C.texto, whiteSpace: "pre-wrap" }}>{f.mensaje}</div>
               {f.respuesta && (
-                <div style={{ fontSize: 13, color: C.suave, background: "#0f0f10", borderRadius: 6, padding: "8px 10px", whiteSpace: "pre-wrap" }}>
+                <div style={{ fontSize: 13, color: C.suave, background: "#0D141D", borderRadius: 6, padding: "8px 10px", whiteSpace: "pre-wrap" }}>
                   <span style={{ color: C.acento, fontWeight: 600 }}>ADN Sports: </span>
                   {f.respuesta}
                 </div>

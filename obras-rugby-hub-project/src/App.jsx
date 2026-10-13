@@ -9,48 +9,82 @@ import FeedbackPage from "./adn/FeedbackPage";
 export { supabase };
 
 const FONTS = `
-@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=Inter:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&display=swap');
 `;
 
+// Menú propio de ADN Sports: organizado por los momentos de la semana del staff.
 const NAV = [
   {
-    group: "Semana",
+    group: "La semana",
     items: [
-      { key: "hoy", label: "📅 Hoy" },
-      { key: "calendario", label: "🏆 Calendario" },
-      { key: "sesion", label: "🏉 Sesión del día" },
-      { key: "gimnasio", label: "🏋️ Plan de gimnasio" },
+      { key: "hoy", label: "Hoy", icono: "hoy" },
+      { key: "sesion", label: "Sesión del día", icono: "sesion" },
+      { key: "gimnasio", label: "Plan de gimnasio", icono: "gimnasio" },
+      { key: "wellness", label: "Wellness", icono: "wellness" },
+      { key: "disponibilidad", label: "Disponibilidad", icono: "disponibilidad" },
     ],
   },
   {
-    group: "Plantel",
+    group: "El partido",
     items: [
-      { key: "plantel-completo", label: "👥 Plantel completo" },
-      { key: "equipos", label: "🛡️ Equipos" },
-      { key: "disponibilidad", label: "🚦 Disponibilidad" },
+      { key: "calendario", label: "Fixture y resultados", icono: "fixture" },
+      { key: "equipos", label: "Equipos", icono: "equipos" },
     ],
   },
   {
-    group: "Performance & readiness",
+    group: "Después del partido",
     items: [
-      { key: "wellness", label: "😴 Wellness" },
-      { key: "evaluaciones", label: "📊 Evaluaciones" },
-      { key: "gps", label: "📡 GPS · Oliver Pro" },
-      { key: "veo", label: "🎥 VEO Cam" },
-      { key: "rtp", label: "🩹 Return to Play" },
+      { key: "reportes", label: "Informes", icono: "informes" },
+      { key: "veo", label: "Análisis de video", icono: "video" },
+      { key: "gps", label: "GPS", icono: "gps" },
+      { key: "videoteca", label: "Videoteca", icono: "videoteca" },
     ],
   },
   {
-    group: "Análisis",
+    group: "El plantel",
     items: [
-      { key: "reportes", label: "📈 Reportes" },
-      { key: "videoteca", label: "🎬 Videoteca" },
-      { key: "feedback-adn", label: "💬 Feedback a ADN" },
+      { key: "plantel-completo", label: "Jugadores", icono: "plantel" },
+      { key: "evaluaciones", label: "Evaluaciones físicas", icono: "evaluaciones" },
+      { key: "rtp", label: "Cuerpo médico", icono: "medico" },
     ],
   },
 ];
 
-const CONFIG_ITEM = { key: "configuracion", label: "⚙️ Configuración" };
+// Íconos de línea propios (24x24, trazo). Reemplazan a los emojis del menú.
+const ICONOS_NAV = {
+  hoy: "M4 5h16v15H4zM4 9h16M9 3v4M15 3v4M8 13h3v3H8z",
+  sesion: "M5 4h14v16H5zM9 8h6M9 12h6M9 16h3",
+  gimnasio: "M3 10v4M6 8v8M18 8v8M21 10v4M6 12h12",
+  wellness: "M3 12h4l3-7 4 14 3-7h4",
+  disponibilidad: "M5 12l4 4 10-10M5 20h14",
+  fixture: "M7 4h10v4a5 5 0 0 1-10 0zM12 13v4M8 20h8M7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4",
+  equipos: "M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6zM9 12l2 2 4-4",
+  informes: "M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5",
+  video: "M3 6h13v12H3zM16 10l5-3v10l-5-3M7 10l3 2-3 2z",
+  gps: "M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11zM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
+  videoteca: "M4 5h16v11H4zM8 20h8M12 16v4M10 8.5l4 2-4 2z",
+  plantel: "M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM2 20c0-3 3-5 6-5s6 2 6 5M16 11a3 3 0 1 0 0-6M18 15c2 .6 4 2.2 4 5",
+  evaluaciones: "M4 20V10M10 20V4M16 20v-7M22 20H2",
+  medico: "M10 4h4v6h6v4h-6v6h-4v-6H4v-4h6z",
+  feedback: "M4 5h16v11H9l-5 4z",
+  config: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z",
+  mas: "M4 7h16M4 12h16M4 17h16",
+  campana: "M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0",
+};
+
+function IconoNav({ nombre, size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d={ICONOS_NAV[nombre] || ICONOS_NAV.hoy} />
+    </svg>
+  );
+}
+
+// El wellness se muestra en porcentaje (suma de 4 ítems del 1 al 7 → 0–100 %).
+const pctWellness = (v) => Math.round((Number(v) / 28) * 100);
+
+const CONFIG_ITEM = { key: "configuracion", label: "Configuración", icono: "config" };
+const FEEDBACK_ITEM = { key: "feedback-adn", label: "Feedback a ADN", icono: "feedback" };
 
 const RISK_ALERTS = [
   { level: "Alta", name: "Bautista Ferreyra", note: "Readiness muy bajo (z -3.1)" },
@@ -79,8 +113,8 @@ function Shield({ size = 40 }) {
       aria-label={club?.nombre || "Escudo del club"}
       style={{
         width: size, height: size, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-        background: club?.color_primario || "#f2c230", color: club?.color_secundario || "#0b0b0c",
-        fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: Math.round(size * 0.4),
+        background: club?.color_primario || "#f2c230", color: club?.color_secundario || "#0A1018",
+        fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", fontWeight: 600, fontSize: Math.round(size * 0.4),
       }}
     >
       {iniciales(club?.nombre_corto || club?.nombre || "")}
@@ -95,15 +129,15 @@ function Banner({ title, body, cta, onCta, onClose }) {
         !
       </div>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 14, color: "#f5f4f0", fontWeight: 500 }}>{title}</div>
-        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>{body}</div>
+        <div style={{ fontSize: 14, color: "#F4F2EE", fontWeight: 500 }}>{title}</div>
+        <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>{body}</div>
       </div>
       {cta && (
-        <button onClick={onCta} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+        <button onClick={onCta} style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}>
           {cta}
         </button>
       )}
-      <button onClick={onClose} style={{ ...pillButton, background: "transparent", color: "#8f8f8c" }}>
+      <button onClick={onClose} style={{ ...pillButton, background: "transparent", color: "#949EAA" }}>
         Ahora no
       </button>
     </div>
@@ -111,11 +145,11 @@ function Banner({ title, body, cta, onCta, onClose }) {
 }
 
 function StatCard({ label, value, tone }) {
-  const color = tone === "danger" ? "#e0665c" : tone === "warn" ? "#f2c230" : "#5fbf7a";
+  const color = tone === "danger" ? "#F07362" : tone === "warn" ? "#f2c230" : "#3FC08A";
   return (
     <div style={{ ...cardStyle, flex: 1, textAlign: "center", padding: "16px 8px" }}>
-      <div style={{ fontSize: 26, fontWeight: 600, color, fontFamily: "'Oswald', sans-serif" }}>{value}</div>
-      <div style={{ fontSize: 11, color: "#8f8f8c", marginTop: 4, letterSpacing: 0.3 }}>{label}</div>
+      <div style={{ fontSize: 26, fontWeight: 600, color, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif" }}>{value}</div>
+      <div style={{ fontSize: 11, color: "#949EAA", marginTop: 4, letterSpacing: 0.3 }}>{label}</div>
     </div>
   );
 }
@@ -290,9 +324,9 @@ async function agregarPartido({ categoriaNombre, fechaNumero, fecha, rivalNombre
 }
 
 function resultTag(res) {
-  if (res === "Ganado") return { bg: "#111a12", color: "#5fbf7a" };
-  if (res === "Perdido") return { bg: "#2a120f", color: "#e0665c" };
-  return { bg: "#1c1c1d", color: "#c9c9c6" };
+  if (res === "Ganado") return { bg: "#0F2A21", color: "#3FC08A" };
+  if (res === "Perdido") return { bg: "#2a120f", color: "#F07362" };
+  return { bg: "#1A2431", color: "#C8CED6" };
 }
 
 function teamInitials(name) {
@@ -358,7 +392,7 @@ function TeamBadge({ name, size = 20 }) {
         x="12"
         y="15.5"
         textAnchor="middle"
-        fontFamily="'Oswald', sans-serif"
+        fontFamily="'Barlow Condensed', 'Oswald', sans-serif"
         fontWeight="700"
         fontSize={size * 0.32}
         fill={borde}
@@ -405,7 +439,7 @@ function TablaPosiciones({ data, perfil, onGuardado }) {
     <input
       value={filas[i][clave] ?? 0}
       onChange={(e) => campo(i, clave, e.target.value)}
-      style={{ width: 34, background: "#0e0e0f", border: "1px solid #2a2a2c", borderRadius: 4, color: "#f5f4f0", fontSize: 12, textAlign: "right", padding: "3px 4px" }}
+      style={{ width: 34, background: "#0C131B", border: "1px solid #2B394B", borderRadius: 4, color: "#F4F2EE", fontSize: 12, textAlign: "right", padding: "3px 4px" }}
     />
   );
 
@@ -415,7 +449,7 @@ function TablaPosiciones({ data, perfil, onGuardado }) {
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
           {editando ? (
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={guardarTodo} disabled={guardando} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none", fontSize: 11.5 }}>
+              <button onClick={guardarTodo} disabled={guardando} style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none", fontSize: 11.5 }}>
                 {guardando ? "Guardando…" : "Guardar cambios"}
               </button>
               <button
@@ -423,13 +457,13 @@ function TablaPosiciones({ data, perfil, onGuardado }) {
                   setFilas(data);
                   setEditando(false);
                 }}
-                style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c", fontSize: 11.5 }}
+                style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA", fontSize: 11.5 }}
               >
                 Cancelar
               </button>
             </div>
           ) : (
-            <button onClick={() => setEditando(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c", fontSize: 11.5 }}>
+            <button onClick={() => setEditando(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2B394B", color: "#949EAA", fontSize: 11.5 }}>
               Editar tabla
             </button>
           )}
@@ -438,7 +472,7 @@ function TablaPosiciones({ data, perfil, onGuardado }) {
       <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 640 }}>
         <thead>
-          <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
+          <tr style={{ color: "#949EAA", textAlign: "left" }}>
             <th style={{ fontWeight: 400, paddingBottom: 8, paddingRight: 8 }}>#</th>
             <th style={{ fontWeight: 400, paddingBottom: 8 }}>Equipo</th>
             {["PJ", "G", "E", "P", "PF", "PC", "DIF", "BO", "BD", "PTS"].map((h) => (
@@ -455,13 +489,13 @@ function TablaPosiciones({ data, perfil, onGuardado }) {
               <tr
                 key={t.equipo}
                 style={{
-                  borderTop: "1px solid #232324",
+                  borderTop: "1px solid #223040",
                   background: isObras ? "#1d1a0c" : "transparent",
-                  color: isObras ? "#f2c230" : "#c9c9c6",
+                  color: isObras ? "#f2c230" : "#C8CED6",
                 }}
               >
                 <td style={{ padding: "8px 8px 8px 0" }}>{i + 1}</td>
-                <td style={{ padding: "8px 0", fontWeight: isObras ? 600 : 400, color: isObras ? "#f2c230" : "#f5f4f0" }}>
+                <td style={{ padding: "8px 0", fontWeight: isObras ? 600 : 400, color: isObras ? "#f2c230" : "#F4F2EE" }}>
                   <span style={{ display: "flex", alignItems: "center" }}>
                     <TeamBadge name={t.equipo} />
                     {t.equipo}
@@ -478,7 +512,7 @@ function TablaPosiciones({ data, perfil, onGuardado }) {
                     <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.dif}</td>
                     <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="bo" /></td>
                     <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="bd" /></td>
-                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10, fontWeight: 600, color: isObras ? "#f2c230" : "#f5f4f0" }}>{t.pts}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10, fontWeight: 600, color: isObras ? "#f2c230" : "#F4F2EE" }}>{t.pts}</td>
                   </>
                 ) : (
                   <>
@@ -491,7 +525,7 @@ function TablaPosiciones({ data, perfil, onGuardado }) {
                     <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.dif}</td>
                     <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.bo}</td>
                     <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.bd}</td>
-                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10, fontWeight: 600, color: isObras ? "#f2c230" : "#f5f4f0" }}>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10, fontWeight: 600, color: isObras ? "#f2c230" : "#F4F2EE" }}>
                       {t.pts}
                     </td>
                   </>
@@ -523,18 +557,18 @@ function FilaFixture({ p, esProximo, perfil, onGuardado }) {
   }
 
   return (
-    <tr style={{ borderTop: "1px solid #232324" }}>
-      <td style={{ padding: "9px 0", color: "#c9c9c6" }}>
+    <tr style={{ borderTop: "1px solid #223040" }}>
+      <td style={{ padding: "9px 0", color: "#C8CED6" }}>
         {p.fecha}
-        <div style={{ fontSize: 11, color: "#6b6b68" }}>{p.date}</div>
+        <div style={{ fontSize: 11, color: "#6C7886" }}>{p.date}</div>
       </td>
-      <td style={{ padding: "9px 0", color: "#f5f4f0" }}>
+      <td style={{ padding: "9px 0", color: "#F4F2EE" }}>
         <span style={{ display: "flex", alignItems: "center" }}>
           <TeamBadge name={p.rival} size={18} />
           {p.rival}
         </span>
       </td>
-      <td style={{ padding: "9px 0", color: "#8f8f8c" }}>{p.cond}</td>
+      <td style={{ padding: "9px 0", color: "#949EAA" }}>{p.cond}</td>
       <td style={{ padding: "9px 0" }}>
         {editando ? (
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -542,19 +576,19 @@ function FilaFixture({ p, esProximo, perfil, onGuardado }) {
               value={gf}
               onChange={(e) => setGf(e.target.value.replace(/\D/g, ""))}
               placeholder="Obras"
-              style={{ ...editInputStyle, width: 40, borderBottom: "1px solid #2a2a2c", textAlign: "center" }}
+              style={{ ...editInputStyle, width: 40, borderBottom: "1px solid #2B394B", textAlign: "center" }}
             />
-            <span style={{ color: "#6b6b68" }}>—</span>
+            <span style={{ color: "#6C7886" }}>—</span>
             <input
               value={gc}
               onChange={(e) => setGc(e.target.value.replace(/\D/g, ""))}
               placeholder={p.rival}
-              style={{ ...editInputStyle, width: 40, borderBottom: "1px solid #2a2a2c", textAlign: "center" }}
+              style={{ ...editInputStyle, width: 40, borderBottom: "1px solid #2B394B", textAlign: "center" }}
             />
             <button onClick={guardar} style={{ background: "transparent", border: "none", color: "#f2c230", fontSize: 11.5, cursor: "pointer" }}>
               Guardar
             </button>
-            <button onClick={() => setEditando(false)} style={{ background: "transparent", border: "none", color: "#6b6b68", fontSize: 11.5, cursor: "pointer" }}>
+            <button onClick={() => setEditando(false)} style={{ background: "transparent", border: "none", color: "#6C7886", fontSize: 11.5, cursor: "pointer" }}>
               Cancelar
             </button>
           </div>
@@ -565,7 +599,7 @@ function FilaFixture({ p, esProximo, perfil, onGuardado }) {
             ) : (
               <>
                 <span style={{ ...tagStyle, background: tag.bg, color: tag.color }}>{p.res}</span>
-                <span style={{ color: "#f5f4f0", fontFamily: "'Oswald', sans-serif" }}>
+                <span style={{ color: "#F4F2EE", fontFamily: "'Barlow Condensed', 'Oswald', sans-serif" }}>
                   {p.gf}-{p.gc}
                 </span>
               </>
@@ -577,7 +611,7 @@ function FilaFixture({ p, esProximo, perfil, onGuardado }) {
                   setGc(esProximo ? "" : String(p.gc));
                   setEditando(true);
                 }}
-                style={{ background: "transparent", border: "none", color: "#6b6b68", fontSize: 11, cursor: "pointer" }}
+                style={{ background: "transparent", border: "none", color: "#6C7886", fontSize: 11, cursor: "pointer" }}
               >
                 Editar
               </button>
@@ -595,7 +629,7 @@ function TablaFixture({ data, proximos, perfil }) {
     <div>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <thead>
-          <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
+          <tr style={{ color: "#949EAA", textAlign: "left" }}>
             <th style={{ fontWeight: 400, paddingBottom: 8 }}>Fecha</th>
             <th style={{ fontWeight: 400, paddingBottom: 8 }}>Rival</th>
             <th style={{ fontWeight: 400, paddingBottom: 8 }}>Cond.</th>
@@ -653,7 +687,7 @@ function convocadosPartido(categoriaNombre) {
 function SelectorJugadorIncidencia({ jugadores, expulsados, onElegir, onCancelar, titulo }) {
   return (
     <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 16 }}>
-      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 600, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 600, marginBottom: 10 }}>{titulo}</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
         {jugadores.map((j) => (
           <button
@@ -662,9 +696,9 @@ function SelectorJugadorIncidencia({ jugadores, expulsados, onElegir, onCancelar
             onClick={() => onElegir(j)}
             style={{
               ...pillButton, fontSize: 11.5,
-              background: expulsados.has(j) ? "#1c1c1d" : "transparent",
-              border: "1px solid " + (expulsados.has(j) ? "#232324" : "#2a2a2c"),
-              color: expulsados.has(j) ? "#4a4a4a" : "#c9c9c6",
+              background: expulsados.has(j) ? "#1A2431" : "transparent",
+              border: "1px solid " + (expulsados.has(j) ? "#223040" : "#2B394B"),
+              color: expulsados.has(j) ? "#475463" : "#C8CED6",
               textDecoration: expulsados.has(j) ? "line-through" : "none",
               cursor: expulsados.has(j) ? "not-allowed" : "pointer",
             }}
@@ -673,7 +707,7 @@ function SelectorJugadorIncidencia({ jugadores, expulsados, onElegir, onCancelar
           </button>
         ))}
       </div>
-      <button onClick={onCancelar} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c", fontSize: 11.5 }}>
+      <button onClick={onCancelar} style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA", fontSize: 11.5 }}>
         Cancelar
       </button>
     </div>
@@ -845,44 +879,44 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
       </button>
 
       <div style={{ ...cardStyle, padding: "20px", marginBottom: 16, textAlign: "center" }}>
-        <div style={{ fontSize: 12, color: "#8f8f8c", marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: "#949EAA", marginBottom: 8 }}>
           {categoria} vs {partido.rival}
         </div>
         <div
           style={{
-            fontFamily: "'Oswald', sans-serif", fontSize: 46, fontWeight: 700, letterSpacing: 1,
-            color: segundos > 2400 ? "#e0665c" : "#f5f4f0",
+            fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", fontSize: 46, fontWeight: 700, letterSpacing: 1,
+            color: segundos > 2400 ? "#F07362" : "#F4F2EE",
           }}
         >
           {formatoReloj(segundos)}
         </div>
-        <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 12 }}>de 40:00</div>
+        <div style={{ fontSize: 10.5, color: "#6C7886", marginBottom: 12 }}>de 40:00</div>
         <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
           <button
             onClick={() => setCorriendo((v) => !v)}
-            style={{ ...pillButton, background: corriendo ? "#2a120f" : "#5fbf7a", color: corriendo ? "#e0665c" : "#141415", border: "none" }}
+            style={{ ...pillButton, background: corriendo ? "#2a120f" : "#3FC08A", color: corriendo ? "#F07362" : "#131C27", border: "none" }}
           >
             {corriendo ? "⏸ Frenar" : "▶ Reanudar"}
           </button>
-          <button onClick={reiniciarReloj} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+          <button onClick={reiniciarReloj} style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA" }}>
             ↺ Reiniciar
           </button>
         </div>
 
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 24, margin: "18px 0 4px" }}>
           <div>
-            <div style={{ fontSize: 11, color: "#8f8f8c" }}>Obras</div>
-            <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 40, color: "#f2c230", fontWeight: 700 }}>{gf}</div>
+            <div style={{ fontSize: 11, color: "#949EAA" }}>Obras</div>
+            <div style={{ fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", fontSize: 40, color: "#f2c230", fontWeight: 700 }}>{gf}</div>
           </div>
-          <div style={{ color: "#6b6b68", fontSize: 20 }}>—</div>
+          <div style={{ color: "#6C7886", fontSize: 20 }}>—</div>
           <div>
-            <div style={{ fontSize: 11, color: "#8f8f8c" }}>{partido.rival}</div>
-            <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 40, color: "#f5f4f0", fontWeight: 700 }}>{gc}</div>
+            <div style={{ fontSize: 11, color: "#949EAA" }}>{partido.rival}</div>
+            <div style={{ fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", fontSize: 40, color: "#F4F2EE", fontWeight: 700 }}>{gc}</div>
           </div>
         </div>
         <button
           onClick={reiniciarMarcador}
-          style={{ background: "transparent", border: "none", color: "#6b6b68", fontSize: 11, cursor: "pointer", textDecoration: "underline" }}
+          style={{ background: "transparent", border: "none", color: "#6C7886", fontSize: 11, cursor: "pointer", textDecoration: "underline" }}
         >
           ↺ Reiniciar tanteador (0-0)
         </button>
@@ -893,8 +927,8 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
           <div style={{ fontSize: 11, color: "#f2c230", marginBottom: 6 }}>AFUERA POR TARJETA</div>
           {afuera.map(([j, t]) => (
             <div key={j} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0" }}>
-              <span style={{ color: "#c9c9c6" }}>{j}</span>
-              <span style={{ color: "#f2c230", fontFamily: "'Oswald', sans-serif" }}>{formatoReloj(t)}</span>
+              <span style={{ color: "#C8CED6" }}>{j}</span>
+              <span style={{ color: "#f2c230", fontFamily: "'Barlow Condensed', 'Oswald', sans-serif" }}>{formatoReloj(t)}</span>
             </div>
           ))}
         </div>
@@ -902,14 +936,14 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
 
       {pendienteConversion ? (
         <div style={{ ...cardStyle, padding: "16px", marginBottom: 16, textAlign: "center", border: "1px solid #f2c230" }}>
-          <div style={{ fontSize: 13, color: "#f5f4f0", marginBottom: 12 }}>
+          <div style={{ fontSize: 13, color: "#F4F2EE", marginBottom: 12 }}>
             {pendienteConversion.equipo}: {pendienteConversion.tipo} — ¿convierte?
           </div>
           <div style={{ display: "flex", justifyContent: "center", gap: 10 }}>
-            <button onClick={() => resolverConversion(true)} style={{ ...pillButton, background: "#111a12", border: "none", color: "#5fbf7a" }}>
+            <button onClick={() => resolverConversion(true)} style={{ ...pillButton, background: "#0F2A21", border: "none", color: "#3FC08A" }}>
               ✓ Sí
             </button>
-            <button onClick={() => resolverConversion(false)} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#e0665c" }}>
+            <button onClick={() => resolverConversion(false)} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#F07362" }}>
               ✗ No
             </button>
           </div>
@@ -925,40 +959,40 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
       ) : (
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
           <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
-            <div style={{ fontSize: 11, color: "#5fbf7a", marginBottom: 8, textAlign: "center" }}>OBRAS</div>
+            <div style={{ fontSize: 11, color: "#3FC08A", marginBottom: 8, textAlign: "center" }}>OBRAS</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <button onClick={() => pedirConversion("Obras", "Penal")} style={{ ...pillButton, background: "#111a12", border: "none", color: "#5fbf7a" }}>
+              <button onClick={() => pedirConversion("Obras", "Penal")} style={{ ...pillButton, background: "#0F2A21", border: "none", color: "#3FC08A" }}>
                 Penal
               </button>
-              <button onClick={() => pedirConversion("Obras", "Try")} style={{ ...pillButton, background: "#111a12", border: "none", color: "#5fbf7a" }}>
+              <button onClick={() => pedirConversion("Obras", "Try")} style={{ ...pillButton, background: "#0F2A21", border: "none", color: "#3FC08A" }}>
                 Try
               </button>
-              <button onClick={() => pedirConversion("Obras", "Drop")} style={{ ...pillButton, background: "#111a12", border: "none", color: "#5fbf7a" }}>
+              <button onClick={() => pedirConversion("Obras", "Drop")} style={{ ...pillButton, background: "#0F2A21", border: "none", color: "#3FC08A" }}>
                 Drop
               </button>
             </div>
           </div>
           <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
-            <div style={{ fontSize: 11, color: "#e0665c", marginBottom: 8, textAlign: "center" }}>{partido.rival.toUpperCase()}</div>
+            <div style={{ fontSize: 11, color: "#F07362", marginBottom: 8, textAlign: "center" }}>{partido.rival.toUpperCase()}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <button onClick={() => pedirConversion("Rival", "Penal")} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#e0665c" }}>
+              <button onClick={() => pedirConversion("Rival", "Penal")} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#F07362" }}>
                 Penal
               </button>
-              <button onClick={() => pedirConversion("Rival", "Try")} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#e0665c" }}>
+              <button onClick={() => pedirConversion("Rival", "Try")} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#F07362" }}>
                 Try
               </button>
-              <button onClick={() => pedirConversion("Rival", "Drop")} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#e0665c" }}>
+              <button onClick={() => pedirConversion("Rival", "Drop")} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#F07362" }}>
                 Drop
               </button>
             </div>
           </div>
           <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
-            <div style={{ fontSize: 11, color: "#8f8f8c", marginBottom: 8, textAlign: "center" }}>TARJETAS</div>
+            <div style={{ fontSize: 11, color: "#949EAA", marginBottom: 8, textAlign: "center" }}>TARJETAS</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <button onClick={() => setPidiendoJugador("amarilla")} style={{ ...pillButton, background: "#2a220a", border: "none", color: "#f2c230" }}>
                 🟨 Amarilla
               </button>
-              <button onClick={() => setPidiendoJugador("roja")} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#e0665c" }}>
+              <button onClick={() => setPidiendoJugador("roja")} style={{ ...pillButton, background: "#2a120f", border: "none", color: "#F07362" }}>
                 🟥 Roja
               </button>
             </div>
@@ -966,19 +1000,19 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
         </div>
       )}
 
-      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 10 }}>Incidencias</div>
+      <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500, marginBottom: 10 }}>Incidencias</div>
       <div style={{ ...cardStyle, padding: "8px 16px", marginBottom: 20, maxHeight: 240, overflowY: "auto" }}>
         {incidencias.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: "#6b6b68", padding: "10px 0" }}>Todavía no hay nada cargado.</div>
+          <div style={{ fontSize: 12.5, color: "#6C7886", padding: "10px 0" }}>Todavía no hay nada cargado.</div>
         ) : (
           [...incidencias].reverse().map((i, idx) => (
-            <div key={i.id} style={{ padding: "8px 0", borderTop: idx === 0 ? "none" : "1px solid #232324", display: "flex", gap: 10, alignItems: "center", fontSize: 12.5 }}>
-              <span style={{ color: "#f2c230", fontFamily: "'Oswald', sans-serif", flexShrink: 0 }}>{i.minuto}</span>
-              <span style={{ color: "#c9c9c6", flex: 1 }}>{i.texto}</span>
+            <div key={i.id} style={{ padding: "8px 0", borderTop: idx === 0 ? "none" : "1px solid #223040", display: "flex", gap: 10, alignItems: "center", fontSize: 12.5 }}>
+              <span style={{ color: "#f2c230", fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", flexShrink: 0 }}>{i.minuto}</span>
+              <span style={{ color: "#C8CED6", flex: 1 }}>{i.texto}</span>
               <button
                 onClick={() => borrarIncidencia(i.id)}
                 title="Borrar esta incidencia"
-                style={{ background: "transparent", border: "none", color: "#6b6b68", fontSize: 14, cursor: "pointer", flexShrink: 0, padding: "0 4px" }}
+                style={{ background: "transparent", border: "none", color: "#6C7886", fontSize: 14, cursor: "pointer", flexShrink: 0, padding: "0 4px" }}
               >
                 ✕
               </button>
@@ -987,7 +1021,7 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
         )}
       </div>
 
-      <button onClick={finalizarPartido} disabled={guardando} style={{ ...buttonStyle, width: "100%", background: "#e0665c", color: "#141415" }}>
+      <button onClick={finalizarPartido} disabled={guardando} style={{ ...buttonStyle, width: "100%", background: "#F07362", color: "#131C27" }}>
         {guardando ? "Guardando…" : "🏁 Finalizar partido y subir resultado"}
       </button>
     </div>
@@ -1077,8 +1111,8 @@ function CalendarioPage({ perfil }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
         <div>
-          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>📅 Calendario</div>
-          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
+          <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Fixture y resultados</div>
+          <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>
             Fixture y posiciones · Desarrollo · URBA — datos reales (urba.org.ar)
           </div>
         </div>
@@ -1088,22 +1122,22 @@ function CalendarioPage({ perfil }) {
               <button
                 onClick={sincronizarUrba}
                 disabled={sincronizando}
-                style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}
+                style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA" }}
               >
                 {sincronizando ? "Actualizando…" : "🔄 Actualizar desde URBA"}
               </button>
-              <button onClick={() => setAgregando(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}>
+              <button onClick={() => setAgregando(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2B394B", color: "#949EAA" }}>
                 + Agregar partido
               </button>
             </div>
-            {msgSync && <div style={{ fontSize: 11, color: msgSync.startsWith("✓") ? "#5fbf7a" : "#e0665c" }}>{msgSync}</div>}
+            {msgSync && <div style={{ fontSize: 11, color: msgSync.startsWith("✓") ? "#3FC08A" : "#F07362" }}>{msgSync}</div>}
           </div>
         )}
       </div>
 
       {agregando && (
         <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 20 }}>
-          <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500, marginBottom: 12 }}>
             Nuevo partido · {cat === "superior" ? "Superior" : "Intermedia"}
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -1122,16 +1156,16 @@ function CalendarioPage({ perfil }) {
             <div>
               <label style={labelStyle}>Condición</label>
               <select value={nuevaCond} onChange={(e) => setNuevaCond(e.target.value)} style={{ ...inputStyle, width: 130 }}>
-                <option style={{ background: "#0e0e0f" }}>Local</option>
-                <option style={{ background: "#0e0e0f" }}>Visitante</option>
+                <option style={{ background: "#0C131B" }}>Local</option>
+                <option style={{ background: "#0C131B" }}>Visitante</option>
               </select>
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-            <button onClick={guardarPartidoNuevo} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+            <button onClick={guardarPartidoNuevo} style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}>
               Guardar partido
             </button>
-            <button onClick={() => setAgregando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+            <button onClick={() => setAgregando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA" }}>
               Cancelar
             </button>
           </div>
@@ -1151,9 +1185,9 @@ function CalendarioPage({ perfil }) {
             }}
             style={{
               ...pillButton,
-              border: "1px solid " + (cat === t.key ? "#f2c230" : "#2a2a2c"),
+              border: "1px solid " + (cat === t.key ? "#f2c230" : "#2B394B"),
               background: cat === t.key ? "#1d1a0c" : "transparent",
-              color: cat === t.key ? "#f2c230" : "#c9c9c6",
+              color: cat === t.key ? "#f2c230" : "#C8CED6",
             }}
           >
             {t.label}
@@ -1164,7 +1198,7 @@ function CalendarioPage({ perfil }) {
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 20 }}>
         <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 300px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <span style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.5 }}>PRÓXIMO PARTIDO</span>
+            <span style={{ fontSize: 11, color: "#6C7886", letterSpacing: 0.5 }}>PRÓXIMO PARTIDO</span>
             {proximo && puedeGestionar(perfil) && !cargandoResultado && (
               <button
                 onClick={() => setCargandoResultado(true)}
@@ -1178,10 +1212,10 @@ function CalendarioPage({ perfil }) {
             <>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
                 <TeamBadge name={proximo.rival} size={22} />
-                <span style={{ fontSize: 16, color: "#f5f4f0", fontWeight: 600 }}>{proximo.rival}</span>
+                <span style={{ fontSize: 16, color: "#F4F2EE", fontWeight: 600 }}>{proximo.rival}</span>
                 <span style={{ ...tagStyle, background: "#0d2a3a", color: "#5fb0e0" }}>{etiquetaDias(proximo.date)}</span>
               </div>
-              <div style={{ fontSize: 12, color: "#8f8f8c" }}>
+              <div style={{ fontSize: 12, color: "#949EAA" }}>
                 Fecha {proximo.fecha} · {proximo.cond} · {proximo.date}
               </div>
               {cargandoResultado && (
@@ -1190,21 +1224,21 @@ function CalendarioPage({ perfil }) {
                     value={gf}
                     onChange={(e) => setGf(e.target.value.replace(/\D/g, ""))}
                     placeholder="Obras"
-                    style={{ ...editInputStyle, width: 60, borderBottom: "1px solid #2a2a2c", textAlign: "center" }}
+                    style={{ ...editInputStyle, width: 60, borderBottom: "1px solid #2B394B", textAlign: "center" }}
                   />
-                  <span style={{ color: "#6b6b68" }}>—</span>
+                  <span style={{ color: "#6C7886" }}>—</span>
                   <input
                     value={gc}
                     onChange={(e) => setGc(e.target.value.replace(/\D/g, ""))}
                     placeholder={proximo.rival}
-                    style={{ ...editInputStyle, width: 60, borderBottom: "1px solid #2a2a2c", textAlign: "center" }}
+                    style={{ ...editInputStyle, width: 60, borderBottom: "1px solid #2B394B", textAlign: "center" }}
                   />
-                  <button onClick={guardar} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none", fontSize: 12 }}>
+                  <button onClick={guardar} style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none", fontSize: 12 }}>
                     Guardar
                   </button>
                   <button
                     onClick={() => setCargandoResultado(false)}
-                    style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c", fontSize: 12 }}
+                    style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA", fontSize: 12 }}
                   >
                     Cancelar
                   </button>
@@ -1212,20 +1246,20 @@ function CalendarioPage({ perfil }) {
               )}
             </>
           ) : (
-            <div style={{ fontSize: 12.5, color: "#6b6b68" }}>Sin próximo partido confirmado.</div>
+            <div style={{ fontSize: 12.5, color: "#6C7886" }}>Sin próximo partido confirmado.</div>
           )}
         </div>
 
         <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 300px" }}>
-          <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.5, marginBottom: 10 }}>ÚLTIMO PARTIDO</div>
+          <div style={{ fontSize: 11, color: "#6C7886", letterSpacing: 0.5, marginBottom: 10 }}>ÚLTIMO PARTIDO</div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
             <TeamBadge name={ultimo.rival} size={22} />
-            <span style={{ fontSize: 16, color: "#f5f4f0", fontWeight: 600 }}>{ultimo.rival}</span>
+            <span style={{ fontSize: 16, color: "#F4F2EE", fontWeight: 600 }}>{ultimo.rival}</span>
             <span style={{ ...tagStyle, ...resultTag(ultimo.res) }}>
               {ultimo.res} {ultimo.gf}-{ultimo.gc}
             </span>
           </div>
-          <div style={{ fontSize: 12, color: "#8f8f8c" }}>
+          <div style={{ fontSize: 12, color: "#949EAA" }}>
             Fecha {ultimo.fecha} · {ultimo.cond} · {ultimo.date} · {etiquetaDias(ultimo.date)}
           </div>
         </div>
@@ -1242,13 +1276,13 @@ function CalendarioPage({ perfil }) {
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
         <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 340px" }}>
-          <div style={{ fontSize: 14, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>📅 Fixture</div>
+          <div style={{ fontSize: 14, color: "#F4F2EE", fontWeight: 500, marginBottom: 12 }}>📅 Fixture</div>
           <TablaFixture data={fixture} proximos={proximos} perfil={perfil} />
         </div>
 
         <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 380px" }}>
-          <div style={{ fontSize: 14, color: "#f5f4f0", fontWeight: 500, marginBottom: 4 }}>🏆 Tabla de posiciones</div>
-          <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 12 }}>
+          <div style={{ fontSize: 14, color: "#F4F2EE", fontWeight: 500, marginBottom: 4 }}>🏆 Tabla de posiciones</div>
+          <div style={{ fontSize: 11, color: "#6C7886", marginBottom: 12 }}>
             Hasta fecha 17 · Berazategui-San José (fecha 17) postergado, por eso tienen un partido menos
           </div>
           <TablaPosiciones
@@ -1327,10 +1361,10 @@ const editInputStyle = {
   boxSizing: "border-box",
   background: "transparent",
   border: "none",
-  borderBottom: "1px solid #2a2a2c",
-  color: "#f5f4f0",
+  borderBottom: "1px solid #2B394B",
+  color: "#F4F2EE",
   fontSize: 12.5,
-  fontFamily: "'Inter', sans-serif",
+  fontFamily: "'Barlow', 'Inter', sans-serif",
   padding: "2px 0",
   outline: "none",
 };
@@ -1343,7 +1377,7 @@ function GrupoTabla({ titulo, filas, editMode, onChange, onDelete, onAdd }) {
       </div>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
         <thead>
-          <tr style={{ color: "#6b6b68", textAlign: "left" }}>
+          <tr style={{ color: "#6C7886", textAlign: "left" }}>
             <th style={{ fontWeight: 400, paddingBottom: 8, width: 46 }}>Tiempo</th>
             <th style={{ fontWeight: 400, paddingBottom: 8 }}>Contenido</th>
             <th style={{ fontWeight: 400, paddingBottom: 8 }}>Explicación</th>
@@ -1354,7 +1388,7 @@ function GrupoTabla({ titulo, filas, editMode, onChange, onDelete, onAdd }) {
         <tbody>
           {filas.map((f, i) =>
             editMode ? (
-              <tr key={i} style={{ borderTop: "1px solid #232324" }}>
+              <tr key={i} style={{ borderTop: "1px solid #223040" }}>
                 <td style={{ padding: "9px 8px 9px 0", verticalAlign: "top" }}>
                   <input style={editInputStyle} value={f.t} onChange={(e) => onChange(i, "t", e.target.value)} />
                 </td>
@@ -1370,7 +1404,7 @@ function GrupoTabla({ titulo, filas, editMode, onChange, onDelete, onAdd }) {
                 <td style={{ padding: "9px 0", verticalAlign: "top" }}>
                   <button
                     onClick={() => onDelete(i)}
-                    style={{ background: "transparent", border: "none", color: "#6b6b68", cursor: "pointer", fontSize: 14 }}
+                    style={{ background: "transparent", border: "none", color: "#6C7886", cursor: "pointer", fontSize: 14 }}
                     title="Eliminar fila"
                   >
                     ×
@@ -1378,10 +1412,10 @@ function GrupoTabla({ titulo, filas, editMode, onChange, onDelete, onAdd }) {
                 </td>
               </tr>
             ) : (
-              <tr key={i} style={{ borderTop: "1px solid #232324" }}>
-                <td style={{ padding: "9px 8px 9px 0", color: "#f5f4f0", fontWeight: 600, verticalAlign: "top" }}>{f.t}</td>
-                <td style={{ padding: "9px 8px 9px 0", color: "#f5f4f0", fontWeight: 500, verticalAlign: "top" }}>{f.c}</td>
-                <td style={{ padding: "9px 8px 9px 0", color: "#8f8f8c", verticalAlign: "top" }}>{f.e}</td>
+              <tr key={i} style={{ borderTop: "1px solid #223040" }}>
+                <td style={{ padding: "9px 8px 9px 0", color: "#F4F2EE", fontWeight: 600, verticalAlign: "top" }}>{f.t}</td>
+                <td style={{ padding: "9px 8px 9px 0", color: "#F4F2EE", fontWeight: 500, verticalAlign: "top" }}>{f.c}</td>
+                <td style={{ padding: "9px 8px 9px 0", color: "#949EAA", verticalAlign: "top" }}>{f.e}</td>
                 <td style={{ padding: "9px 0", verticalAlign: "top" }}>
                   <span style={tagStyle}>{f.s}</span>
                 </td>
@@ -1397,8 +1431,8 @@ function GrupoTabla({ titulo, filas, editMode, onChange, onDelete, onAdd }) {
             ...pillButton,
             marginTop: 12,
             background: "transparent",
-            border: "1px dashed #2a2a2c",
-            color: "#8f8f8c",
+            border: "1px dashed #2B394B",
+            color: "#949EAA",
             width: "100%",
           }}
         >
@@ -1437,7 +1471,7 @@ function AsistenciaPanel({ perfil }) {
     return (
       <button
         onClick={() => setAbierto(true)}
-        style={{ ...pillButton, marginBottom: 20, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}
+        style={{ ...pillButton, marginBottom: 20, background: "transparent", border: "1px dashed #2B394B", color: "#949EAA" }}
       >
         ✅ Cargar asistencia de hoy
       </button>
@@ -1447,12 +1481,12 @@ function AsistenciaPanel({ perfil }) {
   return (
     <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-        <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>Asistencia de hoy</div>
-        <button onClick={() => setAbierto(false)} style={{ background: "transparent", border: "none", color: "#6b6b68", fontSize: 12, cursor: "pointer" }}>
+        <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500 }}>Asistencia de hoy</div>
+        <button onClick={() => setAbierto(false)} style={{ background: "transparent", border: "none", color: "#6C7886", fontSize: 12, cursor: "pointer" }}>
           Cerrar
         </button>
       </div>
-      <div style={{ fontSize: 11, color: "#8f8f8c", marginBottom: 12 }}>
+      <div style={{ fontSize: 11, color: "#949EAA", marginBottom: 12 }}>
         {cargando ? "Cargando…" : `${totalPresentes} presentes de ${totalMarcados} marcados · ${jugadoresOrdenados.length} en el plantel`}
       </div>
       {!cargando && (
@@ -1462,17 +1496,17 @@ function AsistenciaPanel({ perfil }) {
             return (
               <div
                 key={j.dbId}
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 0", borderTop: "1px solid #202021" }}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 0", borderTop: "1px solid #1F2A37" }}
               >
-                <span style={{ fontSize: 12.5, color: "#c9c9c6" }}>{j.id}</span>
+                <span style={{ fontSize: 12.5, color: "#C8CED6" }}>{j.id}</span>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button
                     onClick={() => marcar(j.dbId, true)}
                     style={{
                       ...pillButton, fontSize: 11, padding: "4px 10px",
-                      border: "1px solid " + (estado === true ? "#5fbf7a" : "#2a2a2c"),
-                      background: estado === true ? "#111a12" : "transparent",
-                      color: estado === true ? "#5fbf7a" : "#6b6b68",
+                      border: "1px solid " + (estado === true ? "#3FC08A" : "#2B394B"),
+                      background: estado === true ? "#0F2A21" : "transparent",
+                      color: estado === true ? "#3FC08A" : "#6C7886",
                     }}
                   >
                     Presente
@@ -1481,9 +1515,9 @@ function AsistenciaPanel({ perfil }) {
                     onClick={() => marcar(j.dbId, false)}
                     style={{
                       ...pillButton, fontSize: 11, padding: "4px 10px",
-                      border: "1px solid " + (estado === false ? "#e0665c" : "#2a2a2c"),
+                      border: "1px solid " + (estado === false ? "#F07362" : "#2B394B"),
                       background: estado === false ? "#2a120f" : "transparent",
-                      color: estado === false ? "#e0665c" : "#6b6b68",
+                      color: estado === false ? "#F07362" : "#6C7886",
                     }}
                   >
                     Ausente
@@ -1527,14 +1561,14 @@ function SesionPage({ perfil }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
-          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Sesión del día</div>
-          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>{sesion.fecha}</div>
+          <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Sesión del día</div>
+          <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>{sesion.fecha}</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {editMode ? (
             <button
               onClick={() => setEditMode(false)}
-              style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}
+              style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}
             >
               Guardar cambios
             </button>
@@ -1548,7 +1582,7 @@ function SesionPage({ perfil }) {
           )}
           <button
             onClick={() => crearNotificacion("sesion_planificada", `🏉 Sesión del ${dia.toLowerCase()} planificada — revisala.`, null, perfil?.id)}
-            style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}
+            style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}
           >
             Avisar al staff
           </button>
@@ -1564,9 +1598,9 @@ function SesionPage({ perfil }) {
             onClick={() => setDia(d)}
             style={{
               ...pillButton,
-              border: "1px solid " + (dia === d ? "#f2c230" : "#2a2a2c"),
+              border: "1px solid " + (dia === d ? "#f2c230" : "#2B394B"),
               background: dia === d ? "#1d1a0c" : "transparent",
-              color: dia === d ? "#f2c230" : "#c9c9c6",
+              color: dia === d ? "#f2c230" : "#C8CED6",
             }}
           >
             {d}
@@ -1574,7 +1608,7 @@ function SesionPage({ perfil }) {
         ))}
       </div>
 
-      <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.5, marginBottom: 12 }}>{sesion.semana}</div>
+      <div style={{ fontSize: 11, color: "#6C7886", letterSpacing: 0.5, marginBottom: 12 }}>{sesion.semana}</div>
 
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
         <GrupoTabla
@@ -1692,7 +1726,7 @@ function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDele
         {editMode && (
           <button
             onClick={onDeleteBloque}
-            style={{ background: "transparent", border: "none", color: "#6b6b68", cursor: "pointer", fontSize: 12 }}
+            style={{ background: "transparent", border: "none", color: "#6C7886", cursor: "pointer", fontSize: 12 }}
           >
             Eliminar bloque
           </button>
@@ -1700,7 +1734,7 @@ function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDele
       </div>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
         <thead>
-          <tr style={{ color: "#6b6b68", textAlign: "left" }}>
+          <tr style={{ color: "#6C7886", textAlign: "left" }}>
             <th style={{ fontWeight: 400, paddingBottom: 8 }}>Ejercicio</th>
             <th style={{ fontWeight: 400, paddingBottom: 8 }}>Detalle</th>
             <th style={{ fontWeight: 400, paddingBottom: 8, width: 100 }}>Series</th>
@@ -1710,7 +1744,7 @@ function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDele
         <tbody>
           {bloque.ejercicios.map((e, i) =>
             editMode ? (
-              <tr key={i} style={{ borderTop: "1px solid #232324" }}>
+              <tr key={i} style={{ borderTop: "1px solid #223040" }}>
                 <td style={{ padding: "9px 8px 9px 0", verticalAlign: "top" }}>
                   <input style={editInputStyle} value={e.nombre} onChange={(ev) => onChangeEjercicio(i, "nombre", ev.target.value)} />
                 </td>
@@ -1723,16 +1757,16 @@ function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDele
                 <td style={{ padding: "9px 0", verticalAlign: "top" }}>
                   <button
                     onClick={() => onDeleteEjercicio(i)}
-                    style={{ background: "transparent", border: "none", color: "#6b6b68", cursor: "pointer", fontSize: 14 }}
+                    style={{ background: "transparent", border: "none", color: "#6C7886", cursor: "pointer", fontSize: 14 }}
                   >
                     ×
                   </button>
                 </td>
               </tr>
             ) : (
-              <tr key={i} style={{ borderTop: "1px solid #232324" }}>
-                <td style={{ padding: "9px 8px 9px 0", color: "#f5f4f0", fontWeight: 500, verticalAlign: "top" }}>{e.nombre}</td>
-                <td style={{ padding: "9px 8px 9px 0", color: "#8f8f8c", verticalAlign: "top" }}>{e.detalle}</td>
+              <tr key={i} style={{ borderTop: "1px solid #223040" }}>
+                <td style={{ padding: "9px 8px 9px 0", color: "#F4F2EE", fontWeight: 500, verticalAlign: "top" }}>{e.nombre}</td>
+                <td style={{ padding: "9px 8px 9px 0", color: "#949EAA", verticalAlign: "top" }}>{e.detalle}</td>
                 <td style={{ padding: "9px 0", verticalAlign: "top" }}>
                   <span style={tagStyle}>{e.valor}</span>
                 </td>
@@ -1744,7 +1778,7 @@ function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDele
       {editMode && (
         <button
           onClick={onAddEjercicio}
-          style={{ ...pillButton, marginTop: 12, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c", width: "100%" }}
+          style={{ ...pillButton, marginTop: 12, background: "transparent", border: "1px dashed #2B394B", color: "#949EAA", width: "100%" }}
         >
           + Agregar ejercicio
         </button>
@@ -1798,13 +1832,13 @@ function GimnasioPage() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
-          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Plan de gimnasio</div>
-          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>3 estímulos por semana</div>
+          <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Plan de gimnasio</div>
+          <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>3 estímulos por semana</div>
         </div>
         {editMode ? (
           <button
             onClick={() => setEditMode(false)}
-            style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}
+            style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}
           >
             Guardar cambios
           </button>
@@ -1825,9 +1859,9 @@ function GimnasioPage() {
             onClick={() => setDia(d)}
             style={{
               ...pillButton,
-              border: "1px solid " + (dia === d ? "#f2c230" : "#2a2a2c"),
+              border: "1px solid " + (dia === d ? "#f2c230" : "#2B394B"),
               background: dia === d ? "#1d1a0c" : "transparent",
-              color: dia === d ? "#f2c230" : "#c9c9c6",
+              color: dia === d ? "#f2c230" : "#C8CED6",
             }}
           >
             {d}
@@ -1851,7 +1885,7 @@ function GimnasioPage() {
       {editMode && (
         <button
           onClick={addBloque}
-          style={{ ...pillButton, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c", width: "100%" }}
+          style={{ ...pillButton, background: "transparent", border: "1px dashed #2B394B", color: "#949EAA", width: "100%" }}
         >
           + Agregar bloque
         </button>
@@ -2012,7 +2046,7 @@ function AvatarPlaceholder({ size = 26, foto }) {
         width: size,
         height: size,
         borderRadius: "50%",
-        background: "#2a2a2c",
+        background: "#2B394B",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -2021,8 +2055,8 @@ function AvatarPlaceholder({ size = 26, foto }) {
       }}
     >
       <svg width={size * 0.6} height={size * 0.6} viewBox="0 0 24 24" fill="none">
-        <circle cx="12" cy="8" r="4" fill="#6b6b68" />
-        <path d="M4 21c0-4.5 3.6-8 8-8s8 3.5 8 8" fill="#6b6b68" />
+        <circle cx="12" cy="8" r="4" fill="#6C7886" />
+        <path d="M4 21c0-4.5 3.6-8 8-8s8 3.5 8 8" fill="#6C7886" />
       </svg>
     </div>
   );
@@ -2032,8 +2066,8 @@ const pillStyle = {
   display: "inline-flex",
   alignItems: "center",
   gap: 8,
-  background: "#1c1c1d",
-  border: "1px solid #262627",
+  background: "#1A2431",
+  border: "1px solid #263345",
   borderRadius: 999,
   padding: "5px 16px 5px 10px",
 };
@@ -2041,9 +2075,9 @@ const pillStyle = {
 const pillSelectStyle = {
   background: "transparent",
   border: "none",
-  color: "#f5f4f0",
+  color: "#F4F2EE",
   fontSize: 13,
-  fontFamily: "'Inter', sans-serif",
+  fontFamily: "'Barlow', 'Inter', sans-serif",
   outline: "none",
   maxWidth: 160,
 };
@@ -2052,23 +2086,23 @@ function TitularPill({ slot, editMode, onChangeJugador }) {
   const vacante = !slot.jugadorId;
   return (
     <div style={{ ...pillStyle, opacity: vacante && !editMode ? 0.55 : 1 }}>
-      <span style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#f2c230", fontSize: 13, minWidth: 14, textAlign: "center" }}>
+      <span style={{ fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", fontWeight: 700, color: "#f2c230", fontSize: 13, minWidth: 14, textAlign: "center" }}>
         {slot.numero}
       </span>
       <AvatarPlaceholder />
       {editMode ? (
         <select value={slot.jugadorId || ""} onChange={(e) => onChangeJugador(e.target.value)} style={pillSelectStyle}>
-          <option value="" style={{ background: "#141415", color: "#8f8f8c" }}>
+          <option value="" style={{ background: "#131C27", color: "#949EAA" }}>
             — Vacante —
           </option>
           {jugadoresPara(slot.puesto).map((p) => (
-            <option key={p.id} value={p.id} style={{ background: "#141415" }}>
+            <option key={p.id} value={p.id} style={{ background: "#131C27" }}>
               {p.id}
             </option>
           ))}
         </select>
       ) : (
-        <span style={{ fontSize: 13, color: vacante ? "#6b6b68" : "#f5f4f0", fontStyle: vacante ? "italic" : "normal", fontWeight: 500, whiteSpace: "nowrap" }}>
+        <span style={{ fontSize: 13, color: vacante ? "#6C7886" : "#F4F2EE", fontStyle: vacante ? "italic" : "normal", fontWeight: 500, whiteSpace: "nowrap" }}>
           {vacante ? "Vacante" : slot.jugadorId}
         </span>
       )}
@@ -2080,24 +2114,24 @@ function SuplentePill({ slot, editMode, onChangeJugador, onChangePuesto }) {
   const vacante = !slot.jugadorId;
   return (
     <div style={{ ...pillStyle, padding: "6px 16px 6px 10px", opacity: vacante && !editMode ? 0.55 : 1 }}>
-      <span style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#f2c230", fontSize: 13, minWidth: 14, textAlign: "center" }}>
+      <span style={{ fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", fontWeight: 700, color: "#f2c230", fontSize: 13, minWidth: 14, textAlign: "center" }}>
         {slot.numero}
       </span>
       <AvatarPlaceholder />
       <div style={{ display: "flex", flexDirection: "column" }}>
         {editMode ? (
           <select value={slot.jugadorId || ""} onChange={(e) => onChangeJugador(e.target.value)} style={pillSelectStyle}>
-            <option value="" style={{ background: "#141415", color: "#8f8f8c" }}>
+            <option value="" style={{ background: "#131C27", color: "#949EAA" }}>
               — Vacante —
             </option>
             {jugadoresPara(slot.puesto).map((p) => (
-              <option key={p.id} value={p.id} style={{ background: "#141415" }}>
+              <option key={p.id} value={p.id} style={{ background: "#131C27" }}>
                 {p.id}
               </option>
             ))}
           </select>
         ) : (
-          <span style={{ fontSize: 13, color: vacante ? "#6b6b68" : "#f5f4f0", fontStyle: vacante ? "italic" : "normal", fontWeight: 500, whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: 13, color: vacante ? "#6C7886" : "#F4F2EE", fontStyle: vacante ? "italic" : "normal", fontWeight: 500, whiteSpace: "nowrap" }}>
             {vacante ? "Vacante" : slot.jugadorId}
           </span>
         )}
@@ -2105,10 +2139,10 @@ function SuplentePill({ slot, editMode, onChangeJugador, onChangePuesto }) {
           <input
             value={slot.puesto}
             onChange={(e) => onChangePuesto(e.target.value)}
-            style={{ background: "transparent", border: "none", borderBottom: "1px solid #2a2a2c", color: "#8f8f8c", fontSize: 10.5, outline: "none", padding: 0 }}
+            style={{ background: "transparent", border: "none", borderBottom: "1px solid #2B394B", color: "#949EAA", fontSize: 10.5, outline: "none", padding: 0 }}
           />
         ) : (
-          <span style={{ fontSize: 10.5, color: "#8f8f8c" }}>{slot.puesto}</span>
+          <span style={{ fontSize: 10.5, color: "#949EAA" }}>{slot.puesto}</span>
         )}
       </div>
     </div>
@@ -2129,26 +2163,26 @@ function FilaFormacionMobile({ slot, editMode, abierto, onAbrir, onElegir }) {
           borderRadius: 8, padding: "8px 6px", cursor: editMode ? "pointer" : "default",
         }}
       >
-        <span style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#f2c230", fontSize: 13, minWidth: 18, textAlign: "center", flexShrink: 0 }}>
+        <span style={{ fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", fontWeight: 700, color: "#f2c230", fontSize: 13, minWidth: 18, textAlign: "center", flexShrink: 0 }}>
           {slot.numero}
         </span>
         <AvatarPlaceholder foto={slot.foto} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, color: vacante ? "#6b6b68" : "#f5f4f0", fontStyle: vacante ? "italic" : "normal", fontWeight: 500 }}>
+          <div style={{ fontSize: 13, color: vacante ? "#6C7886" : "#F4F2EE", fontStyle: vacante ? "italic" : "normal", fontWeight: 500 }}>
             {vacante ? "Vacante" : slot.jugadorId}
           </div>
-          <div style={{ fontSize: 10.5, color: "#6b6b68" }}>{slot.puesto}</div>
+          <div style={{ fontSize: 10.5, color: "#6C7886" }}>{slot.puesto}</div>
         </div>
-        {editMode && <span style={{ color: "#6b6b68", fontSize: 12, flexShrink: 0 }}>{abierto ? "▲" : "▾"}</span>}
+        {editMode && <span style={{ color: "#6C7886", fontSize: 12, flexShrink: 0 }}>{abierto ? "▲" : "▾"}</span>}
       </button>
 
       {abierto && (
-        <div style={{ background: "#0e0e0f", border: "1px solid #2a2a2c", borderRadius: 8, padding: 10, margin: "4px 0 10px" }}>
-          <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 8 }}>Elegí quién cubre esta camiseta:</div>
+        <div style={{ background: "#0C131B", border: "1px solid #2B394B", borderRadius: 8, padding: 10, margin: "4px 0 10px" }}>
+          <div style={{ fontSize: 10.5, color: "#6C7886", marginBottom: 8 }}>Elegí quién cubre esta camiseta:</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             <button
               onClick={() => onElegir("")}
-              style={{ ...pillButton, fontSize: 11.5, background: !slot.jugadorId ? "#1d1a0c" : "transparent", border: "1px solid " + (!slot.jugadorId ? "#f2c230" : "#2a2a2c"), color: !slot.jugadorId ? "#f2c230" : "#8f8f8c" }}
+              style={{ ...pillButton, fontSize: 11.5, background: !slot.jugadorId ? "#1d1a0c" : "transparent", border: "1px solid " + (!slot.jugadorId ? "#f2c230" : "#2B394B"), color: !slot.jugadorId ? "#f2c230" : "#949EAA" }}
             >
               — Vacante —
             </button>
@@ -2156,7 +2190,7 @@ function FilaFormacionMobile({ slot, editMode, abierto, onAbrir, onElegir }) {
               <button
                 key={p.id}
                 onClick={() => onElegir(p.id)}
-                style={{ ...pillButton, fontSize: 11.5, background: slot.jugadorId === p.id ? "#1d1a0c" : "transparent", border: "1px solid " + (slot.jugadorId === p.id ? "#f2c230" : "#2a2a2c"), color: slot.jugadorId === p.id ? "#f2c230" : "#c9c9c6" }}
+                style={{ ...pillButton, fontSize: 11.5, background: slot.jugadorId === p.id ? "#1d1a0c" : "transparent", border: "1px solid " + (slot.jugadorId === p.id ? "#f2c230" : "#2B394B"), color: slot.jugadorId === p.id ? "#f2c230" : "#C8CED6" }}
               >
                 {p.id}
               </button>
@@ -2176,7 +2210,7 @@ function ListaFormacion({ lineup, editMode, onChangeJugador, onChangePuesto }) {
   return (
     <div>
       <div style={{ ...cardStyle, padding: "16px 18px" }}>
-        <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.6, marginBottom: 10 }}>TITULARES</div>
+        <div style={{ fontSize: 11, color: "#6C7886", letterSpacing: 0.6, marginBottom: 10 }}>TITULARES</div>
         <div style={{ display: "flex", flexDirection: "column" }}>
           {titulares.map((s) => (
             <FilaFormacionMobile
@@ -2195,7 +2229,7 @@ function ListaFormacion({ lineup, editMode, onChangeJugador, onChangePuesto }) {
       </div>
 
       <div style={{ ...cardStyle, padding: "16px 18px", marginTop: 16 }}>
-        <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.6, marginBottom: 10 }}>SUPLENTES · {suplentes.length}</div>
+        <div style={{ fontSize: 11, color: "#6C7886", letterSpacing: 0.6, marginBottom: 10 }}>SUPLENTES · {suplentes.length}</div>
         <div style={{ display: "flex", flexDirection: "column" }}>
           {suplentes.map((s) => (
             <FilaFormacionMobile
@@ -2245,16 +2279,16 @@ function CanchaFormacion({ lineup, editMode, onChangeJugador, onChangePuesto }) 
   return (
     <div>
       <div style={{ ...cardStyle, padding: "24px 24px 20px" }}>
-        <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.6, textAlign: "center", marginBottom: 18 }}>
+        <div style={{ fontSize: 11, color: "#6C7886", letterSpacing: 0.6, textAlign: "center", marginBottom: 18 }}>
           FORWARDS
         </div>
         <Row nums={[1, 2, 3]} />
         <Row nums={[4, 5]} />
         <Row nums={[6, 8, 7]} />
 
-        <div style={{ borderTop: "1px dashed #2a2a2c", margin: "10px 0 20px" }} />
+        <div style={{ borderTop: "1px dashed #2B394B", margin: "10px 0 20px" }} />
 
-        <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.6, marginBottom: 12 }}>BACKS</div>
+        <div style={{ fontSize: 11, color: "#6C7886", letterSpacing: 0.6, marginBottom: 12 }}>BACKS</div>
         <div style={{ position: "relative", minHeight: 260 }}>
           {[9, 10, 12, 13, 11, 14, 15].map((n) => (
             <div
@@ -2273,7 +2307,7 @@ function CanchaFormacion({ lineup, editMode, onChangeJugador, onChangePuesto }) 
       </div>
 
       <div style={{ ...cardStyle, padding: "16px 18px", marginTop: 16 }}>
-        <div style={{ fontSize: 11, color: "#6b6b68", letterSpacing: 0.6, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: "#6C7886", letterSpacing: 0.6, marginBottom: 14 }}>
           SUPLENTES · {suplentes.length}
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
@@ -2305,8 +2339,8 @@ const POSICIONES_LISTA = [
 ];
 
 const APTO_TAG = {
-  Apto: { bg: "#111a12", color: "#5fbf7a" },
-  "No apto": { bg: "#2a120f", color: "#e0665c" },
+  Apto: { bg: "#0F2A21", color: "#3FC08A" },
+  "No apto": { bg: "#2a120f", color: "#F07362" },
   Pendiente: { bg: "#2a220a", color: "#f2c230" },
 };
 
@@ -2385,19 +2419,19 @@ function RadarChart({ valores, etiquetas, size = 210 }) {
           key={f}
           points={etiquetas.map((_, i) => punto(i, radius * f).join(",")).join(" ")}
           fill="none"
-          stroke="#232324"
+          stroke="#223040"
           strokeWidth="1"
         />
       ))}
       {etiquetas.map((_, i) => {
         const [x, y] = punto(i, radius);
-        return <line key={i} x1={center} y1={center} x2={x} y2={y} stroke="#232324" strokeWidth="1" />;
+        return <line key={i} x1={center} y1={center} x2={x} y2={y} stroke="#223040" strokeWidth="1" />;
       })}
       <polygon points={poligono} fill="#f2c23033" stroke="#f2c230" strokeWidth="1.5" />
       {etiquetas.map((l, i) => {
         const [x, y] = punto(i, radius + 20);
         return (
-          <text key={l} x={x} y={y} fill="#8f8f8c" fontSize="9.5" textAnchor="middle" dominantBaseline="middle">
+          <text key={l} x={x} y={y} fill="#949EAA" fontSize="9.5" textAnchor="middle" dominantBaseline="middle">
             {l}
           </text>
         );
@@ -2496,8 +2530,8 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
         <AvatarPlaceholder size={52} foto={jugador.foto} />
         <div>
-          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 600, fontFamily: "'Oswald', sans-serif" }}>{jugador.id}</div>
-          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
+          <div style={{ fontSize: 20, color: "#F4F2EE", fontWeight: 600, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif" }}>{jugador.id}</div>
+          <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>
             {jugador.posicionIdeal} · {estadoMedicoTexto(jugador)}
           </div>
           {perfil?.rol === "Manager" && (
@@ -2529,25 +2563,25 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         <div style={{ ...cardStyle, padding: "18px", flex: "1 1 260px", display: "flex", flexDirection: "column", alignItems: "center" }}>
           <div style={{ display: "flex", justifyContent: "space-between", width: "100%", marginBottom: 8 }}>
-            <span style={{ fontSize: 12, color: "#6b6b68", letterSpacing: 0.5 }}>RADAR DE PERFIL</span>
-            {evalu && <span style={{ fontSize: 11, color: "#6b6b68" }}>Último test: {evalu.fecha}</span>}
+            <span style={{ fontSize: 12, color: "#6C7886", letterSpacing: 0.5 }}>RADAR DE PERFIL</span>
+            {evalu && <span style={{ fontSize: 11, color: "#6C7886" }}>Último test: {evalu.fecha}</span>}
           </div>
           <RadarChart valores={valoresNorm} etiquetas={Object.keys(METRICAS_RANGOS)} />
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, justifyContent: "center" }}>
             {Object.entries(METRICAS_RANGOS).map(([clave, { unidad }]) => (
-              <span key={clave} style={{ fontSize: 11, color: "#8f8f8c" }}>
-                {clave}: <span style={{ color: "#f5f4f0", fontWeight: 500 }}>{m[clave]}</span> {unidad}
+              <span key={clave} style={{ fontSize: 11, color: "#949EAA" }}>
+                {clave}: <span style={{ color: "#F4F2EE", fontWeight: 500 }}>{m[clave]}</span> {unidad}
               </span>
             ))}
           </div>
-          <div style={{ fontSize: 10.5, color: "#6b6b68", marginTop: 10, textAlign: "center" }}>
+          <div style={{ fontSize: 10.5, color: "#6C7886", marginTop: 10, textAlign: "center" }}>
             Valores tomados de la última evaluación física cargada por el preparador físico.
           </div>
         </div>
 
         <div style={{ ...cardStyle, padding: "18px", flex: "1 1 260px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <span style={{ fontSize: 12, color: "#6b6b68", letterSpacing: 0.5 }}>POSICIONES</span>
+            <span style={{ fontSize: 12, color: "#6C7886", letterSpacing: 0.5 }}>POSICIONES</span>
             <button
               onClick={() => setEditPos((v) => !v)}
               style={{ background: "transparent", border: "none", color: "#f2c230", fontSize: 11.5, cursor: "pointer", padding: 0 }}
@@ -2555,65 +2589,65 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
               {editPos ? "Listo" : "Editar"}
             </button>
           </div>
-          <div style={{ fontSize: 13, color: "#f5f4f0", marginBottom: 6 }}>
-            Ideal: <span style={{ color: "#8f8f8c" }}>{jugador.posicionIdeal}</span>
+          <div style={{ fontSize: 13, color: "#F4F2EE", marginBottom: 6 }}>
+            Ideal: <span style={{ color: "#949EAA" }}>{jugador.posicionIdeal}</span>
           </div>
-          <div style={{ fontSize: 13, color: "#f5f4f0", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ fontSize: 13, color: "#F4F2EE", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
             Alternativa:
             {editPos ? (
               <select
                 value={jugador.posicionAlternativa}
                 onChange={(e) => onUpdateCampo("posicionAlternativa", e.target.value)}
-                style={{ ...editInputStyle, borderBottom: "1px solid #2a2a2c" }}
+                style={{ ...editInputStyle, borderBottom: "1px solid #2B394B" }}
               >
                 {POSICIONES_LISTA.map((p) => (
-                  <option key={p} value={p} style={{ background: "#141415" }}>
+                  <option key={p} value={p} style={{ background: "#131C27" }}>
                     {p}
                   </option>
                 ))}
               </select>
             ) : (
-              <span style={{ color: "#8f8f8c" }}>{jugador.posicionAlternativa}</span>
+              <span style={{ color: "#949EAA" }}>{jugador.posicionAlternativa}</span>
             )}
           </div>
-          <div style={{ fontSize: 13, color: "#f5f4f0", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ fontSize: 13, color: "#F4F2EE", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
             Emergencia:
             {editPos ? (
               <select
                 value={jugador.posicionEmergencia}
                 onChange={(e) => onUpdateCampo("posicionEmergencia", e.target.value)}
-                style={{ ...editInputStyle, borderBottom: "1px solid #2a2a2c" }}
+                style={{ ...editInputStyle, borderBottom: "1px solid #2B394B" }}
               >
                 {POSICIONES_LISTA.map((p) => (
-                  <option key={p} value={p} style={{ background: "#141415" }}>
+                  <option key={p} value={p} style={{ background: "#131C27" }}>
                     {p}
                   </option>
                 ))}
               </select>
             ) : (
-              <span style={{ color: "#8f8f8c" }}>{jugador.posicionEmergencia}</span>
+              <span style={{ color: "#949EAA" }}>{jugador.posicionEmergencia}</span>
             )}
           </div>
 
           {perfil?.rol === "Cuerpo médico" && (
-            <div style={{ marginBottom: 16, padding: "12px", background: "#0e0e0f", borderRadius: 8, border: "1px solid #2a2a2c" }}>
-              <div style={{ fontSize: 12, color: "#6b6b68", letterSpacing: 0.5, marginBottom: 10 }}>ESTADO MÉDICO</div>
+            <div style={{ marginBottom: 16, padding: "12px", background: "#0C131B", borderRadius: 8, border: "1px solid #2B394B" }}>
+              <div style={{ fontSize: 12, color: "#6C7886", letterSpacing: 0.5, marginBottom: 10 }}>ESTADO MÉDICO</div>
               {jugador.estado === "Lesionado" ? (
                 <>
-                  <div style={{ fontSize: 13, color: "#e0665c", fontWeight: 600, marginBottom: 6 }}>🩹 Lesionado · {jugador.zona}</div>
+                  <div style={{ fontSize: 13, color: "#F07362", fontWeight: 600, marginBottom: 6 }}>🩹 Lesionado · {jugador.zona}</div>
                   {lesionActiva ? (
-                    <div style={{ fontSize: 12, color: "#c9c9c6", marginBottom: 10, lineHeight: 1.5 }}>
+                    <div style={{ fontSize: 12, color: "#C8CED6", marginBottom: 10, lineHeight: 1.5 }}>
                       {lesionActiva.descripcion && <div>{lesionActiva.descripcion}</div>}
                       <div>Rehabilitación estimada: {lesionActiva.semanas_estimadas || "?"} semanas</div>
                       <div>Vuelta estimada: {lesionActiva.fecha_vuelta_estimada}</div>
                     </div>
                   ) : (
-                    <div style={{ fontSize: 12, color: "#6b6b68", marginBottom: 10 }}>Cargando el detalle…</div>
+                    <div style={{ fontSize: 12, color: "#6C7886", marginBottom: 10 }}>Cargando el detalle…</div>
                   )}
                   <button
                     onClick={confirmarAlta}
                     disabled={cargandoLesion}
-                    style={{ ...pillButton, background: "#5fbf7a", color: "#141415", border: "none", fontSize: 12 }}
+                    style={{ ...pillButton, background: "#3FC08A", color: "#131C27", border: "none", fontSize: 12 }}
                   >
                     {cargandoLesion ? "Guardando…" : "✓ Dar de alta"}
                   </button>
@@ -2623,7 +2657,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
                   <label style={{ ...labelStyle, marginTop: 0 }}>Zona</label>
                   <select value={zonaLesion} onChange={(e) => setZonaLesion(e.target.value)} style={inputStyle}>
                     {["Rodilla", "Tobillo", "Hombro", "Muslo", "Isquiotibial", "Espalda", "Otra"].map((z) => (
-                      <option key={z} value={z} style={{ background: "#0e0e0f" }}>
+                      <option key={z} value={z} style={{ background: "#0C131B" }}>
                         {z}
                       </option>
                     ))}
@@ -2645,13 +2679,13 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
                     <button
                       onClick={confirmarLesion}
                       disabled={cargandoLesion}
-                      style={{ ...pillButton, background: "#e0665c", color: "#141415", border: "none", fontSize: 12 }}
+                      style={{ ...pillButton, background: "#F07362", color: "#131C27", border: "none", fontSize: 12 }}
                     >
                       {cargandoLesion ? "Guardando…" : "Confirmar lesión"}
                     </button>
                     <button
                       onClick={() => setMostrarFormLesion(false)}
-                      style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c", fontSize: 12 }}
+                      style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA", fontSize: 12 }}
                     >
                       Cancelar
                     </button>
@@ -2660,7 +2694,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
               ) : (
                 <button
                   onClick={() => setMostrarFormLesion(true)}
-                  style={{ ...pillButton, background: "transparent", border: "1px dashed #e0665c", color: "#e0665c", fontSize: 12 }}
+                  style={{ ...pillButton, background: "transparent", border: "1px dashed #F07362", color: "#F07362", fontSize: 12 }}
                 >
                   🩹 Informar lesión
                 </button>
@@ -2668,15 +2702,15 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
             </div>
           )}
 
-          <div style={{ fontSize: 12, color: "#6b6b68", letterSpacing: 0.5, marginBottom: 8 }}>HISTORIAL MÉDICO</div>
+          <div style={{ fontSize: 12, color: "#6C7886", letterSpacing: 0.5, marginBottom: 8 }}>HISTORIAL MÉDICO</div>
           {jugador.historial.length > 0 ? (
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {jugador.historial.map((h, i) => (
-                <li key={i} style={{ fontSize: 12.5, color: "#8f8f8c", marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>
+                <li key={i} style={{ fontSize: 12.5, color: "#949EAA", marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ flex: 1 }}>{h}</span>
                   <button
                     onClick={() => onRemoveHistorial(i)}
-                    style={{ background: "transparent", border: "none", color: "#6b6b68", cursor: "pointer", fontSize: 13 }}
+                    style={{ background: "transparent", border: "none", color: "#6C7886", cursor: "pointer", fontSize: 13 }}
                   >
                     ×
                   </button>
@@ -2684,14 +2718,14 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
               ))}
             </ul>
           ) : (
-            <div style={{ fontSize: 12.5, color: "#6b6b68", marginBottom: 6 }}>Sin antecedentes cargados.</div>
+            <div style={{ fontSize: 12.5, color: "#6C7886", marginBottom: 6 }}>Sin antecedentes cargados.</div>
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <input
               value={nuevaLesion}
               onChange={(e) => setNuevaLesion(e.target.value)}
               placeholder="Agregar antecedente (ej: esguince de tobillo, 2026)"
-              style={{ ...editInputStyle, flex: 1, borderBottom: "1px solid #2a2a2c" }}
+              style={{ ...editInputStyle, flex: 1, borderBottom: "1px solid #2B394B" }}
             />
             <button
               onClick={() => {
@@ -2700,12 +2734,12 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
                   setNuevaLesion("");
                 }
               }}
-              style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6", fontSize: 12 }}
+              style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#C8CED6", fontSize: 12 }}
             >
               Agregar
             </button>
           </div>
-          <div style={{ fontSize: 10.5, color: "#6b6b68", marginTop: 8 }}>
+          <div style={{ fontSize: 10.5, color: "#6C7886", marginTop: 8 }}>
             El jugador carga sus antecedentes al registrarse en la app; el cuerpo médico del club puede sumar o
             corregir entradas desde acá.
           </div>
@@ -2819,11 +2853,11 @@ function PlantelCompletoPage({ perfil }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
-          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Plantel completo</div>
-          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>{jugadores.length} jugadores registrados</div>
+          <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Jugadores</div>
+          <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>{jugadores.length} jugadores registrados</div>
         </div>
         {editMode ? (
-          <button onClick={() => setEditMode(false)} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+          <button onClick={() => setEditMode(false)} style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}>
             Guardar cambios
           </button>
         ) : (
@@ -2833,7 +2867,7 @@ function PlantelCompletoPage({ perfil }) {
         )}
       </div>
 
-      <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 16, lineHeight: 1.6 }}>
+      <div style={{ fontSize: 11, color: "#6C7886", marginBottom: 16, lineHeight: 1.6 }}>
         Altura, peso y posición ideal los completa cada jugador al registrarse en la app. La posición alternativa,
         la de emergencia y el estado de "apto" los maneja el cuerpo técnico / el manager desde acá.
       </div>
@@ -2849,23 +2883,23 @@ function PlantelCompletoPage({ perfil }) {
               <label style={labelStyle}>Posición ideal</label>
               <select value={nuevaPosicion} onChange={(e) => setNuevaPosicion(e.target.value)} style={{ ...inputStyle, width: 170 }}>
                 {Object.keys(POSICIONES_ALT).map((p) => (
-                  <option key={p} value={p} style={{ background: "#0e0e0f" }}>
+                  <option key={p} value={p} style={{ background: "#0C131B" }}>
                     {p}
                   </option>
                 ))}
               </select>
             </div>
-            <button onClick={agregarJugador} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+            <button onClick={agregarJugador} style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}>
               Agregar
             </button>
-            <button onClick={() => setAgregando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+            <button onClick={() => setAgregando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA" }}>
               Cancelar
             </button>
           </div>
         ) : (
           <button
             onClick={() => setAgregando(true)}
-            style={{ ...pillButton, marginBottom: 16, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}
+            style={{ ...pillButton, marginBottom: 16, background: "transparent", border: "1px dashed #2B394B", color: "#949EAA" }}
           >
             + Agregar jugador
           </button>
@@ -2875,7 +2909,7 @@ function PlantelCompletoPage({ perfil }) {
       <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 900 }}>
           <thead>
-            <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
+            <tr style={{ color: "#949EAA", textAlign: "left" }}>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Altura</th>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Peso</th>
@@ -2889,7 +2923,7 @@ function PlantelCompletoPage({ perfil }) {
           </thead>
           <tbody>
             {jugadores.map((j) => (
-              <tr key={j.id} style={{ borderTop: "1px solid #232324" }}>
+              <tr key={j.id} style={{ borderTop: "1px solid #223040" }}>
                 <td style={{ padding: "9px 10px", whiteSpace: "nowrap" }}>
                   <button
                     onClick={() => setSeleccionadoId(j.id)}
@@ -2898,24 +2932,24 @@ function PlantelCompletoPage({ perfil }) {
                     {j.id}
                   </button>
                 </td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.altura} cm</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.peso} kg</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.posicionIdeal}</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.altura} cm</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.peso} kg</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.posicionIdeal}</td>
                 <td style={{ padding: "9px 10px" }}>
                   {editMode ? (
                     <select
                       value={j.posicionAlternativa}
                       onChange={(e) => updateCampo(j.id, "posicionAlternativa", e.target.value)}
-                      style={{ ...editInputStyle, borderBottom: "1px solid #2a2a2c" }}
+                      style={{ ...editInputStyle, borderBottom: "1px solid #2B394B" }}
                     >
                       {POSICIONES_LISTA.map((p) => (
-                        <option key={p} value={p} style={{ background: "#141415" }}>
+                        <option key={p} value={p} style={{ background: "#131C27" }}>
                           {p}
                         </option>
                       ))}
                     </select>
                   ) : (
-                    <span style={{ color: "#c9c9c6" }}>{j.posicionAlternativa}</span>
+                    <span style={{ color: "#C8CED6" }}>{j.posicionAlternativa}</span>
                   )}
                 </td>
                 <td style={{ padding: "9px 10px" }}>
@@ -2923,16 +2957,16 @@ function PlantelCompletoPage({ perfil }) {
                     <select
                       value={j.posicionEmergencia}
                       onChange={(e) => updateCampo(j.id, "posicionEmergencia", e.target.value)}
-                      style={{ ...editInputStyle, borderBottom: "1px solid #2a2a2c" }}
+                      style={{ ...editInputStyle, borderBottom: "1px solid #2B394B" }}
                     >
                       {POSICIONES_LISTA.map((p) => (
-                        <option key={p} value={p} style={{ background: "#141415" }}>
+                        <option key={p} value={p} style={{ background: "#131C27" }}>
                           {p}
                         </option>
                       ))}
                     </select>
                   ) : (
-                    <span style={{ color: "#c9c9c6" }}>{j.posicionEmergencia}</span>
+                    <span style={{ color: "#C8CED6" }}>{j.posicionEmergencia}</span>
                   )}
                 </td>
                 <td style={{ padding: "9px 10px" }}>
@@ -2940,10 +2974,10 @@ function PlantelCompletoPage({ perfil }) {
                     <select
                       value={j.apto}
                       onChange={(e) => updateCampo(j.id, "apto", e.target.value)}
-                      style={{ ...editInputStyle, borderBottom: "1px solid #2a2a2c" }}
+                      style={{ ...editInputStyle, borderBottom: "1px solid #2B394B" }}
                     >
                       {Object.keys(APTO_TAG).map((a) => (
-                        <option key={a} value={a} style={{ background: "#141415" }}>
+                        <option key={a} value={a} style={{ background: "#131C27" }}>
                           {a}
                         </option>
                       ))}
@@ -2952,10 +2986,10 @@ function PlantelCompletoPage({ perfil }) {
                     <span style={{ ...tagStyle, background: APTO_TAG[j.apto].bg, color: APTO_TAG[j.apto].color }}>{j.apto}</span>
                   )}
                 </td>
-                <td style={{ padding: "9px 10px", color: j.estado === "Disponible" ? "#8f8f8c" : "#f5f4f0" }}>
+                <td style={{ padding: "9px 10px", color: j.estado === "Disponible" ? "#949EAA" : "#F4F2EE" }}>
                   <div>{estadoMedicoTexto(j)}</div>
                   {j.historial.length > 0 && (
-                    <div style={{ fontSize: 10.5, color: "#6b6b68", marginTop: 2 }}>
+                    <div style={{ fontSize: 10.5, color: "#6C7886", marginTop: 2 }}>
                       Historial: {j.historial.join(" · ")}
                     </div>
                   )}
@@ -2964,7 +2998,7 @@ function PlantelCompletoPage({ perfil }) {
                   <td style={{ padding: "9px 10px" }}>
                     <button
                       onClick={() => eliminarJugador(j.id)}
-                      style={{ background: "transparent", border: "1px solid #4a2320", color: "#e0665c", borderRadius: 5, fontSize: 11, padding: "4px 8px", cursor: "pointer" }}
+                      style={{ background: "transparent", border: "1px solid #4a2320", color: "#F07362", borderRadius: 5, fontSize: 11, padding: "4px 8px", cursor: "pointer" }}
                     >
                       Eliminar
                     </button>
@@ -3003,9 +3037,9 @@ function MatchSelector({ partidos, fecha, onSelect }) {
           onClick={() => onSelect(p.fecha)}
           style={{
             ...pillButton,
-            border: "1px solid " + (fecha === p.fecha ? "#f2c230" : "#2a2a2c"),
+            border: "1px solid " + (fecha === p.fecha ? "#f2c230" : "#2B394B"),
             background: fecha === p.fecha ? "#1d1a0c" : "transparent",
-            color: fecha === p.fecha ? "#f2c230" : "#c9c9c6",
+            color: fecha === p.fecha ? "#f2c230" : "#C8CED6",
             fontSize: 12,
           }}
           title={`vs ${p.rival} · ${p.gf}-${p.gc}`}
@@ -3101,12 +3135,12 @@ function ImportarGps({ partidoId, onImportado }) {
   return (
     <div style={{ marginBottom: 20 }}>
       {!abierto ? (
-        <button onClick={() => setAbierto(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}>
+        <button onClick={() => setAbierto(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2B394B", color: "#949EAA" }}>
           + Importar datos de GPS
         </button>
       ) : (
         <div style={{ ...cardStyle, padding: "16px 18px" }}>
-          <div style={{ fontSize: 12.5, color: "#c9c9c6", marginBottom: 8 }}>
+          <div style={{ fontSize: 12.5, color: "#C8CED6", marginBottom: 8 }}>
             Pegá una fila por jugador: <b>Nombre, Minutos, Distancia, Alta int., ACC, DEC, Vel máx</b> (separado por coma o tab).
           </div>
           <textarea
@@ -3117,14 +3151,14 @@ function ImportarGps({ partidoId, onImportado }) {
             style={{ ...inputStyle, fontFamily: "monospace", fontSize: 12 }}
           />
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <button onClick={importar} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+            <button onClick={importar} style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}>
               Importar
             </button>
-            <button onClick={() => setAbierto(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+            <button onClick={() => setAbierto(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA" }}>
               Cerrar
             </button>
           </div>
-          {msg && <div style={{ fontSize: 11.5, color: "#8f8f8c", marginTop: 8 }}>{msg}</div>}
+          {msg && <div style={{ fontSize: 11.5, color: "#949EAA", marginTop: 8 }}>{msg}</div>}
         </div>
       )}
     </div>
@@ -3159,7 +3193,7 @@ function GpsPartidos({ perfil }) {
 
   return (
     <div>
-      <div style={{ fontSize: 13, color: "#8f8f8c", marginBottom: 14 }}>
+      <div style={{ fontSize: 13, color: "#949EAA", marginBottom: 14 }}>
         vs {partido.rival} ({partido.cond === "Local" ? "L" : "V"}) · {partido.gf}-{partido.gc} · {partido.date}
       </div>
 
@@ -3167,7 +3201,7 @@ function GpsPartidos({ perfil }) {
 
       {esEntrenador(perfil) && <ImportarGps partidoId={partido.id} onImportado={() => cargarGpsPartido(partido.id).then(setGpsReal)} />}
 
-      <div style={{ fontSize: 11, color: hayDatosReales ? "#5fbf7a" : "#6b6b68", marginBottom: 16 }}>
+      <div style={{ fontSize: 11, color: hayDatosReales ? "#3FC08A" : "#6C7886", marginBottom: 16 }}>
         {hayDatosReales
           ? "✓ Mostrando datos reales importados para los jugadores cargados (el resto usa datos de referencia)."
           : "Todavía no se importaron datos de GPS para este partido — se muestran valores de referencia."}
@@ -3187,13 +3221,13 @@ function GpsPartidos({ perfil }) {
           { titulo: "ACC (+3 m/s²)", campo: "acc" },
         ].map(({ titulo, campo }) => (
           <div key={campo} style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
-            <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 10 }}>{titulo}</div>
+            <div style={{ fontSize: 11, color: "#6C7886", marginBottom: 10 }}>{titulo}</div>
             {top(campo).map((j, i) => (
               <div key={j.jugadorId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "4px 0" }}>
-                <span style={{ color: "#c9c9c6" }}>
+                <span style={{ color: "#C8CED6" }}>
                   {i + 1}. {j.jugadorId}
                 </span>
-                <span style={{ color: "#f5f4f0", fontFamily: "'Oswald', sans-serif" }}>{j[campo]}</span>
+                <span style={{ color: "#F4F2EE", fontFamily: "'Barlow Condensed', 'Oswald', sans-serif" }}>{j[campo]}</span>
               </div>
             ))}
           </div>
@@ -3203,7 +3237,7 @@ function GpsPartidos({ perfil }) {
       <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 820 }}>
           <thead>
-            <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
+            <tr style={{ color: "#949EAA", textAlign: "left" }}>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Puesto</th>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Min</th>
@@ -3217,16 +3251,16 @@ function GpsPartidos({ perfil }) {
           </thead>
           <tbody>
             {jugadores.map((j) => (
-              <tr key={j.numero} style={{ borderTop: "1px solid #232324" }}>
-                <td style={{ padding: "9px 10px", color: "#f5f4f0", fontWeight: 500, whiteSpace: "nowrap" }}>{j.jugadorId}</td>
-                <td style={{ padding: "9px 10px", color: "#8f8f8c" }}>{j.puesto}</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.min}</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.distancia} m</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.altaInt} m</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.acc}</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.dec}</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.velMax} km/h</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.pctVelMax}%</td>
+              <tr key={j.numero} style={{ borderTop: "1px solid #223040" }}>
+                <td style={{ padding: "9px 10px", color: "#F4F2EE", fontWeight: 500, whiteSpace: "nowrap" }}>{j.jugadorId}</td>
+                <td style={{ padding: "9px 10px", color: "#949EAA" }}>{j.puesto}</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.min}</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.distancia} m</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.altaInt} m</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.acc}</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.dec}</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.velMax} km/h</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.pctVelMax}%</td>
               </tr>
             ))}
           </tbody>
@@ -3251,9 +3285,9 @@ function GpsEntrenamientos() {
             onClick={() => setDia(d)}
             style={{
               ...pillButton,
-              border: "1px solid " + (dia === d ? "#f2c230" : "#2a2a2c"),
+              border: "1px solid " + (dia === d ? "#f2c230" : "#2B394B"),
               background: dia === d ? "#1d1a0c" : "transparent",
-              color: dia === d ? "#f2c230" : "#c9c9c6",
+              color: dia === d ? "#f2c230" : "#C8CED6",
             }}
           >
             {d}
@@ -3270,7 +3304,7 @@ function GpsEntrenamientos() {
       <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 700 }}>
           <thead>
-            <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
+            <tr style={{ color: "#949EAA", textAlign: "left" }}>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Puesto</th>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Distancia</th>
@@ -3282,14 +3316,14 @@ function GpsEntrenamientos() {
           </thead>
           <tbody>
             {jugadores.map((j) => (
-              <tr key={j.numero} style={{ borderTop: "1px solid #232324" }}>
-                <td style={{ padding: "9px 10px", color: "#f5f4f0", fontWeight: 500, whiteSpace: "nowrap" }}>{j.jugadorId}</td>
-                <td style={{ padding: "9px 10px", color: "#8f8f8c" }}>{j.puesto}</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.distancia} m</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.altaInt} m</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.acc}</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.dec}</td>
-                <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.velMax} km/h</td>
+              <tr key={j.numero} style={{ borderTop: "1px solid #223040" }}>
+                <td style={{ padding: "9px 10px", color: "#F4F2EE", fontWeight: 500, whiteSpace: "nowrap" }}>{j.jugadorId}</td>
+                <td style={{ padding: "9px 10px", color: "#949EAA" }}>{j.puesto}</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.distancia} m</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.altaInt} m</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.acc}</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.dec}</td>
+                <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.velMax} km/h</td>
               </tr>
             ))}
           </tbody>
@@ -3305,8 +3339,8 @@ function GpsPage({ perfil }) {
   return (
     <div>
       <div style={{ marginBottom: 6 }}>
-        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>GPS · Oliver Pro</div>
-        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
+        <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>GPS</div>
+        <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>
           Solo Plantel Superior · 15 chalecos disponibles — cubren únicamente al XV titular
         </div>
       </div>
@@ -3321,9 +3355,9 @@ function GpsPage({ perfil }) {
             onClick={() => setVista(t.key)}
             style={{
               ...pillButton,
-              border: "1px solid " + (vista === t.key ? "#f2c230" : "#2a2a2c"),
+              border: "1px solid " + (vista === t.key ? "#f2c230" : "#2B394B"),
               background: vista === t.key ? "#1d1a0c" : "transparent",
-              color: vista === t.key ? "#f2c230" : "#c9c9c6",
+              color: vista === t.key ? "#f2c230" : "#C8CED6",
             }}
           >
             {t.label}
@@ -3527,12 +3561,12 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
   }
 
   const panelStyle = {
-    background: "linear-gradient(180deg, #161617, #121213)",
-    border: "1px solid #232324",
+    background: "linear-gradient(180deg, #151F2B, #111A24)",
+    border: "1px solid #223040",
     borderRadius: 14,
     padding: 16,
   };
-  const tituloPanel = { fontSize: 10.5, color: "#8f8f8c", letterSpacing: 0.8, marginBottom: 10, fontWeight: 600 };
+  const tituloPanel = { fontSize: 10.5, color: "#949EAA", letterSpacing: 0.8, marginBottom: 10, fontWeight: 600 };
 
   const ToggleBoton = ({ activo, onClick, children, colorActivo = "#f2c230" }) => (
     <button
@@ -3540,9 +3574,9 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
       style={{
         flex: 1, padding: "10px 8px", borderRadius: 10, fontSize: 12.5, cursor: "pointer", fontWeight: 600,
         transition: "all 0.15s",
-        background: activo ? "#1d1a0c" : "#1a1a1b",
-        border: "1px solid " + (activo ? colorActivo : "#262627"),
-        color: activo ? colorActivo : "#8f8f8c",
+        background: activo ? "#1d1a0c" : "#18222E",
+        border: "1px solid " + (activo ? colorActivo : "#263345"),
+        color: activo ? colorActivo : "#949EAA",
       }}
     >
       {children}
@@ -3551,9 +3585,9 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
 
   const BotonObtencion = ({ label, valor, onClick, tono = "ok" }) => {
     const colores = {
-      ok: { bg: "#111a12", color: "#5fbf7a" },
-      mal: { bg: "#2a120f", color: "#e0665c" },
-      neutro: { bg: "#1a1a1b", color: "#c9c9c6" },
+      ok: { bg: "#0F2A21", color: "#3FC08A" },
+      mal: { bg: "#2a120f", color: "#F07362" },
+      neutro: { bg: "#18222E", color: "#C8CED6" },
     }[tono];
     return (
       <button
@@ -3565,7 +3599,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
         }}
       >
         <span>{label}</span>
-        <span style={{ fontFamily: "'Oswald', sans-serif", fontSize: 15, fontWeight: 700 }}>{valor}</span>
+        <span style={{ fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", fontSize: 15, fontWeight: 700 }}>{valor}</span>
       </button>
     );
   };
@@ -3573,21 +3607,21 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
   const statsResumen = (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
       <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
-        <div style={{ fontSize: 10, color: "#8f8f8c" }}>Posesión Obras</div>
-        <div style={{ fontSize: 20, color: "#f2c230", fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>{pctPosesionObras}%</div>
+        <div style={{ fontSize: 10, color: "#949EAA" }}>Posesión Obras</div>
+        <div style={{ fontSize: 20, color: "#f2c230", fontWeight: 700, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif" }}>{pctPosesionObras}%</div>
       </div>
       <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
-        <div style={{ fontSize: 10, color: "#8f8f8c" }}>Territorio rival</div>
-        <div style={{ fontSize: 20, color: "#f2c230", fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>{pctTerritorioRival}%</div>
+        <div style={{ fontSize: 10, color: "#949EAA" }}>Territorio rival</div>
+        <div style={{ fontSize: 20, color: "#f2c230", fontWeight: 700, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif" }}>{pctTerritorioRival}%</div>
       </div>
       <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
-        <div style={{ fontSize: 10, color: "#8f8f8c" }}>Ball in play</div>
-        <div style={{ fontSize: 20, color: "#f2c230", fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>{formatoRelojMMSS(ballInPlay)}</div>
+        <div style={{ fontSize: 10, color: "#949EAA" }}>Ball in play</div>
+        <div style={{ fontSize: 20, color: "#f2c230", fontWeight: 700, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif" }}>{formatoRelojMMSS(ballInPlay)}</div>
       </div>
       <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
-        <div style={{ fontSize: 10, color: "#8f8f8c" }}>Secuencias</div>
-        <div style={{ fontSize: 20, color: "#f2c230", fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
-          {cantidadSecuencias} <span style={{ fontSize: 11, color: "#8f8f8c", fontWeight: 400 }}>· más larga {formatoRelojMMSS(secuenciaMasLarga)}</span>
+        <div style={{ fontSize: 10, color: "#949EAA" }}>Secuencias</div>
+        <div style={{ fontSize: 20, color: "#f2c230", fontWeight: 700, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif" }}>
+          {cantidadSecuencias} <span style={{ fontSize: 11, color: "#949EAA", fontWeight: 400 }}>· más larga {formatoRelojMMSS(secuenciaMasLarga)}</span>
         </div>
       </div>
     </div>
@@ -3596,8 +3630,8 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
   const panelAnotador = (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {!isMobile && (
-        <div style={{ ...panelStyle, padding: "10px 14px", fontSize: 10.5, color: "#8f8f8c", lineHeight: 1.7 }}>
-          <b style={{ color: "#c9c9c6" }}>⌨️ Atajos:</b> <b style={{ color: "#f2c230" }}>Espacio</b> en/fuera de juego ·{" "}
+        <div style={{ ...panelStyle, padding: "10px 14px", fontSize: 10.5, color: "#949EAA", lineHeight: 1.7 }}>
+          <b style={{ color: "#C8CED6" }}>⌨️ Atajos:</b> <b style={{ color: "#f2c230" }}>Espacio</b> en/fuera de juego ·{" "}
           <b style={{ color: "#f2c230" }}>1</b>/<b style={{ color: "#f2c230" }}>2</b> posesión Obras/Rival ·{" "}
           <b style={{ color: "#f2c230" }}>3</b>/<b style={{ color: "#f2c230" }}>4</b> territorio propio/rival
           <br />
@@ -3612,7 +3646,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
         style={{
           padding: "18px", borderRadius: 14, border: "none", fontSize: 15, fontWeight: 700, cursor: "pointer",
           background: enJuego ? "linear-gradient(135deg, #16321c, #0f1f13)" : "linear-gradient(135deg, #321714, #1f100e)",
-          color: enJuego ? "#5fbf7a" : "#e0665c",
+          color: enJuego ? "#3FC08A" : "#F07362",
           boxShadow: enJuego ? "0 0 0 1px #2a4a30 inset" : "0 0 0 1px #4a2a26 inset",
           letterSpacing: 0.3,
         }}
@@ -3696,11 +3730,11 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
       <button
         onClick={guardarAnalisis}
         disabled={guardando}
-        style={{ ...buttonStyle, background: "#f2c230", color: "#141415", fontWeight: 700, letterSpacing: 0.3 }}
+        style={{ ...buttonStyle, background: "#f2c230", color: "#131C27", fontWeight: 700, letterSpacing: 0.3 }}
       >
         {guardando ? "Guardando…" : "💾 Guardar análisis"}
       </button>
-      {msg && <div style={{ fontSize: 11.5, color: msg.startsWith("✓") ? "#5fbf7a" : "#e0665c", textAlign: "center" }}>{msg}</div>}
+      {msg && <div style={{ fontSize: 11.5, color: msg.startsWith("✓") ? "#3FC08A" : "#F07362", textAlign: "center" }}>{msg}</div>}
     </div>
   );
 
@@ -3709,7 +3743,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
       <button onClick={onSalir} style={{ background: "transparent", border: "none", color: "#f2c230", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}>
         ← Volver a VEO Cam
       </button>
-      <div style={{ fontSize: 13, color: "#8f8f8c", marginBottom: 16 }}>
+      <div style={{ fontSize: 13, color: "#949EAA", marginBottom: 16 }}>
         {categoria} vs {partido.rival} · Analizando video
       </div>
 
@@ -3735,7 +3769,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
         <div style={{ display: "flex", gap: 16 }}>
           <div style={{ flex: "1 1 55%", minWidth: 0 }}>
             {partido.veoLink ? (
-              <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "#141415", border: "1px solid #232324" }}>
+              <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "#131C27", border: "1px solid #223040" }}>
                 <iframe
                   src={partido.veoLink}
                   title="Video del partido"
@@ -3744,12 +3778,12 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
                 />
               </div>
             ) : (
-              <div style={{ ...panelStyle, padding: 20, textAlign: "center", color: "#6b6b68", fontSize: 12.5 }}>
+              <div style={{ ...panelStyle, padding: 20, textAlign: "center", color: "#6C7886", fontSize: 12.5 }}>
                 No hay link de VEO cargado para este partido.
               </div>
             )}
             {partido.veoLink && (
-              <a href={partido.veoLink} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#6b6b68", display: "block", marginTop: 6 }}>
+              <a href={partido.veoLink} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#6C7886", display: "block", marginTop: 6 }}>
                 Si no carga acá, abrilo en una pestaña nueva ↗
               </a>
             )}
@@ -3794,9 +3828,9 @@ function FilaJugadorAnalisis({ slot, datos, onCambiar, abierto, onAbrir }) {
 
   const botonMini = (label, onClick, tono = "neutro") => {
     const colores = {
-      ok: { bg: "#111a12", color: "#5fbf7a" },
-      mal: { bg: "#2a120f", color: "#e0665c" },
-      neutro: { bg: "#1a1a1b", color: "#c9c9c6" },
+      ok: { bg: "#0F2A21", color: "#3FC08A" },
+      mal: { bg: "#2a120f", color: "#F07362" },
+      neutro: { bg: "#18222E", color: "#C8CED6" },
     }[tono];
     return (
       <button
@@ -3809,7 +3843,7 @@ function FilaJugadorAnalisis({ slot, datos, onCambiar, abierto, onAbrir }) {
   };
 
   return (
-    <div style={{ borderBottom: "1px solid #202021" }}>
+    <div style={{ borderBottom: "1px solid #1F2A37" }}>
       <button
         onClick={() => {
           onAbrir(abierto ? null : slot.numero);
@@ -3820,25 +3854,25 @@ function FilaJugadorAnalisis({ slot, datos, onCambiar, abierto, onAbrir }) {
           background: abierto ? "#1d1a0c" : "transparent", border: "none", borderRadius: 8, padding: "10px 8px", cursor: "pointer",
         }}
       >
-        <span style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#f2c230", fontSize: 12.5, minWidth: 16, textAlign: "center" }}>{slot.numero}</span>
-        <span style={{ flex: 1, fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>{slot.jugadorId}</span>
-        <span style={{ fontSize: 10.5, color: "#8f8f8c" }}>ACC+ <b style={{ color: "#f2c230" }}>{accPlusDe(d)}</b></span>
-        <span style={{ color: "#6b6b68", fontSize: 11 }}>{abierto ? "▲" : "▾"}</span>
+        <span style={{ fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", fontWeight: 700, color: "#f2c230", fontSize: 12.5, minWidth: 16, textAlign: "center" }}>{slot.numero}</span>
+        <span style={{ flex: 1, fontSize: 13, color: "#F4F2EE", fontWeight: 500 }}>{slot.jugadorId}</span>
+        <span style={{ fontSize: 10.5, color: "#949EAA" }}>ACC+ <b style={{ color: "#f2c230" }}>{accPlusDe(d)}</b></span>
+        <span style={{ color: "#6C7886", fontSize: 11 }}>{abierto ? "▲" : "▾"}</span>
       </button>
 
       {abierto && (
         <div style={{ padding: "4px 8px 16px" }}>
-          <div style={{ fontSize: 10, color: "#8f8f8c", letterSpacing: 0.6, marginBottom: 6, fontWeight: 600 }}>TACKLE</div>
+          <div style={{ fontSize: 10, color: "#949EAA", letterSpacing: 0.6, marginBottom: 6, fontWeight: 600 }}>TACKLE</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 12 }}>
             {botonMini(`Positivo (${d.tacklePositivo})`, () => sumar("tacklePositivo"), "ok")}
             {botonMini(`Hecho (${d.tackleHecho})`, () => sumar("tackleHecho"), "neutro")}
             {botonMini(`Errado (${d.tackleErrado})`, () => sumar("tackleErrado"), "mal")}
           </div>
 
-          <div style={{ fontSize: 10, color: "#8f8f8c", letterSpacing: 0.6, marginBottom: 6, fontWeight: 600 }}>QUIEBRE</div>
+          <div style={{ fontSize: 10, color: "#949EAA", letterSpacing: 0.6, marginBottom: 6, fontWeight: 600 }}>QUIEBRE</div>
           {paso === "quiebre" ? (
             <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-              <div style={{ flex: 1, fontSize: 11, color: "#c9c9c6", alignSelf: "center" }}>¿Termina en try?</div>
+              <div style={{ flex: 1, fontSize: 11, color: "#C8CED6", alignSelf: "center" }}>¿Termina en try?</div>
               {botonMini("Sí", () => { sumar("quiebreConTry"); setPaso(null); }, "ok")}
               {botonMini("No", () => { sumar("quiebreSinTry"); setPaso(null); }, "neutro")}
             </div>
@@ -3846,14 +3880,14 @@ function FilaJugadorAnalisis({ slot, datos, onCambiar, abierto, onAbrir }) {
             <div style={{ marginBottom: 12 }}>
               <button
                 onClick={() => setPaso("quiebre")}
-                style={{ ...pillButton, width: "100%", background: "#1a1a1b", border: "none", color: "#c9c9c6", fontSize: 11.5 }}
+                style={{ ...pillButton, width: "100%", background: "#18222E", border: "none", color: "#C8CED6", fontSize: 11.5 }}
               >
                 + Quiebre ({d.quiebreConTry + d.quiebreSinTry})
               </button>
             </div>
           )}
 
-          <div style={{ fontSize: 10, color: "#8f8f8c", letterSpacing: 0.6, marginBottom: 6, fontWeight: 600 }}>PENAL</div>
+          <div style={{ fontSize: 10, color: "#949EAA", letterSpacing: 0.6, marginBottom: 6, fontWeight: 600 }}>PENAL</div>
           {paso === "penal-tipo" ? (
             <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
               {botonMini("A favor", () => { sumar("penalAFavor"); setPaso(null); }, "ok")}
@@ -3865,7 +3899,7 @@ function FilaJugadorAnalisis({ slot, datos, onCambiar, abierto, onAbrir }) {
                 <button
                   key={s.key}
                   onClick={() => { sumar(s.campo); setPaso(null); }}
-                  style={{ background: "#2a120f", color: "#e0665c", border: "none", borderRadius: 8, padding: "8px 4px", fontSize: 10.5, fontWeight: 600, cursor: "pointer" }}
+                  style={{ background: "#2a120f", color: "#F07362", border: "none", borderRadius: 8, padding: "8px 4px", fontSize: 10.5, fontWeight: 600, cursor: "pointer" }}
                 >
                   {s.key}
                 </button>
@@ -3875,7 +3909,7 @@ function FilaJugadorAnalisis({ slot, datos, onCambiar, abierto, onAbrir }) {
             <div style={{ marginBottom: 12 }}>
               <button
                 onClick={() => setPaso("penal-tipo")}
-                style={{ ...pillButton, width: "100%", background: "#1a1a1b", border: "none", color: "#c9c9c6", fontSize: 11.5 }}
+                style={{ ...pillButton, width: "100%", background: "#18222E", border: "none", color: "#C8CED6", fontSize: 11.5 }}
               >
                 + Penal (favor {d.penalAFavor} · contra {d.penalEnContraRuck + d.penalEnContraMaul + d.penalEnContraJuego + d.penalEnContraInconducta})
               </button>
@@ -3886,8 +3920,8 @@ function FilaJugadorAnalisis({ slot, datos, onCambiar, abierto, onAbrir }) {
             onClick={() => onCambiar({ ...d, esPateador: !d.esPateador })}
             style={{
               ...pillButton, width: "100%", fontSize: 11.5, marginBottom: d.esPateador ? 8 : 0,
-              background: d.esPateador ? "#1d1a0c" : "transparent", border: "1px solid " + (d.esPateador ? "#f2c230" : "#2a2a2c"),
-              color: d.esPateador ? "#f2c230" : "#8f8f8c",
+              background: d.esPateador ? "#1d1a0c" : "transparent", border: "1px solid " + (d.esPateador ? "#f2c230" : "#2B394B"),
+              color: d.esPateador ? "#f2c230" : "#949EAA",
             }}
           >
             🦶 {d.esPateador ? "Es pateador" : "Marcar como pateador"}
@@ -3948,11 +3982,11 @@ function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
     setTimeout(() => setMsg(""), 3500);
   }
 
-  if (cargando) return <div style={{ color: "#8f8f8c", fontSize: 13 }}>Cargando…</div>;
+  if (cargando) return <div style={{ color: "#949EAA", fontSize: 13 }}>Cargando…</div>;
 
   const listaJugadores = (
     <div>
-      <div style={{ background: "linear-gradient(180deg, #161617, #121213)", border: "1px solid #232324", borderRadius: 14, padding: "6px 8px", marginBottom: 16 }}>
+      <div style={{ background: "linear-gradient(180deg, #151F2B, #111A24)", border: "1px solid #223040", borderRadius: 14, padding: "6px 8px", marginBottom: 16 }}>
         {convocados.map((s) => (
           <FilaJugadorAnalisis
             key={s.numero}
@@ -3965,10 +3999,10 @@ function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
         ))}
       </div>
 
-      <button onClick={guardarTodo} disabled={guardando} style={{ ...buttonStyle, background: "#f2c230", color: "#141415", fontWeight: 700 }}>
+      <button onClick={guardarTodo} disabled={guardando} style={{ ...buttonStyle, background: "#f2c230", color: "#131C27", fontWeight: 700 }}>
         {guardando ? "Guardando…" : "💾 Guardar análisis individual"}
       </button>
-      {msg && <div style={{ fontSize: 11.5, color: "#5fbf7a", textAlign: "center", marginTop: 8 }}>{msg}</div>}
+      {msg && <div style={{ fontSize: 11.5, color: "#3FC08A", textAlign: "center", marginTop: 8 }}>{msg}</div>}
     </div>
   );
 
@@ -3977,10 +4011,10 @@ function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
       <button onClick={onSalir} style={{ background: "transparent", border: "none", color: "#f2c230", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}>
         ← Volver a VEO Cam
       </button>
-      <div style={{ fontSize: 13, color: "#8f8f8c", marginBottom: 4 }}>
+      <div style={{ fontSize: 13, color: "#949EAA", marginBottom: 4 }}>
         {categoria} vs {partido.rival} · Análisis individual
       </div>
-      <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 16 }}>
+      <div style={{ fontSize: 10.5, color: "#6C7886", marginBottom: 16 }}>
         ACC+ = tackle positivo + quiebres + penal a favor {"\u00b7"} pateadores suman con drop convertido y 50/22.
       </div>
 
@@ -4005,16 +4039,16 @@ function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
         <div style={{ display: "flex", gap: 16 }}>
           <div style={{ flex: "1 1 50%", minWidth: 0 }}>
             {partido.veoLink ? (
-              <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "#141415", border: "1px solid #232324" }}>
+              <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "#131C27", border: "1px solid #223040" }}>
                 <iframe src={partido.veoLink} title="Video del partido" allow="fullscreen" style={{ width: "100%", height: "100%", border: "none" }} />
               </div>
             ) : (
-              <div style={{ background: "linear-gradient(180deg, #161617, #121213)", border: "1px solid #232324", borderRadius: 14, padding: 20, textAlign: "center", color: "#6b6b68", fontSize: 12.5 }}>
+              <div style={{ background: "linear-gradient(180deg, #151F2B, #111A24)", border: "1px solid #223040", borderRadius: 14, padding: 20, textAlign: "center", color: "#6C7886", fontSize: 12.5 }}>
                 No hay link de VEO cargado para este partido.
               </div>
             )}
             {partido.veoLink && (
-              <a href={partido.veoLink} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#6b6b68", display: "block", marginTop: 6 }}>
+              <a href={partido.veoLink} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#6C7886", display: "block", marginTop: 6 }}>
                 Si no carga acá, abrilo en una pestaña nueva ↗
               </a>
             )}
@@ -4106,8 +4140,8 @@ function VeoPage({ perfil }) {
   return (
     <div>
       <div style={{ marginBottom: 6 }}>
-        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>VEO Cam</div>
-        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
+        <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Análisis de video</div>
+        <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>
           Video y estadísticas automáticas · {categoria} vs {partido.rival} ({partido.cond === "Local" ? "L" : "V"}) ·{" "}
           {partido.gf}-{partido.gc} · {partido.date}
         </div>
@@ -4120,9 +4154,9 @@ function VeoPage({ perfil }) {
             onClick={() => cambiarCategoria(c)}
             style={{
               ...pillButton,
-              border: "1px solid " + (categoria === c ? "#f2c230" : "#2a2a2c"),
+              border: "1px solid " + (categoria === c ? "#f2c230" : "#2B394B"),
               background: categoria === c ? "#1d1a0c" : "transparent",
-              color: categoria === c ? "#f2c230" : "#c9c9c6",
+              color: categoria === c ? "#f2c230" : "#C8CED6",
             }}
           >
             {c}
@@ -4132,19 +4166,19 @@ function VeoPage({ perfil }) {
 
       <MatchSelector partidos={partidos} fecha={fecha} onSelect={setFecha} />
 
-      <div style={{ ...cardStyle, padding: "24px 20px", textAlign: "center", marginBottom: 20, background: "#101011" }}>
+      <div style={{ ...cardStyle, padding: "24px 20px", textAlign: "center", marginBottom: 20, background: "#0E1620" }}>
         {editandoLink ? (
           <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
             <input
               value={linkInput}
               onChange={(e) => setLinkInput(e.target.value)}
               placeholder="Pegá el link que exporta VEO para este partido"
-              style={{ ...editInputStyle, borderBottom: "1px solid #2a2a2c", width: 320 }}
+              style={{ ...editInputStyle, borderBottom: "1px solid #2B394B", width: 320 }}
             />
-            <button onClick={guardarLink} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+            <button onClick={guardarLink} style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}>
               Guardar
             </button>
-            <button onClick={() => setEditandoLink(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+            <button onClick={() => setEditandoLink(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA" }}>
               Cancelar
             </button>
           </div>
@@ -4172,7 +4206,7 @@ function VeoPage({ perfil }) {
                     setLinkInput(partido.veoLink || "");
                     setEditandoLink(true);
                   }}
-                  style={{ background: "transparent", border: "none", color: "#6b6b68", fontSize: 11, cursor: "pointer" }}
+                  style={{ background: "transparent", border: "none", color: "#6C7886", fontSize: 11, cursor: "pointer" }}
                 >
                   Cambiar link
                 </button>
@@ -4181,14 +4215,14 @@ function VeoPage({ perfil }) {
           </div>
         ) : (
           <div>
-            <div style={{ fontSize: 13, color: "#6b6b68" }}>Todavía no se importó el video de este partido.</div>
+            <div style={{ fontSize: 13, color: "#6C7886" }}>Todavía no se importó el video de este partido.</div>
             {esEntrenador(perfil) && (
               <button
                 onClick={() => {
                   setLinkInput("");
                   setEditandoLink(true);
                 }}
-                style={{ ...pillButton, marginTop: 10, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}
+                style={{ ...pillButton, marginTop: 10, background: "transparent", border: "1px dashed #2B394B", color: "#949EAA" }}
               >
                 + Importar link de VEO
               </button>
@@ -4210,19 +4244,19 @@ function VeoPage({ perfil }) {
           </>
         )}
       </div>
-      <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 18 }}>
+      <div style={{ fontSize: 10.5, color: "#6C7886", marginBottom: 18 }}>
         {analisis ? "✓ Posesión/territorio/ball-in-play analizados a mano del video real." : "Line breaks y turnovers son de referencia hasta que se analice el video."}
       </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
-        <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>Trys del partido</div>
+        <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500 }}>Trys del partido</div>
         {esEntrenador(perfil) && !importandoTrys && (
           <button onClick={() => setImportandoTrys(true)} style={{ background: "transparent", border: "none", color: "#f2c230", fontSize: 11.5, cursor: "pointer" }}>
             📋 Importar desde VEO
           </button>
         )}
       </div>
-      <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 12 }}>
+      <div style={{ fontSize: 10.5, color: "#6C7886", marginBottom: 12 }}>
         {trysVeo
           ? "✓ Minutos reales, importados de la IA de VEO."
           : "El minuto exacto solo está disponible en los tries cargados en vivo (Matchday) o importados de VEO."}
@@ -4230,11 +4264,11 @@ function VeoPage({ perfil }) {
 
       {importandoTrys && (
         <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
-          <div style={{ fontSize: 11.5, color: "#c9c9c6", marginBottom: 8 }}>
+          <div style={{ fontSize: 11.5, color: "#C8CED6", marginBottom: 8 }}>
             Una línea por try, copiando lo que ves en el panel de VEO. Escribí "Rival" en la línea si el try fue del
             otro equipo (si no dice nada, se toma como de Obras). Ejemplos:
           </div>
-          <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 10, fontFamily: "monospace" }}>
+          <div style={{ fontSize: 10.5, color: "#6C7886", marginBottom: 10, fontFamily: "monospace" }}>
             Ensayo 08:59
             <br />
             Ensayo Rival 23:10
@@ -4247,7 +4281,7 @@ function VeoPage({ perfil }) {
             style={{ ...inputStyle, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
           />
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <button onClick={guardarTrysVeo} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+            <button onClick={guardarTrysVeo} style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}>
               Guardar
             </button>
             <button
@@ -4255,29 +4289,29 @@ function VeoPage({ perfil }) {
                 setImportandoTrys(false);
                 setTextoTrys("");
               }}
-              style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}
+              style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA" }}
             >
               Cancelar
             </button>
           </div>
         </div>
       )}
-      {msgImport && <div style={{ fontSize: 11.5, color: msgImport.startsWith("✓") ? "#5fbf7a" : "#e0665c", marginBottom: 10 }}>{msgImport}</div>}
+      {msgImport && <div style={{ fontSize: 11.5, color: msgImport.startsWith("✓") ? "#3FC08A" : "#F07362", marginBottom: 10 }}>{msgImport}</div>}
 
       <div style={{ ...cardStyle, padding: "8px 16px" }}>
-        {trysDelPartido.length === 0 && <div style={{ padding: "10px 0", color: "#6b6b68", fontSize: 12.5 }}>No hay tries cargados para este partido.</div>}
+        {trysDelPartido.length === 0 && <div style={{ padding: "10px 0", color: "#6C7886", fontSize: 12.5 }}>No hay tries cargados para este partido.</div>}
         {trysDelPartido.map((t, i) => (
           <div
             key={i}
-            style={{ display: "flex", gap: 14, alignItems: "center", padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #232324", fontSize: 13 }}
+            style={{ display: "flex", gap: 14, alignItems: "center", padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #223040", fontSize: 13 }}
           >
-            <span style={{ color: "#f2c230", fontFamily: "'Oswald', sans-serif", fontWeight: 600, width: 40 }}>
+            <span style={{ color: "#f2c230", fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", fontWeight: 600, width: 40 }}>
               {t.minuto || "—"}
             </span>
-            <span style={{ ...tagStyle, background: t.equipo === "Obras" ? "#111a12" : "#2a120f", color: t.equipo === "Obras" ? "#5fbf7a" : "#e0665c" }}>
+            <span style={{ ...tagStyle, background: t.equipo === "Obras" ? "#0F2A21" : "#2a120f", color: t.equipo === "Obras" ? "#3FC08A" : "#F07362" }}>
               {t.equipo}
             </span>
-            <span style={{ color: "#c9c9c6" }}>{t.obs}</span>
+            <span style={{ color: "#C8CED6" }}>{t.obs}</span>
           </div>
         ))}
       </div>
@@ -4340,8 +4374,8 @@ function RtpPage() {
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Return to Play</div>
-        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>Lesiones actuales cruzadas con el historial médico</div>
+        <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Cuerpo médico</div>
+        <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>Lesiones actuales cruzadas con el historial médico</div>
       </div>
 
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
@@ -4351,13 +4385,13 @@ function RtpPage() {
       </div>
 
       <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>
+        <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500, marginBottom: 12 }}>
           Lesionados actuales · {lesionadosActuales.length}
         </div>
         <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 860 }}>
             <thead>
-              <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
+              <tr style={{ color: "#949EAA", textAlign: "left" }}>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Puesto</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Zona</th>
@@ -4370,27 +4404,27 @@ function RtpPage() {
             </thead>
             <tbody>
               {lesionadosActuales.map((j) => (
-                <tr key={j.id} style={{ borderTop: "1px solid #232324" }}>
-                  <td style={{ padding: "9px 10px", color: "#f5f4f0", fontWeight: 500, whiteSpace: "nowrap" }}>{j.id}</td>
-                  <td style={{ padding: "9px 10px", color: "#8f8f8c" }}>{j.posicionIdeal}</td>
-                  <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.zona}</td>
-                  <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{j.tipo}</td>
+                <tr key={j.id} style={{ borderTop: "1px solid #223040" }}>
+                  <td style={{ padding: "9px 10px", color: "#F4F2EE", fontWeight: 500, whiteSpace: "nowrap" }}>{j.id}</td>
+                  <td style={{ padding: "9px 10px", color: "#949EAA" }}>{j.posicionIdeal}</td>
+                  <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.zona}</td>
+                  <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{j.tipo}</td>
                   <td style={{ padding: "9px 10px" }}>
                     <span
                       style={{
                         ...tagStyle,
                         background: j.severidad === "Severa" || j.severidad === "Grave" ? "#2a120f" : "#2a220a",
-                        color: j.severidad === "Severa" || j.severidad === "Grave" ? "#e0665c" : "#f2c230",
+                        color: j.severidad === "Severa" || j.severidad === "Grave" ? "#F07362" : "#f2c230",
                       }}
                     >
                       {j.severidad}
                     </span>
                   </td>
-                  <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>
+                  <td style={{ padding: "9px 10px", color: "#C8CED6" }}>
                     {j.lesionReal?.semanas_estimadas ? `${j.lesionReal.semanas_estimadas} semanas` : "—"}
                   </td>
                   <td style={{ padding: "9px 10px", color: "#f2c230" }}>{j.lesionReal?.fecha_vuelta_estimada || "—"}</td>
-                  <td style={{ padding: "9px 10px", color: "#6b6b68", fontSize: 11.5 }}>
+                  <td style={{ padding: "9px 10px", color: "#6C7886", fontSize: 11.5 }}>
                     {j.historial.length > 0 ? j.historial.join(" · ") : "Sin antecedentes"}
                   </td>
                 </tr>
@@ -4402,17 +4436,17 @@ function RtpPage() {
 
       {Object.keys(zonaCount).length > 0 && (
         <div>
-          <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>Vigilancia · por zona</div>
+          <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500, marginBottom: 12 }}>Vigilancia · por zona</div>
           <div style={{ ...cardStyle, padding: "16px 18px" }}>
             {Object.entries(zonaCount)
               .sort((a, b) => b[1] - a[1])
               .map(([zona, count]) => (
                 <div key={zona} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
-                  <span style={{ fontSize: 12, color: "#c9c9c6", width: 90, flexShrink: 0 }}>{zona}</span>
-                  <div style={{ flex: 1, background: "#1c1c1d", borderRadius: 4, height: 10, overflow: "hidden" }}>
-                    <div style={{ width: (count / maxZona) * 100 + "%", background: "#e0665c", height: "100%" }} />
+                  <span style={{ fontSize: 12, color: "#C8CED6", width: 90, flexShrink: 0 }}>{zona}</span>
+                  <div style={{ flex: 1, background: "#1A2431", borderRadius: 4, height: 10, overflow: "hidden" }}>
+                    <div style={{ width: (count / maxZona) * 100 + "%", background: "#F07362", height: "100%" }} />
                   </div>
-                  <span style={{ fontSize: 12, color: "#f5f4f0", width: 20, textAlign: "right" }}>{count}</span>
+                  <span style={{ fontSize: 12, color: "#F4F2EE", width: 20, textAlign: "right" }}>{count}</span>
                 </div>
               ))}
           </div>
@@ -4648,17 +4682,17 @@ function InformePartidoPage({ perfil }) {
 
   const Fila = ({ label, value }) => (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12.5 }}>
-      <span style={{ color: "#8f8f8c" }}>{label}</span>
-      <span style={{ color: "#f5f4f0", fontWeight: 500 }}>{value}</span>
+      <span style={{ color: "#949EAA" }}>{label}</span>
+      <span style={{ color: "#F4F2EE", fontWeight: 500 }}>{value}</span>
     </div>
   );
   const FilaEditable = ({ label, seccion, campo }) => (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", fontSize: 12.5 }}>
-      <span style={{ color: "#8f8f8c" }}>{label}</span>
+      <span style={{ color: "#949EAA" }}>{label}</span>
       <input
         value={borrador[seccion][campo]}
         onChange={(e) => cambiarCampo(seccion, campo, e.target.value)}
-        style={{ ...editInputStyle, width: 44, borderBottom: "1px solid #2a2a2c", textAlign: "right" }}
+        style={{ ...editInputStyle, width: 44, borderBottom: "1px solid #2B394B", textAlign: "right" }}
       />
     </div>
   );
@@ -4670,8 +4704,8 @@ function InformePartidoPage({ perfil }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
         <div>
-          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Informe de partido</div>
-          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
+          <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Informe de partido</div>
+          <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>
             {categoria} vs {partido.rival} ({partido.cond === "Local" ? "L" : "V"}) · {partido.gf}-{partido.gc} ·{" "}
             {partido.date}
           </div>
@@ -4679,10 +4713,10 @@ function InformePartidoPage({ perfil }) {
         {esEntrenador(perfil) &&
           (editando ? (
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={guardarInforme} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+              <button onClick={guardarInforme} style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}>
                 Guardar informe
               </button>
-              <button onClick={() => setEditando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+              <button onClick={() => setEditando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA" }}>
                 Cancelar
               </button>
             </div>
@@ -4700,9 +4734,9 @@ function InformePartidoPage({ perfil }) {
             onClick={() => cambiarCategoria(c)}
             style={{
               ...pillButton,
-              border: "1px solid " + (categoria === c ? "#f2c230" : "#2a2a2c"),
+              border: "1px solid " + (categoria === c ? "#f2c230" : "#2B394B"),
               background: categoria === c ? "#1d1a0c" : "transparent",
-              color: categoria === c ? "#f2c230" : "#c9c9c6",
+              color: categoria === c ? "#f2c230" : "#C8CED6",
             }}
           >
             {c}
@@ -4713,11 +4747,11 @@ function InformePartidoPage({ perfil }) {
       <MatchSelector partidos={partidos} fecha={fecha} onSelect={setFecha} />
 
       {!esReal && !editando && (
-        <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: "#6C7886", marginBottom: 16 }}>
           Todavía no se cargó el informe real de este partido — se muestran valores de referencia.
         </div>
       )}
-      {esReal && !editando && <div style={{ fontSize: 11, color: "#5fbf7a", marginBottom: 16 }}>✓ Informe cargado por el cuerpo técnico.</div>}
+      {esReal && !editando && <div style={{ fontSize: 11, color: "#3FC08A", marginBottom: 16 }}>✓ Informe cargado por el cuerpo técnico.</div>}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
         <StatCard label="Pelotas propias ganadas" value={pelotasPropias} tone="ok" />
@@ -4738,9 +4772,9 @@ function InformePartidoPage({ perfil }) {
             onClick={() => setTab(t.key)}
             style={{
               ...pillButton,
-              border: "1px solid " + (tab === t.key ? "#f2c230" : "#2a2a2c"),
+              border: "1px solid " + (tab === t.key ? "#f2c230" : "#2B394B"),
               background: tab === t.key ? "#1d1a0c" : "transparent",
-              color: tab === t.key ? "#f2c230" : "#c9c9c6",
+              color: tab === t.key ? "#f2c230" : "#C8CED6",
             }}
           >
             {t.label}
@@ -4751,7 +4785,7 @@ function InformePartidoPage({ perfil }) {
       {tab === "obtencion" && (
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
           <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
-            <div style={{ fontSize: 12, color: "#8f8f8c", marginBottom: 10, letterSpacing: 0.5 }}>SCRUM</div>
+            <div style={{ fontSize: 12, color: "#949EAA", marginBottom: 10, letterSpacing: 0.5 }}>SCRUM</div>
             {editando ? (
               <>
                 <FilaEditable label="Ganados" seccion="scrum" campo="ganados" />
@@ -4769,7 +4803,7 @@ function InformePartidoPage({ perfil }) {
             )}
           </div>
           <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
-            <div style={{ fontSize: 12, color: "#8f8f8c", marginBottom: 10, letterSpacing: 0.5 }}>LINE-OUT</div>
+            <div style={{ fontSize: 12, color: "#949EAA", marginBottom: 10, letterSpacing: 0.5 }}>LINE-OUT</div>
             {editando ? (
               <>
                 <FilaEditable label="Ganados" seccion="line" campo="ganados" />
@@ -4794,7 +4828,7 @@ function InformePartidoPage({ perfil }) {
       {tab === "situaciones" && (
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
           <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
-            <div style={{ fontSize: 12, color: "#5fbf7a", marginBottom: 10, letterSpacing: 0.5 }}>FAVORABLES</div>
+            <div style={{ fontSize: 12, color: "#3FC08A", marginBottom: 10, letterSpacing: 0.5 }}>FAVORABLES</div>
             {editando ? (
               <>
                 <FilaEditable label="Penales a favor" seccion="favorables" campo="penalesAFavor" />
@@ -4814,7 +4848,7 @@ function InformePartidoPage({ perfil }) {
             )}
           </div>
           <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
-            <div style={{ fontSize: 12, color: "#e0665c", marginBottom: 10, letterSpacing: 0.5 }}>DESFAVORABLES</div>
+            <div style={{ fontSize: 12, color: "#F07362", marginBottom: 10, letterSpacing: 0.5 }}>DESFAVORABLES</div>
             {editando ? (
               <>
                 <FilaEditable label="Penales en contra" seccion="desfavorables" campo="penalesEnContra" />
@@ -4830,7 +4864,7 @@ function InformePartidoPage({ perfil }) {
                 <Fila label="Pérdidas en rucks" value={stats.desfavorables.perdidasRucks} />
                 <Fila label="Pérdidas x infracciones" value={stats.desfavorables.perdidasInfracciones} />
                 <Fila label="Pérdidas x mal pase" value={stats.desfavorables.perdidasMalPase} />
-                <div style={{ borderTop: "1px solid #232324", marginTop: 6, paddingTop: 6 }}>
+                <div style={{ borderTop: "1px solid #223040", marginTop: 6, paddingTop: 6 }}>
                   <Fila label="Total pérdidas" value={totalPerdidas} />
                 </div>
               </>
@@ -4843,29 +4877,29 @@ function InformePartidoPage({ perfil }) {
         <div>
           <div style={{ ...cardStyle, padding: "8px 16px", marginBottom: partido.informe?.incidencias?.length ? 20 : 0 }}>
             {tries.map((t, i) => (
-              <div key={i} style={{ padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #232324" }}>
+              <div key={i} style={{ padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #223040" }}>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 3 }}>
-                  <span style={{ ...tagStyle, background: t.equipo === "Obras" ? "#111a12" : "#2a120f", color: t.equipo === "Obras" ? "#5fbf7a" : "#e0665c" }}>
+                  <span style={{ ...tagStyle, background: t.equipo === "Obras" ? "#0F2A21" : "#2a120f", color: t.equipo === "Obras" ? "#3FC08A" : "#F07362" }}>
                     {t.equipo}
                   </span>
-                  <span style={{ fontSize: 12, color: "#8f8f8c" }}>{t.origen}</span>
-                  <span style={{ fontSize: 12, color: "#f2c230", fontFamily: "'Oswald', sans-serif", fontWeight: 600 }}>
+                  <span style={{ fontSize: 12, color: "#949EAA" }}>{t.origen}</span>
+                  <span style={{ fontSize: 12, color: "#f2c230", fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", fontWeight: 600 }}>
                     {t.pts} pts
                   </span>
                 </div>
-                <div style={{ fontSize: 12, color: "#c9c9c6" }}>{t.obs}</div>
+                <div style={{ fontSize: 12, color: "#C8CED6" }}>{t.obs}</div>
               </div>
             ))}
           </div>
 
           {partido.informe?.incidencias?.length > 0 && (
             <>
-              <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 10 }}>Incidencias del partido en vivo</div>
+              <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500, marginBottom: 10 }}>Incidencias del partido en vivo</div>
               <div style={{ ...cardStyle, padding: "8px 16px", maxHeight: 260, overflowY: "auto" }}>
                 {partido.informe.incidencias.map((inc, i) => (
-                  <div key={i} style={{ padding: "7px 0", borderTop: i === 0 ? "none" : "1px solid #232324", display: "flex", gap: 10, fontSize: 12.5 }}>
-                    <span style={{ color: "#f2c230", fontFamily: "'Oswald', sans-serif", flexShrink: 0 }}>{inc.minuto}</span>
-                    <span style={{ color: "#c9c9c6" }}>{inc.texto}</span>
+                  <div key={i} style={{ padding: "7px 0", borderTop: i === 0 ? "none" : "1px solid #223040", display: "flex", gap: 10, fontSize: 12.5 }}>
+                    <span style={{ color: "#f2c230", fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", flexShrink: 0 }}>{inc.minuto}</span>
+                    <span style={{ color: "#C8CED6" }}>{inc.texto}</span>
                   </div>
                 ))}
               </div>
@@ -4876,13 +4910,13 @@ function InformePartidoPage({ perfil }) {
 
       {tab === "planilla" && (
         <div>
-          <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 12 }}>
+          <div style={{ fontSize: 10.5, color: "#6C7886", marginBottom: 12 }}>
             ACC++ = recuperadas + quiebres + tackles positivos · PK = penales en contra cometidos
           </div>
           <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 820 }}>
               <thead>
-                <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
+                <tr style={{ color: "#949EAA", textAlign: "left" }}>
                   <th style={{ fontWeight: 400, padding: "8px 10px" }}>N°</th>
                   <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
                   <th style={{ fontWeight: 400, padding: "8px 10px" }}>Recuperadas</th>
@@ -4897,25 +4931,25 @@ function InformePartidoPage({ perfil }) {
               </thead>
               <tbody>
                 {jugadores.map((j) => (
-                  <tr key={j.numero} style={{ borderTop: "1px solid #232324" }}>
-                    <td style={{ padding: "8px 10px", color: "#8f8f8c" }}>{j.numero}</td>
-                    <td style={{ padding: "8px 10px", color: "#f5f4f0", fontWeight: 500, whiteSpace: "nowrap" }}>{j.jugadorId}</td>
-                    <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.recuperadas}</td>
-                    <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.tacklesPositivos}</td>
+                  <tr key={j.numero} style={{ borderTop: "1px solid #223040" }}>
+                    <td style={{ padding: "8px 10px", color: "#949EAA" }}>{j.numero}</td>
+                    <td style={{ padding: "8px 10px", color: "#F4F2EE", fontWeight: 500, whiteSpace: "nowrap" }}>{j.jugadorId}</td>
+                    <td style={{ padding: "8px 10px", color: "#C8CED6" }}>{j.recuperadas}</td>
+                    <td style={{ padding: "8px 10px", color: "#C8CED6" }}>{j.tacklesPositivos}</td>
                     <td style={{ padding: "8px 10px", color: "#f2c230", fontWeight: 600 }}>{j.accPos}</td>
-                    <td style={{ padding: "8px 10px", color: j.pk ? "#e0665c" : "#c9c9c6" }}>{j.pk}</td>
-                    <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.quiebres}</td>
-                    <td style={{ padding: "8px 10px", color: j.qbreXTry ? "#5fbf7a" : "#c9c9c6", fontWeight: j.qbreXTry ? 600 : 400 }}>
+                    <td style={{ padding: "8px 10px", color: j.pk ? "#F07362" : "#C8CED6" }}>{j.pk}</td>
+                    <td style={{ padding: "8px 10px", color: "#C8CED6" }}>{j.quiebres}</td>
+                    <td style={{ padding: "8px 10px", color: j.qbreXTry ? "#3FC08A" : "#C8CED6", fontWeight: j.qbreXTry ? 600 : 400 }}>
                       {j.qbreXTry}
                     </td>
-                    <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.tackles}</td>
-                    <td style={{ padding: "8px 10px", color: "#c9c9c6" }}>{j.errados}</td>
+                    <td style={{ padding: "8px 10px", color: "#C8CED6" }}>{j.tackles}</td>
+                    <td style={{ padding: "8px 10px", color: "#C8CED6" }}>{j.errados}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div style={{ fontSize: 10.5, color: "#6b6b68", marginTop: 10 }}>
+          <div style={{ fontSize: 10.5, color: "#6C7886", marginTop: 10 }}>
             Datos de la planilla de seguimiento cargados por el staff durante el partido — solo para los titulares.
           </div>
         </div>
@@ -4952,7 +4986,7 @@ function ReporteIndividualPage({ perfil }) {
   }, [jugador]);
 
   if (!jugador) {
-    return <div style={{ color: "#8f8f8c", fontSize: 13 }}>No hay jugadores en el plantel todavía.</div>;
+    return <div style={{ color: "#949EAA", fontSize: 13 }}>No hay jugadores en el plantel todavía.</div>;
   }
 
   const stJuego = statsJugadorTemporada(jugadorId);
@@ -4960,21 +4994,21 @@ function ReporteIndividualPage({ perfil }) {
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
-        <label style={{ fontSize: 12, color: "#8f8f8c", marginRight: 10 }}>Jugador:</label>
+        <label style={{ fontSize: 12, color: "#949EAA", marginRight: 10 }}>Jugador:</label>
         <select
           value={jugadorId}
           onChange={(e) => setJugadorId(e.target.value)}
-          style={{ ...editInputStyle, borderBottom: "1px solid #2a2a2c", width: 220 }}
+          style={{ ...editInputStyle, borderBottom: "1px solid #2B394B", width: 220 }}
         >
           {POOL.map((j) => (
-            <option key={j.id} value={j.id} style={{ background: "#141415" }}>
+            <option key={j.id} value={j.id} style={{ background: "#131C27" }}>
               {j.id}
             </option>
           ))}
         </select>
       </div>
 
-      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>
+      <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500, marginBottom: 12 }}>
         Estadísticas de juego · temporada 2026
       </div>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
@@ -5009,40 +5043,58 @@ function ReportesPage({ perfil }) {
           onClick={() => setVista(null)}
           style={{ background: "transparent", border: "none", color: "#f2c230", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}
         >
-          ← Reportes
+          ← Informes
         </button>
         <Componente perfil={perfil} />
       </div>
     );
   }
 
-  const tiles = [
-    { key: "gps", titulo: "Reporte de partido (GPS)", desc: "Tops de velocidad y distancia, carga por puesto vs demanda." },
-    { key: "partido", titulo: "Informe de partido", desc: "Obtención, situaciones de juego, tries y planilla por jugador." },
-    { key: "rtp", titulo: "Informe RTP (retorno al juego)", desc: "Lesionados actuales cruzados con el historial médico." },
-    { key: "individual", titulo: "Reporte individual", desc: "Cualidades, carga, estadísticas de juego y lesiones del jugador." },
+  const grupos = [
+    {
+      titulo: "Del partido",
+      tiles: [
+        { key: "partido", titulo: "El partido en números", desc: "Obtención, situaciones de juego, tries y la planilla de cada jugador.", icono: "informes" },
+        { key: "gps", titulo: "Lo que corrió cada uno", desc: "Distancia, alta intensidad y velocidad, comparado con lo que pide cada puesto.", icono: "gps" },
+      ],
+    },
+    {
+      titulo: "Del plantel",
+      tiles: [
+        { key: "individual", titulo: "Ficha completa del jugador", desc: "Cualidades físicas, carga, estadísticas de la temporada e historial médico.", icono: "plantel" },
+        { key: "rtp", titulo: "Lesionados y vuelta al juego", desc: "Quién está lesionado hoy, cuánto le falta y su historial.", icono: "medico" },
+      ],
+    },
   ];
 
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Reportes</div>
-        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
-          Reportes del equipo y del jugador, listos para compartir con el staff.
+        <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Informes</div>
+        <div style={{ fontSize: 13, color: "#949EAA", marginTop: 4 }}>
+          Listos para mirar después del partido o compartir con el staff.
         </div>
       </div>
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-        {tiles.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setVista(t.key)}
-            style={{ ...cardStyle, padding: "20px 22px", flex: "1 1 260px", textAlign: "left", cursor: "pointer", border: "1px solid #232324" }}
-          >
-            <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 500, marginBottom: 8 }}>{t.titulo}</div>
-            <div style={{ fontSize: 12, color: "#8f8f8c", lineHeight: 1.5 }}>{t.desc}</div>
-          </button>
-        ))}
-      </div>
+      {grupos.map((g) => (
+        <div key={g.titulo} style={{ marginBottom: 22 }}>
+          <div style={{ fontSize: 11, color: "#f2c230", fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 10 }}>{g.titulo}</div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            {g.tiles.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setVista(t.key)}
+                style={{ ...cardStyle, padding: "18px 20px", flex: "1 1 260px", textAlign: "left", cursor: "pointer", border: "1px solid #223040", display: "flex", gap: 14, alignItems: "flex-start", color: "#f2c230" }}
+              >
+                <IconoNav nombre={t.icono} size={22} />
+                <span>
+                  <span style={{ display: "block", fontSize: 16, color: "#F4F2EE", fontWeight: 600, marginBottom: 6 }}>{t.titulo}</span>
+                  <span style={{ display: "block", fontSize: 12.5, color: "#949EAA", lineHeight: 1.5 }}>{t.desc}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -5123,13 +5175,13 @@ function EvaluacionesPage({ perfil }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
-          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Evaluaciones</div>
-          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>
+          <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Evaluaciones físicas</div>
+          <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>
             Últimos tests físicos cargados por el preparador físico
           </div>
         </div>
         {esEntrenador(perfil) && !mostrarCarga && (
-          <button onClick={() => setMostrarCarga(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}>
+          <button onClick={() => setMostrarCarga(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed #2B394B", color: "#949EAA" }}>
             + Cargar evaluación
           </button>
         )}
@@ -5147,9 +5199,9 @@ function EvaluacionesPage({ perfil }) {
                 onClick={() => setModo(t.key)}
                 style={{
                   ...pillButton, fontSize: 12,
-                  border: "1px solid " + (modo === t.key ? "#f2c230" : "#2a2a2c"),
+                  border: "1px solid " + (modo === t.key ? "#f2c230" : "#2B394B"),
                   background: modo === t.key ? "#1d1a0c" : "transparent",
-                  color: modo === t.key ? "#f2c230" : "#c9c9c6",
+                  color: modo === t.key ? "#f2c230" : "#C8CED6",
                 }}
               >
                 {t.label}
@@ -5164,7 +5216,7 @@ function EvaluacionesPage({ perfil }) {
                   <label style={labelStyle}>Jugador</label>
                   <select value={jugadorSel} onChange={(e) => setJugadorSel(e.target.value)} style={{ ...inputStyle, width: 220 }}>
                     {POOL.map((j) => (
-                      <option key={j.id} value={j.id} style={{ background: "#0e0e0f" }}>
+                      <option key={j.id} value={j.id} style={{ background: "#0C131B" }}>
                         {j.id}
                       </option>
                     ))}
@@ -5192,14 +5244,14 @@ function EvaluacionesPage({ perfil }) {
               <button
                 onClick={guardarManual}
                 disabled={guardando || !jugadorSel}
-                style={{ ...pillButton, marginTop: 14, background: "#f2c230", color: "#141415", border: "none" }}
+                style={{ ...pillButton, marginTop: 14, background: "#f2c230", color: "#131C27", border: "none" }}
               >
                 {guardando ? "Guardando…" : "Guardar evaluación"}
               </button>
             </>
           ) : (
             <>
-              <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: "#6C7886", marginBottom: 8 }}>
                 Una línea por jugador: Nombre, Potencia, Reactividad, Fuerza, Velocidad, Resistencia
               </div>
               <textarea
@@ -5212,16 +5264,16 @@ function EvaluacionesPage({ perfil }) {
               <button
                 onClick={importarTexto}
                 disabled={guardando || !textoImport.trim()}
-                style={{ ...pillButton, marginTop: 10, background: "#f2c230", color: "#141415", border: "none" }}
+                style={{ ...pillButton, marginTop: 10, background: "#f2c230", color: "#131C27", border: "none" }}
               >
                 {guardando ? "Importando…" : "Importar"}
               </button>
             </>
           )}
-          {msg && <div style={{ fontSize: 12, color: "#5fbf7a", marginTop: 10 }}>{msg}</div>}
+          {msg && <div style={{ fontSize: 12, color: "#3FC08A", marginTop: 10 }}>{msg}</div>}
           <button
             onClick={() => setMostrarCarga(false)}
-            style={{ ...pillButton, marginTop: 10, marginLeft: 8, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}
+            style={{ ...pillButton, marginTop: 10, marginLeft: 8, background: "transparent", border: "1px solid #2B394B", color: "#949EAA" }}
           >
             Cerrar
           </button>
@@ -5231,7 +5283,7 @@ function EvaluacionesPage({ perfil }) {
       <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 820 }}>
           <thead>
-            <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
+            <tr style={{ color: "#949EAA", textAlign: "left" }}>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Último test</th>
               {Object.entries(METRICAS_RANGOS).map(([clave, { unidad }]) => (
@@ -5245,11 +5297,11 @@ function EvaluacionesPage({ perfil }) {
             {POOL.map((j) => {
               const ev = ultimaEvaluacion(j.id);
               return (
-                <tr key={j.id} style={{ borderTop: "1px solid #232324" }}>
-                  <td style={{ padding: "9px 10px", color: "#f5f4f0", fontWeight: 500, whiteSpace: "nowrap" }}>{j.id}</td>
-                  <td style={{ padding: "9px 10px", color: "#8f8f8c" }}>{ev ? ev.fecha : "—"}</td>
+                <tr key={j.id} style={{ borderTop: "1px solid #223040" }}>
+                  <td style={{ padding: "9px 10px", color: "#F4F2EE", fontWeight: 500, whiteSpace: "nowrap" }}>{j.id}</td>
+                  <td style={{ padding: "9px 10px", color: "#949EAA" }}>{ev ? ev.fecha : "—"}</td>
                   {Object.keys(METRICAS_RANGOS).map((clave) => (
-                    <td key={clave} style={{ padding: "9px 10px", color: "#c9c9c6" }}>
+                    <td key={clave} style={{ padding: "9px 10px", color: "#C8CED6" }}>
                       {ev ? ev[clave] : "—"}
                     </td>
                   ))}
@@ -5420,12 +5472,12 @@ function FormularioWellness({ jugadorDbId, onEnviado }) {
 
   const Campo = ({ label, value, onChange, izq, der }) => (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#c9c9c6", marginBottom: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#C8CED6", marginBottom: 6 }}>
         <span>{label}</span>
         <span style={{ color: "#f2c230", fontWeight: 600 }}>{value}/7</span>
       </div>
       <input type="range" min={1} max={7} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ width: "100%" }} />
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "#6b6b68", marginTop: 2 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "#6C7886", marginTop: 2 }}>
         <span>{izq}</span>
         <span>{der}</span>
       </div>
@@ -5435,14 +5487,14 @@ function FormularioWellness({ jugadorDbId, onEnviado }) {
   return (
     <div style={{ ...cardStyle, padding: "18px", marginBottom: 24, border: "1px solid #f2c230" }}>
       <div style={{ fontSize: 14, color: "#f2c230", fontWeight: 600, marginBottom: 4 }}>🟡 Cuestionario Wellness</div>
-      <div style={{ fontSize: 11.5, color: "#8f8f8c", marginBottom: 16, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 11.5, color: "#949EAA", marginBottom: 16, lineHeight: 1.5 }}>
         Herramienta no invasiva para conocer tu estado antes de cada estímulo — nos ayuda a controlar mejor las
         cargas.
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 12.5, color: "#c9c9c6", marginBottom: 6 }}>Estado de entrenamiento</div>
-        <div style={{ fontSize: 10.5, color: "#6b6b68", marginBottom: 8 }}>
+        <div style={{ fontSize: 12.5, color: "#C8CED6", marginBottom: 6 }}>Estado de entrenamiento</div>
+        <div style={{ fontSize: 10.5, color: "#6C7886", marginBottom: 8 }}>
           Lesión: no podés entrenar o es diferenciado · Parcial: todo menos contacto · Full: 100% disponible
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -5453,9 +5505,9 @@ function FormularioWellness({ jugadorDbId, onEnviado }) {
               style={{
                 ...pillButton,
                 flex: 1,
-                border: "1px solid " + (estado === e ? "#f2c230" : "#2a2a2c"),
+                border: "1px solid " + (estado === e ? "#f2c230" : "#2B394B"),
                 background: estado === e ? "#1d1a0c" : "transparent",
-                color: estado === e ? "#f2c230" : "#c9c9c6",
+                color: estado === e ? "#f2c230" : "#C8CED6",
               }}
             >
               {e}
@@ -5470,7 +5522,7 @@ function FormularioWellness({ jugadorDbId, onEnviado }) {
       <Campo label="Fatiga" value={fatiga} onChange={setFatiga} izq="Mucha fatiga" der="Sin fatiga" />
 
       <div style={{ marginBottom: 4 }}>
-        <div style={{ fontSize: 12.5, color: "#c9c9c6", marginBottom: 6 }}>Observaciones (opcional)</div>
+        <div style={{ fontSize: 12.5, color: "#C8CED6", marginBottom: 6 }}>Observaciones (opcional)</div>
         <textarea
           value={observaciones}
           onChange={(e) => setObservaciones(e.target.value)}
@@ -5523,7 +5575,7 @@ function WellnessPage({ perfil }) {
   const promedio = conReadiness.length ? (conReadiness.reduce((a, r) => a + r.readiness, 0) / conReadiness.length).toFixed(1) : "—";
   const aMirar = conReadiness.filter((r) => r.readiness <= 16);
 
-  if (cargando) return <div style={{ color: "#8f8f8c", fontSize: 13 }}>Cargando…</div>;
+  if (cargando) return <div style={{ color: "#949EAA", fontSize: 13 }}>Cargando…</div>;
 
   const esJugador = perfil?.rol === "Jugador";
 
@@ -5531,25 +5583,25 @@ function WellnessPage({ perfil }) {
     return (
       <div>
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Wellness</div>
-          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>Tu cuestionario de hoy, antes del estímulo.</div>
+          <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Wellness</div>
+          <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>Tu cuestionario de hoy, antes del estímulo.</div>
         </div>
 
-        <div style={{ ...cardStyle, padding: "10px 16px", marginBottom: 20, borderLeft: "3px solid " + (ventana?.abierta ? "#5fbf7a" : "#6b6b68") }}>
-          <span style={{ fontSize: 12.5, color: ventana?.abierta ? "#5fbf7a" : "#8f8f8c" }}>
+        <div style={{ ...cardStyle, padding: "10px 16px", marginBottom: 20, borderLeft: "3px solid " + (ventana?.abierta ? "#3FC08A" : "#6C7886") }}>
+          <span style={{ fontSize: 12.5, color: ventana?.abierta ? "#3FC08A" : "#949EAA" }}>
             {ventana?.abierta ? "🟢 La carga de hoy está abierta." : "⚪ Todavía no se abrió la carga de hoy — esperá a que el cuerpo técnico la habilite."}
           </span>
         </div>
 
         {ventana?.abierta && !yaRespondio && perfil.jugador_id && <FormularioWellness jugadorDbId={perfil.jugador_id} onEnviado={recargar} />}
         {ventana?.abierta && yaRespondio && (
-          <div style={{ ...cardStyle, padding: "14px 18px", borderLeft: "3px solid #5fbf7a" }}>
-            <span style={{ fontSize: 13, color: "#5fbf7a" }}>✓ Ya completaste tu wellness de hoy.</span>
+          <div style={{ ...cardStyle, padding: "14px 18px", borderLeft: "3px solid #3FC08A" }}>
+            <span style={{ fontSize: 13, color: "#3FC08A" }}>✓ Ya completaste tu wellness de hoy.</span>
           </div>
         )}
         {!perfil.jugador_id && (
-          <div style={{ ...cardStyle, padding: "14px 18px", borderLeft: "3px solid #e0665c" }}>
-            <span style={{ fontSize: 13, color: "#e0665c" }}>
+          <div style={{ ...cardStyle, padding: "14px 18px", borderLeft: "3px solid #F07362" }}>
+            <span style={{ fontSize: 13, color: "#F07362" }}>
               Tu cuenta no está vinculada a ningún jugador del plantel — pedile al cuerpo técnico que lo revise.
             </span>
           </div>
@@ -5562,8 +5614,8 @@ function WellnessPage({ perfil }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
-          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Wellness</div>
-          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>Respuestas de hoy, agrupadas y analizadas.</div>
+          <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Wellness</div>
+          <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>Respuestas de hoy, agrupadas y analizadas.</div>
         </div>
         {puedeGestionar(perfil) &&
           (ventana?.abierta ? (
@@ -5572,7 +5624,7 @@ function WellnessPage({ perfil }) {
                 await cerrarWellnessHoy();
                 recargar();
               }}
-              style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}
+              style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA" }}
             >
               Cerrar carga de hoy
             </button>
@@ -5582,50 +5634,50 @@ function WellnessPage({ perfil }) {
                 await abrirWellnessHoy(perfil.id);
                 recargar();
               }}
-              style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}
+              style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}
             >
               Abrir wellness de hoy
             </button>
           ))}
       </div>
 
-      <div style={{ ...cardStyle, padding: "10px 16px", marginBottom: 20, borderLeft: "3px solid " + (ventana?.abierta ? "#5fbf7a" : "#6b6b68") }}>
-        <span style={{ fontSize: 12.5, color: ventana?.abierta ? "#5fbf7a" : "#8f8f8c" }}>
+      <div style={{ ...cardStyle, padding: "10px 16px", marginBottom: 20, borderLeft: "3px solid " + (ventana?.abierta ? "#3FC08A" : "#6C7886") }}>
+        <span style={{ fontSize: 12.5, color: ventana?.abierta ? "#3FC08A" : "#949EAA" }}>
           {ventana?.abierta ? "🟢 Carga del plantel: ABIERTA — los jugadores pueden completar su wellness." : "⚪ Carga del plantel: cerrada."}
         </span>
       </div>
 
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
         <StatCard label="Respondieron" value={conReadiness.length} tone="ok" />
-        <StatCard label="Readiness equipo (/28)" value={promedio} tone="ok" />
+        <StatCard label="Wellness del equipo" value={promedio === "—" ? "—" : pctWellness(promedio) + "%"} tone="ok" />
         <StatCard label="A mirar" value={aMirar.length} tone={aMirar.length ? "warn" : "ok"} />
       </div>
 
       {aMirar.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>A mirar · readiness bajo</div>
+          <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500, marginBottom: 12 }}>Para mirar hoy · wellness bajo</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
             {aMirar.map((j) => (
               <div key={j.nombre} style={{ ...cardStyle, borderLeft: "3px solid #f2c230", padding: "10px 14px", minWidth: 200 }}>
-                <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>{j.nombre}</div>
-                <div style={{ fontSize: 11, color: "#8f8f8c", marginTop: 2 }}>Readiness {j.readiness}/28</div>
+                <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500 }}>{j.nombre}</div>
+                <div style={{ fontSize: 11, color: "#949EAA", marginTop: 2 }}>Wellness {pctWellness(j.readiness)}%</div>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>Todas las respuestas de hoy</div>
+      <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500, marginBottom: 12 }}>Todas las respuestas de hoy</div>
       <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
         {conReadiness.length === 0 ? (
-          <div style={{ padding: "14px 10px", color: "#6b6b68", fontSize: 12.5 }}>Todavía no hay respuestas hoy.</div>
+          <div style={{ padding: "14px 10px", color: "#6C7886", fontSize: 12.5 }}>Todavía no hay respuestas hoy.</div>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 820 }}>
             <thead>
-              <tr style={{ color: "#8f8f8c", textAlign: "left" }}>
+              <tr style={{ color: "#949EAA", textAlign: "left" }}>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Estado</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Readiness</th>
+                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Wellness</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Estrés</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Sueño</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>DOMS</th>
@@ -5635,25 +5687,25 @@ function WellnessPage({ perfil }) {
             </thead>
             <tbody>
               {conReadiness.map((r) => (
-                <tr key={r.nombre} style={{ borderTop: "1px solid #232324" }}>
-                  <td style={{ padding: "9px 10px", color: "#f5f4f0", fontWeight: 500, whiteSpace: "nowrap" }}>{r.nombre}</td>
+                <tr key={r.nombre} style={{ borderTop: "1px solid #223040" }}>
+                  <td style={{ padding: "9px 10px", color: "#F4F2EE", fontWeight: 500, whiteSpace: "nowrap" }}>{r.nombre}</td>
                   <td style={{ padding: "9px 10px" }}>
                     <span
                       style={{
                         ...tagStyle,
-                        background: r.estado === "Lesión" ? "#2a120f" : r.estado === "Parcial" ? "#2a220a" : "#111a12",
-                        color: r.estado === "Lesión" ? "#e0665c" : r.estado === "Parcial" ? "#f2c230" : "#5fbf7a",
+                        background: r.estado === "Lesión" ? "#2a120f" : r.estado === "Parcial" ? "#2a220a" : "#0F2A21",
+                        color: r.estado === "Lesión" ? "#F07362" : r.estado === "Parcial" ? "#f2c230" : "#3FC08A",
                       }}
                     >
                       {r.estado || "—"}
                     </span>
                   </td>
-                  <td style={{ padding: "9px 10px", color: r.readiness <= 16 ? "#f2c230" : "#c9c9c6" }}>{r.readiness}/28</td>
-                  <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.estres}</td>
-                  <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.sueno}</td>
-                  <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.doms}</td>
-                  <td style={{ padding: "9px 10px", color: "#c9c9c6" }}>{r.fatiga}</td>
-                  <td style={{ padding: "9px 10px", color: "#8f8f8c" }}>{r.observaciones || "—"}</td>
+                  <td style={{ padding: "9px 10px", color: r.readiness <= 16 ? "#f2c230" : "#C8CED6" }}>{pctWellness(r.readiness)}%</td>
+                  <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{r.estres}</td>
+                  <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{r.sueno}</td>
+                  <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{r.doms}</td>
+                  <td style={{ padding: "9px 10px", color: "#C8CED6" }}>{r.fatiga}</td>
+                  <td style={{ padding: "9px 10px", color: "#949EAA" }}>{r.observaciones || "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -5699,8 +5751,8 @@ function EquiposPage({ perfil }) {
         </button>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <span style={{ fontSize: 22, color: "#f5f4f0", fontWeight: 600, fontFamily: "'Oswald', sans-serif" }}>{cat}</span>
-            <span style={{ fontSize: 13, color: "#8f8f8c" }}>{lineups[cat].length} activos</span>
+            <span style={{ fontSize: 22, color: "#F4F2EE", fontWeight: 600, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif" }}>{cat}</span>
+            <span style={{ fontSize: 13, color: "#949EAA" }}>{lineups[cat].length} activos</span>
           </div>
           {editMode ? (
             <button
@@ -5708,7 +5760,7 @@ function EquiposPage({ perfil }) {
                 setEditMode(false);
                 crearNotificacion("formacion_confirmada", `🛡️ Formación de ${cat} confirmada.`, null, perfil?.id);
               }}
-              style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}
+              style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}
             >
               Guardar cambios
             </button>
@@ -5732,25 +5784,25 @@ function EquiposPage({ perfil }) {
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Equipos</div>
-        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>Elegí una categoría para ver su formación</div>
+        <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Equipos</div>
+        <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>Elegí una categoría para ver su formación</div>
       </div>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
         {["Superior", "Intermedia"].map((c) => (
           <button
             key={c}
             onClick={() => setCat(c)}
-            style={{ ...cardStyle, padding: "20px 24px", flex: "1 1 220px", textAlign: "left", cursor: "pointer", border: "1px solid #232324" }}
+            style={{ ...cardStyle, padding: "20px 24px", flex: "1 1 220px", textAlign: "left", cursor: "pointer", border: "1px solid #223040" }}
           >
-            <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 500 }}>{c}</div>
-            <div style={{ fontSize: 26, color: "#f2c230", fontWeight: 600, fontFamily: "'Oswald', sans-serif", marginTop: 8 }}>
+            <div style={{ fontSize: 15, color: "#F4F2EE", fontWeight: 500 }}>{c}</div>
+            <div style={{ fontSize: 26, color: "#f2c230", fontWeight: 600, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", marginTop: 8 }}>
               {LINEUPS_INICIALES[c].length}
             </div>
-            <div style={{ fontSize: 12, color: "#8f8f8c", marginTop: 2 }}>jugadores citados</div>
+            <div style={{ fontSize: 12, color: "#949EAA", marginTop: 2 }}>jugadores citados</div>
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 11, color: "#6b6b68", marginTop: 16, lineHeight: 1.6 }}>
+      <div style={{ fontSize: 11, color: "#6C7886", marginTop: 16, lineHeight: 1.6 }}>
         Datos reales, guardados en la base del club — los cambios que hagas acá quedan persistidos. Es un solo
         plantel del club — el mismo jugador puede figurar en la formación de Intermedia un fin de semana y en la
         de Superior al siguiente, por eso el selector de "Editar equipo" deja elegir a cualquier jugador del
@@ -5777,8 +5829,8 @@ function DisponibilidadPage() {
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Tablero de disponibilidad</div>
-        <div style={{ fontSize: 12, color: "#8f8f8c", marginTop: 2 }}>Combina el estado físico (Return to Play) y la habilitación médica de cada jugador.</div>
+        <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Disponibilidad</div>
+        <div style={{ fontSize: 12, color: "#949EAA", marginTop: 2 }}>Combina el estado físico (Return to Play) y la habilitación médica de cada jugador.</div>
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
@@ -5788,9 +5840,9 @@ function DisponibilidadPage() {
             onClick={() => setTab(t)}
             style={{
               ...pillButton,
-              border: "1px solid " + (tab === t ? "#f2c230" : "#2a2a2c"),
+              border: "1px solid " + (tab === t ? "#f2c230" : "#2B394B"),
               background: tab === t ? "#1d1a0c" : "transparent",
-              color: tab === t ? "#f2c230" : "#c9c9c6",
+              color: tab === t ? "#f2c230" : "#C8CED6",
             }}
           >
             {t}
@@ -5807,15 +5859,15 @@ function DisponibilidadPage() {
 
       {(lesionados.length > 0 || aVigilar.length > 0 || noHabilitados.length > 0) && (
         <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>A gestionar</div>
+          <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500, marginBottom: 12 }}>A gestionar</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
             {lesionados.map((j) => (
-              <div key={j.id} style={{ ...cardStyle, borderLeft: "3px solid #e0665c", padding: "10px 14px", minWidth: 220 }}>
+              <div key={j.id} style={{ ...cardStyle, borderLeft: "3px solid #F07362", padding: "10px 14px", minWidth: 220 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>{j.id}</span>
-                  <span style={{ ...tagStyle, background: "#2a120f", color: "#e0665c" }}>Lesionado</span>
+                  <span style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500 }}>{j.id}</span>
+                  <span style={{ ...tagStyle, background: "#2a120f", color: "#F07362" }}>Lesionado</span>
                 </div>
-                <div style={{ fontSize: 11, color: "#8f8f8c", marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: "#949EAA", marginTop: 4 }}>
                   {j.puestoHabitual} · {j.zona}
                 </div>
               </div>
@@ -5823,10 +5875,10 @@ function DisponibilidadPage() {
             {aVigilar.map((j) => (
               <div key={j.id} style={{ ...cardStyle, borderLeft: "3px solid #f2c230", padding: "10px 14px", minWidth: 220 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>{j.id}</span>
+                  <span style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500 }}>{j.id}</span>
                   <span style={{ ...tagStyle, background: "#2a220a", color: "#f2c230" }}>A vigilar</span>
                 </div>
-                <div style={{ fontSize: 11, color: "#8f8f8c", marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: "#949EAA", marginTop: 4 }}>
                   {j.puestoHabitual} · {j.zona}
                 </div>
               </div>
@@ -5834,10 +5886,10 @@ function DisponibilidadPage() {
             {noHabilitados.map((j) => (
               <div key={j.id} style={{ ...cardStyle, borderLeft: "3px solid #f2c230", padding: "10px 14px", minWidth: 220 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>{j.id}</span>
+                  <span style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500 }}>{j.id}</span>
                   <span style={{ ...tagStyle, background: "#2a220a", color: "#f2c230" }}>No habilitado</span>
                 </div>
-                <div style={{ fontSize: 11, color: "#8f8f8c", marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: "#949EAA", marginTop: 4 }}>
                   {j.puestoHabitual} · apto {j.apto?.toLowerCase() || "pendiente"}
                 </div>
               </div>
@@ -5847,14 +5899,14 @@ function DisponibilidadPage() {
       )}
 
       <div>
-        <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500, marginBottom: 12 }}>
+        <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500, marginBottom: 12 }}>
           Disponibles · {disponibles.length}
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
           {disponibles.map((j) => (
             <div key={j.id} style={{ ...cardStyle, padding: "8px 12px", minWidth: 190 }}>
-              <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 500 }}>{j.id}</div>
-              <div style={{ fontSize: 11, color: "#8f8f8c" }}>{j.puestoHabitual}</div>
+              <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 500 }}>{j.id}</div>
+              <div style={{ fontSize: 11, color: "#949EAA" }}>{j.puestoHabitual}</div>
             </div>
           ))}
         </div>
@@ -5878,8 +5930,8 @@ const CONFIG_TABS = [
 
 function ToggleRow({ label, checked, onChange }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderTop: "1px solid #232324" }}>
-      <span style={{ fontSize: 13, color: "#c9c9c6" }}>{label}</span>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderTop: "1px solid #223040" }}>
+      <span style={{ fontSize: 13, color: "#C8CED6" }}>{label}</span>
       <button
         onClick={onChange}
         style={{
@@ -5888,7 +5940,7 @@ function ToggleRow({ label, checked, onChange }) {
           borderRadius: 999,
           border: "none",
           cursor: "pointer",
-          background: checked ? "#f2c230" : "#2a2a2c",
+          background: checked ? "#f2c230" : "#2B394B",
           position: "relative",
           flexShrink: 0,
         }}
@@ -5901,7 +5953,7 @@ function ToggleRow({ label, checked, onChange }) {
             width: 16,
             height: 16,
             borderRadius: "50%",
-            background: checked ? "#141415" : "#8f8f8c",
+            background: checked ? "#131C27" : "#949EAA",
             transition: "left 0.15s",
           }}
         />
@@ -5914,7 +5966,7 @@ function ConfigTitulo({ children, sub }) {
   return (
     <div style={{ marginBottom: 20 }}>
       <div style={{ fontSize: 15, color: "#f2c230", fontWeight: 600 }}>{children}</div>
-      {sub && <div style={{ fontSize: 12, color: "#8f8f8c", marginTop: 4 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 12, color: "#949EAA", marginTop: 4 }}>{sub}</div>}
     </div>
   );
 }
@@ -5973,7 +6025,7 @@ function PanelPerfil({ perfil }) {
     setSubiendo(false);
     if (url) {
       setAvatarUrl(url);
-      perfil.avatar_url = url; // mismo objeto que usa el resto del HUB, así queda al día sin recargar
+      perfil.avatar_url = url; // mismo objeto que usa el resto del Hub, así queda al día sin recargar
     }
   }
 
@@ -6001,7 +6053,7 @@ function PanelPerfil({ perfil }) {
             style={{
               width: 56, height: 56, borderRadius: "50%", background: "#3a7bd5", color: "#fff",
               display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 600,
-              fontFamily: "'Oswald', sans-serif",
+              fontFamily: "'Barlow Condensed', 'Oswald', sans-serif",
             }}
           >
             {(nombre || "?").charAt(0)}
@@ -6011,7 +6063,7 @@ function PanelPerfil({ perfil }) {
         <button
           onClick={() => inputFileRef.current?.click()}
           disabled={subiendo}
-          style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6" }}
+          style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#C8CED6" }}
         >
           🖼 {subiendo ? "Subiendo…" : "Cambiar foto"}
         </button>
@@ -6023,7 +6075,7 @@ function PanelPerfil({ perfil }) {
       <label style={labelStyle}>Rol / Área</label>
       <select style={inputStyle} value={rol} onChange={(e) => setRol(e.target.value)}>
         {ROLES_REGISTRO.map((r) => (
-          <option key={r} value={r} style={{ background: "#0e0e0f" }}>
+          <option key={r} value={r} style={{ background: "#0C131B" }}>
             {r}
           </option>
         ))}
@@ -6031,10 +6083,10 @@ function PanelPerfil({ perfil }) {
 
       <label style={labelStyle}>Email</label>
       <input style={inputStyle} value={email} disabled />
-      <div style={{ fontSize: 10.5, color: "#6b6b68", marginTop: 4 }}>El email de acceso no se cambia desde acá.</div>
+      <div style={{ fontSize: 10.5, color: "#6C7886", marginTop: 4 }}>El email de acceso no se cambia desde acá.</div>
 
       <button onClick={guardar} style={{ ...buttonStyle, width: "auto", padding: "10px 22px", marginTop: 20 }}>Guardar cambios</button>
-      {msg && <span style={{ fontSize: 11.5, color: "#5fbf7a", marginLeft: 12 }}>{msg}</span>}
+      {msg && <span style={{ fontSize: 11.5, color: "#3FC08A", marginLeft: 12 }}>{msg}</span>}
     </div>
   );
 }
@@ -6065,15 +6117,15 @@ function PanelCuenta({ perfil }) {
 
   return (
     <div>
-      <ConfigTitulo sub={<>Usuario de acceso: <b style={{ color: "#c9c9c6" }}>{perfil?.usuario || perfil?.email || "—"}</b></>}>
+      <ConfigTitulo sub={<>Usuario de acceso: <b style={{ color: "#C8CED6" }}>{perfil?.usuario || perfil?.email || "—"}</b></>}>
         Cuenta y seguridad
       </ConfigTitulo>
-      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 600, marginBottom: 8 }}>Cambiar contraseña</div>
+      <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 600, marginBottom: 8 }}>Cambiar contraseña</div>
       <label style={labelStyle}>NUEVA CONTRASEÑA</label>
       <input type="password" style={inputStyle} value={nueva} onChange={(e) => setNueva(e.target.value)} />
       <label style={labelStyle}>REPETIR NUEVA</label>
       <input type="password" style={inputStyle} value={repetir} onChange={(e) => setRepetir(e.target.value)} />
-      {msg && <div style={{ fontSize: 11.5, color: msg === "Contraseña actualizada." ? "#5fbf7a" : "#e0665c", marginTop: 8 }}>{msg}</div>}
+      {msg && <div style={{ fontSize: 11.5, color: msg === "Contraseña actualizada." ? "#3FC08A" : "#F07362", marginTop: 8 }}>{msg}</div>}
       <button onClick={actualizar} style={{ ...buttonStyle, width: "auto", padding: "10px 22px", marginTop: 20 }}>Actualizar contraseña</button>
     </div>
   );
@@ -6084,7 +6136,7 @@ const INVITE_LINK = "https://obrasrugbyhub.app/invitacion";
 function textoInvitacion() {
   return (
     "🏉 ¡Sumate al plantel de Obras Rugby!\n\n" +
-    "Registrate en el HUB del club para cargar tus datos (altura, peso, posición) y quedar disponible para Superior e Intermedia:\n" +
+    "Registrate en el Hub del club para cargar tus datos (altura, peso, posición) y quedar disponible para Superior e Intermedia:\n" +
     INVITE_LINK +
     "\n\n" +
     "Elegí tu nombre en la lista y creá tu usuario y contraseña. ¡Nos vemos en la cancha!"
@@ -6129,7 +6181,7 @@ function FilaEscudo({ rival, onSubido, onRenombrado }) {
   }
 
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid #232324", gap: 10 }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid #223040", gap: 10 }}>
       <div style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}>
         <TeamBadge name={rival.nombre} size={26} />
         {editandoNombre ? (
@@ -6139,12 +6191,12 @@ function FilaEscudo({ rival, onSubido, onRenombrado }) {
             onBlur={guardarNombre}
             onKeyDown={(e) => e.key === "Enter" && guardarNombre()}
             autoFocus
-            style={{ ...editInputStyle, borderBottom: "1px solid #2a2a2c" }}
+            style={{ ...editInputStyle, borderBottom: "1px solid #2B394B" }}
           />
         ) : (
           <span
             onClick={() => setEditandoNombre(true)}
-            style={{ fontSize: 13, color: "#f5f4f0", cursor: "pointer" }}
+            style={{ fontSize: 13, color: "#F4F2EE", cursor: "pointer" }}
             title="Tocá para renombrar"
           >
             {rival.nombre}
@@ -6155,7 +6207,7 @@ function FilaEscudo({ rival, onSubido, onRenombrado }) {
       <button
         onClick={() => inputRef.current?.click()}
         disabled={subiendo}
-        style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6", fontSize: 11.5, flexShrink: 0 }}
+        style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#C8CED6", fontSize: 11.5, flexShrink: 0 }}
       >
         {subiendo ? "Subiendo…" : rival.escudo_url ? "Cambiar escudo" : "Subir escudo"}
       </button>
@@ -6191,7 +6243,7 @@ function PanelEscudos({ perfil }) {
     return (
       <div>
         <ConfigTitulo>Escudos de rivales</ConfigTitulo>
-        <div style={{ fontSize: 12.5, color: "#8f8f8c" }}>Esta sección es solo para Cuerpo técnico y Manager.</div>
+        <div style={{ fontSize: 12.5, color: "#949EAA" }}>Esta sección es solo para Cuerpo técnico y Manager.</div>
       </div>
     );
   }
@@ -6201,7 +6253,7 @@ function PanelEscudos({ perfil }) {
       <ConfigTitulo sub="Subí el escudo real de cada rival, cambiales el nombre, o agregá uno nuevo.">
         Escudos de rivales
       </ConfigTitulo>
-      <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 14 }}>
+      <div style={{ fontSize: 11, color: "#6C7886", marginBottom: 14 }}>
         Usá una imagen cuadrada, idealmente con fondo transparente (PNG). Tocá el nombre para renombrarlo.
       </div>
       {rivales.map((r) => (
@@ -6223,17 +6275,17 @@ function PanelEscudos({ perfil }) {
             placeholder="Nombre del club"
             style={{ ...inputStyle, flex: 1 }}
           />
-          <button onClick={agregarRival} style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}>
+          <button onClick={agregarRival} style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}>
             Agregar
           </button>
-          <button onClick={() => setAgregando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#8f8f8c" }}>
+          <button onClick={() => setAgregando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#949EAA" }}>
             Cancelar
           </button>
         </div>
       ) : (
         <button
           onClick={() => setAgregando(true)}
-          style={{ ...pillButton, marginTop: 14, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}
+          style={{ ...pillButton, marginTop: 14, background: "transparent", border: "1px dashed #2B394B", color: "#949EAA" }}
         >
           + Agregar rival
         </button>
@@ -6259,7 +6311,7 @@ function BotonFotoStaff({ perfilId, onSubido }) {
       <button
         onClick={() => inputRef.current?.click()}
         disabled={subiendo}
-        style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6", fontSize: 11.5 }}
+        style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#C8CED6", fontSize: 11.5 }}
       >
         {subiendo ? "Subiendo…" : "🖼 Foto"}
       </button>
@@ -6313,14 +6365,14 @@ function PanelStaff({ perfil }) {
     window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
   }
 
-  if (cargando) return <div style={{ color: "#8f8f8c", fontSize: 13 }}>Cargando…</div>;
+  if (cargando) return <div style={{ color: "#949EAA", fontSize: 13 }}>Cargando…</div>;
 
   const pendientes = staff.filter((s) => !s.confirmado);
   const activos = staff.filter((s) => s.confirmado);
 
   return (
     <div>
-      <ConfigTitulo sub="Quién tiene acceso al HUB y con qué rol.">Staff y usuarios</ConfigTitulo>
+      <ConfigTitulo sub="Quién tiene acceso al Hub y con qué rol.">Staff y usuarios</ConfigTitulo>
 
       {pendientes.length > 0 && (
         <div style={{ marginBottom: 20 }}>
@@ -6328,37 +6380,37 @@ function PanelStaff({ perfil }) {
             Pendientes de confirmar · {pendientes.length}
           </div>
           {pendientes.map((s) => (
-            <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: "1px solid #232324", fontSize: 13 }}>
+            <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: "1px solid #223040", fontSize: 13 }}>
               <div>
-                <span style={{ color: "#f5f4f0" }}>{s.nombre || s.usuario || "(sin nombre)"}</span>
-                <span style={{ color: "#6b6b68", marginLeft: 8 }}>{s.rol}</span>
+                <span style={{ color: "#F4F2EE" }}>{s.nombre || s.usuario || "(sin nombre)"}</span>
+                <span style={{ color: "#6C7886", marginLeft: 8 }}>{s.rol}</span>
               </div>
               {esManager ? (
                 <button
                   onClick={() => confirmarUsuario(s.id)}
-                  style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none", fontSize: 11.5 }}
+                  style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none", fontSize: 11.5 }}
                 >
                   Confirmar
                 </button>
               ) : (
-                <span style={{ fontSize: 11, color: "#6b6b68" }}>Esperando al manager</span>
+                <span style={{ fontSize: 11, color: "#6C7886" }}>Esperando al manager</span>
               )}
             </div>
           ))}
         </div>
       )}
 
-      <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 600, marginBottom: 8 }}>Usuarios activos · {activos.length}</div>
+      <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 600, marginBottom: 8 }}>Usuarios activos · {activos.length}</div>
       {activos.map((s) => (
-        <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: "1px solid #232324", fontSize: 13 }}>
+        <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: "1px solid #223040", fontSize: 13 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <AvatarPlaceholder size={30} foto={s.avatar_url} />
             <div>
-              <span style={{ color: s.bloqueado ? "#6b6b68" : "#f5f4f0", textDecoration: s.bloqueado ? "line-through" : "none" }}>
+              <span style={{ color: s.bloqueado ? "#6C7886" : "#F4F2EE", textDecoration: s.bloqueado ? "line-through" : "none" }}>
                 {s.nombre || s.usuario || "(sin nombre)"}
               </span>
-              <span style={{ color: "#8f8f8c", marginLeft: 8 }}>{s.rol}</span>
-              {s.bloqueado && <span style={{ ...tagStyle, background: "#2a120f", color: "#e0665c", marginLeft: 8 }}>Bloqueado</span>}
+              <span style={{ color: "#949EAA", marginLeft: 8 }}>{s.rol}</span>
+              {s.bloqueado && <span style={{ ...tagStyle, background: "#2a120f", color: "#F07362", marginLeft: 8 }}>Bloqueado</span>}
             </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -6369,13 +6421,13 @@ function PanelStaff({ perfil }) {
               <>
                 <button
                   onClick={() => toggleBloqueo(s.id, s.bloqueado)}
-                  style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6", fontSize: 11.5 }}
+                  style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#C8CED6", fontSize: 11.5 }}
                 >
                   {s.bloqueado ? "Desbloquear" : "Bloquear"}
                 </button>
                 <button
                   onClick={() => eliminarUsuario(s.id, s.nombre)}
-                  style={{ ...pillButton, background: "transparent", border: "1px solid #2a120f", color: "#e0665c", fontSize: 11.5 }}
+                  style={{ ...pillButton, background: "transparent", border: "1px solid #2a120f", color: "#F07362", fontSize: 11.5 }}
                 >
                   Eliminar
                 </button>
@@ -6387,25 +6439,25 @@ function PanelStaff({ perfil }) {
 
       <button
         onClick={() => setMostrarInvitar((v) => !v)}
-        style={{ ...pillButton, marginTop: 16, background: "transparent", border: "1px dashed #2a2a2c", color: "#8f8f8c" }}
+        style={{ ...pillButton, marginTop: 16, background: "transparent", border: "1px dashed #2B394B", color: "#949EAA" }}
       >
         + Invitar
       </button>
 
       {mostrarInvitar && (
         <div style={{ ...cardStyle, padding: "16px 18px", marginTop: 14 }}>
-          <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 600, marginBottom: 4 }}>Invitación para el plantel</div>
-          <div style={{ fontSize: 11.5, color: "#6b6b68", marginBottom: 12 }}>
+          <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 600, marginBottom: 4 }}>Invitación para el plantel</div>
+          <div style={{ fontSize: 11.5, color: "#6C7886", marginBottom: 12 }}>
             Este texto se genera solo para compartir con los jugadores — mandalo por WhatsApp o copialo donde quieras.
           </div>
           <div
             style={{
-              background: "#0e0e0f",
-              border: "1px solid #2a2a2c",
+              background: "#0C131B",
+              border: "1px solid #2B394B",
               borderRadius: 6,
               padding: "12px 14px",
               fontSize: 12.5,
-              color: "#c9c9c6",
+              color: "#C8CED6",
               whiteSpace: "pre-wrap",
               lineHeight: 1.6,
               marginBottom: 14,
@@ -6416,19 +6468,19 @@ function PanelStaff({ perfil }) {
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button
               onClick={compartirWhatsapp}
-              style={{ ...buttonStyle, width: "auto", padding: "9px 18px", marginTop: 0, background: "#25D366", color: "#0b0b0c" }}
+              style={{ ...buttonStyle, width: "auto", padding: "9px 18px", marginTop: 0, background: "#25D366", color: "#0A1018" }}
             >
               📲 Compartir por WhatsApp
             </button>
             <button
               onClick={copiar}
-              style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: copiado ? "#5fbf7a" : "#c9c9c6" }}
+              style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: copiado ? "#3FC08A" : "#C8CED6" }}
             >
               {copiado ? "✓ Copiado" : "Copiar texto"}
             </button>
           </div>
-          <div style={{ fontSize: 10.5, color: "#6b6b68", marginTop: 12 }}>
-            El link es de ejemplo — cuando el HUB tenga un dominio propio, se reemplaza acá por la URL real.
+          <div style={{ fontSize: 10.5, color: "#6C7886", marginTop: 12 }}>
+            El link es de ejemplo — cuando el Hub tenga un dominio propio, se reemplaza acá por la URL real.
           </div>
         </div>
       )}
@@ -6444,13 +6496,13 @@ function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantall
     { key: "Menú lateral", titulo: "Menú lateral", desc: "Siempre al costado, como en la compu" },
   ];
   const paginasInicio = [
-    { key: "hoy", label: "📅 Hoy" },
-    { key: "calendario", label: "🏆 Calendario" },
-    { key: "equipos", label: "🛡️ Equipos" },
+    { key: "hoy", label: "Hoy" },
+    { key: "calendario", label: "Fixture y resultados" },
+    { key: "equipos", label: "Equipos" },
   ];
   return (
     <div>
-      <ConfigTitulo sub="Ajustes personales del HUB.">Apariencia y preferencias</ConfigTitulo>
+      <ConfigTitulo sub="Ajustes personales del Hub.">Apariencia y preferencias</ConfigTitulo>
 
       <label style={labelStyle}>APARIENCIA</label>
       <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
@@ -6460,31 +6512,31 @@ function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantall
             onClick={() => setTemaPref(t)}
             style={{
               ...pillButton, flex: 1,
-              border: "1px solid " + (temaPref === t ? "#f2c230" : "#2a2a2c"),
+              border: "1px solid " + (temaPref === t ? "#f2c230" : "#2B394B"),
               background: temaPref === t ? "#1d1a0c" : "transparent",
-              color: temaPref === t ? "#f2c230" : "#c9c9c6",
+              color: temaPref === t ? "#f2c230" : "#C8CED6",
             }}
           >
             {t === "Oscuro" ? "🌙 Oscuro" : "☀️ Claro"}
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 18 }}>El tema del HUB. Se aplica en toda la app al instante.</div>
+      <div style={{ fontSize: 11, color: "#6C7886", marginBottom: 18 }}>El tema del Hub. Se aplica en toda la app al instante.</div>
 
       <label style={labelStyle}>PÁGINA DE INICIO</label>
       <select style={inputStyle} value={pantallaInicio} onChange={(e) => setPantallaInicio(e.target.value)}>
         {paginasInicio.map((p) => (
-          <option key={p.key} value={p.key} style={{ background: "#0e0e0f" }}>
+          <option key={p.key} value={p.key} style={{ background: "#0C131B" }}>
             {p.label}
           </option>
         ))}
       </select>
-      <div style={{ fontSize: 11, color: "#6b6b68", marginTop: 6, marginBottom: 26 }}>
-        La pantalla que se abre al entrar al HUB. Se aplica la próxima vez que inicies sesión.
+      <div style={{ fontSize: 11, color: "#6C7886", marginTop: 6, marginBottom: 26 }}>
+        La pantalla que se abre al entrar al Hub. Se aplica la próxima vez que inicies sesión.
       </div>
 
-      <div style={{ fontSize: 14, color: "#f5f4f0", fontWeight: 600, marginBottom: 4 }}>📱 Posición del menú (en el celular)</div>
-      <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 14 }}>
+      <div style={{ fontSize: 14, color: "#F4F2EE", fontWeight: 600, marginBottom: 4 }}>📱 Posición del menú (en el celular)</div>
+      <div style={{ fontSize: 11, color: "#6C7886", marginBottom: 14 }}>
         Cómo aparece el menú en el teléfono. En la computadora siempre va al costado.
       </div>
       {opciones.map((o) => (
@@ -6499,12 +6551,12 @@ function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantall
             borderRadius: 8,
             marginBottom: 10,
             cursor: "pointer",
-            background: "#0e0e0f",
-            border: "1px solid " + (menuPref === o.key ? "#f2c230" : "#2a2a2c"),
+            background: "#0C131B",
+            border: "1px solid " + (menuPref === o.key ? "#f2c230" : "#2B394B"),
           }}
         >
-          <div style={{ fontSize: 13, color: menuPref === o.key ? "#f2c230" : "#f5f4f0", fontWeight: 600 }}>{o.titulo}</div>
-          <div style={{ fontSize: 11.5, color: "#8f8f8c", marginTop: 2 }}>{o.desc}</div>
+          <div style={{ fontSize: 13, color: menuPref === o.key ? "#f2c230" : "#F4F2EE", fontWeight: 600 }}>{o.titulo}</div>
+          <div style={{ fontSize: 11.5, color: "#949EAA", marginTop: 2 }}>{o.desc}</div>
         </button>
       ))}
     </div>
@@ -6515,32 +6567,32 @@ function PanelInstalar() {
   return (
     <div>
       <ConfigTitulo>📲 Instalar la app</ConfigTitulo>
-      <div style={{ fontSize: 13, color: "#c9c9c6", marginBottom: 20, lineHeight: 1.6 }}>
+      <div style={{ fontSize: 13, color: "#C8CED6", marginBottom: 20, lineHeight: 1.6 }}>
         Obras Rugby Hub se instala en el celular como una app: ícono en la pantalla de inicio y pantalla completa,
         sin la barra del navegador. No ocupa casi nada y se actualiza sola.
       </div>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         <div style={{ ...cardStyle, padding: "18px", flex: "1 1 280px" }}>
-          <div style={{ fontSize: 14, color: "#f5f4f0", fontWeight: 600, marginBottom: 10 }}>🤖 Android</div>
-          <div style={{ fontSize: 12.5, color: "#8f8f8c", marginBottom: 10 }}>Con Chrome abierto en el HUB:</div>
+          <div style={{ fontSize: 14, color: "#F4F2EE", fontWeight: 600, marginBottom: 10 }}>🤖 Android</div>
+          <div style={{ fontSize: 12.5, color: "#949EAA", marginBottom: 10 }}>Con Chrome abierto en el Hub:</div>
           <button style={{ ...buttonStyle, width: "auto", padding: "9px 18px", marginTop: 0, marginBottom: 14 }}>⬇ Instalar ahora</button>
-          <ol style={{ fontSize: 12.5, color: "#c9c9c6", paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
+          <ol style={{ fontSize: 12.5, color: "#C8CED6", paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
             <li>Tocá el menú ⋮ (arriba a la derecha).</li>
             <li>Elegí «Instalar aplicación» o «Agregar a pantalla principal».</li>
             <li>Confirmá con Instalar.</li>
           </ol>
         </div>
         <div style={{ ...cardStyle, padding: "18px", flex: "1 1 280px" }}>
-          <div style={{ fontSize: 14, color: "#f5f4f0", fontWeight: 600, marginBottom: 10 }}>🍎 iPhone / iPad</div>
-          <div style={{ fontSize: 12.5, color: "#8f8f8c", marginBottom: 10 }}>Tiene que ser con Safari (en iPhone la opción no existe en Chrome):</div>
-          <ol style={{ fontSize: 12.5, color: "#c9c9c6", paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
+          <div style={{ fontSize: 14, color: "#F4F2EE", fontWeight: 600, marginBottom: 10 }}>🍎 iPhone / iPad</div>
+          <div style={{ fontSize: 12.5, color: "#949EAA", marginBottom: 10 }}>Tiene que ser con Safari (en iPhone la opción no existe en Chrome):</div>
+          <ol style={{ fontSize: 12.5, color: "#C8CED6", paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
             <li>Tocá Compartir ⬆ (abajo, en el centro).</li>
             <li>Deslizá y elegí «Agregar a inicio» (Add to Home Screen).</li>
             <li>Confirmá con Agregar.</li>
           </ol>
         </div>
       </div>
-      <div style={{ fontSize: 11.5, color: "#6b6b68", marginTop: 16 }}>
+      <div style={{ fontSize: 11.5, color: "#6C7886", marginTop: 16 }}>
         💡 Después de instalarla, abrila siempre desde el ícono del club — así vas y volvés entre pantallas como en
         cualquier app. Para recibir avisos con la app cerrada, activá las Notificaciones.
       </div>
@@ -6580,9 +6632,9 @@ function PanelEvaluacionesCfg() {
       <ConfigTitulo sub="Cómo se cargan y se muestran las evaluaciones físicas.">Evaluaciones del jugador</ConfigTitulo>
       <label style={labelStyle}>FRECUENCIA SUGERIDA DE TESTEO</label>
       <select style={inputStyle} defaultValue="Mensual">
-        <option style={{ background: "#0e0e0f" }}>Mensual</option>
-        <option style={{ background: "#0e0e0f" }}>Bimestral</option>
-        <option style={{ background: "#0e0e0f" }}>Por pretemporada</option>
+        <option style={{ background: "#0C131B" }}>Mensual</option>
+        <option style={{ background: "#0C131B" }}>Bimestral</option>
+        <option style={{ background: "#0C131B" }}>Por pretemporada</option>
       </select>
       {Object.entries(config).map(([k, v]) => (
         <ToggleRow key={k} label={k} checked={v} onChange={() => setConfig((p) => ({ ...p, [k]: !p[k] }))} />
@@ -6672,16 +6724,16 @@ function PanelNotificaciones({ perfil }) {
   return (
     <div>
       <ConfigTitulo>🔔 Notificaciones</ConfigTitulo>
-      <div style={{ fontSize: 13, color: "#c9c9c6", marginBottom: 18, lineHeight: 1.6 }}>
-        Recibí avisos del HUB en el celular <b>aunque no lo tengas abierto</b> (alertas de carga, wellness pendiente,
+      <div style={{ fontSize: 13, color: "#C8CED6", marginBottom: 18, lineHeight: 1.6 }}>
+        Recibí avisos del Hub en el celular <b>aunque no lo tengas abierto</b> (alertas de carga, wellness pendiente,
         RTP, etc.). Hay que permitirlo una sola vez en este dispositivo.
       </div>
       <div style={{ ...cardStyle, padding: "18px" }}>
-        <div style={{ fontSize: 13, color: "#f5f4f0", fontWeight: 600, marginBottom: 6 }}>🔔 Notificaciones en este dispositivo</div>
-        <div style={{ fontSize: 12.5, color: "#8f8f8c", marginBottom: 14 }}>
+        <div style={{ fontSize: 13, color: "#F4F2EE", fontWeight: 600, marginBottom: 6 }}>🔔 Notificaciones en este dispositivo</div>
+        <div style={{ fontSize: 12.5, color: "#949EAA", marginBottom: 14 }}>
           {activadas ? "Activadas en este dispositivo." : "Todavía no están activadas en este dispositivo."}
         </div>
-        {msg && <div style={{ fontSize: 12, color: "#e0665c", marginBottom: 10 }}>{msg}</div>}
+        {msg && <div style={{ fontSize: 12, color: "#F07362", marginBottom: 10 }}>{msg}</div>}
         <button
           onClick={activar}
           disabled={cargando || activadas}
@@ -6725,8 +6777,8 @@ function ConfiguracionPage({ menuPref, setMenuPref, temaPref, setTemaPref, panta
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>⚙️ Configuración</div>
-        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>Tu cuenta y preferencias en el HUB.</div>
+        <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Configuración</div>
+        <div style={{ fontSize: 13, color: "#949EAA", marginTop: 2 }}>Tu cuenta y preferencias en el Hub.</div>
       </div>
 
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
@@ -6748,22 +6800,22 @@ function ConfiguracionPage({ menuPref, setMenuPref, temaPref, setTemaPref, panta
                 fontSize: 13,
                 cursor: "pointer",
                 background: tab === t.key ? "#1d1a0c" : "transparent",
-                color: tab === t.key ? "#f2c230" : "#c9c9c6",
+                color: tab === t.key ? "#f2c230" : "#C8CED6",
               }}
             >
               <span>
                 {t.icon} {t.label}
               </span>
-              {t.admin && <span style={{ fontSize: 10, color: "#6b6b68" }}>staff</span>}
+              {t.admin && <span style={{ fontSize: 10, color: "#6C7886" }}>staff</span>}
             </button>
           ))}
-          <div style={{ borderTop: "1px solid #232324", margin: "8px 0" }} />
+          <div style={{ borderTop: "1px solid #223040", margin: "8px 0" }} />
           <button
             onClick={() => supabase.auth.signOut()}
             style={{
               display: "flex", alignItems: "center", width: "100%", textAlign: "left",
               padding: "9px 10px", borderRadius: 6, border: "none", fontSize: 13,
-              cursor: "pointer", background: "transparent", color: "#e0665c",
+              cursor: "pointer", background: "transparent", color: "#F07362",
             }}
           >
             🚪 Cerrar sesión
@@ -6778,7 +6830,7 @@ function ConfiguracionPage({ menuPref, setMenuPref, temaPref, setTemaPref, panta
 
 function Placeholder({ label }) {
   return (
-    <div style={{ ...cardStyle, padding: 40, textAlign: "center", color: "#8f8f8c", fontSize: 14 }}>
+    <div style={{ ...cardStyle, padding: 40, textAlign: "center", color: "#949EAA", fontSize: 14 }}>
       {label} todavía no está armado en esta réplica. Lo sumamos en el próximo paso.
     </div>
   );
@@ -6851,21 +6903,21 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const TarjetaMatchday = ({ categoria, partido, bloqueada }) => (
     <div
       style={{
-        background: bloqueada ? "#141415" : "linear-gradient(135deg, #2a120f, #1a1a1a)",
-        border: "1px solid " + (bloqueada ? "#232324" : "#e0665c"),
+        background: bloqueada ? "#131C27" : "linear-gradient(135deg, #2a120f, #18222E)",
+        border: "1px solid " + (bloqueada ? "#223040" : "#F07362"),
         borderRadius: 12, padding: "16px 18px", marginBottom: 12,
         display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12,
       }}
     >
       <div>
-        <div style={{ fontSize: 11, color: bloqueada ? "#6b6b68" : "#e0665c", fontWeight: 700, letterSpacing: 0.5 }}>
+        <div style={{ fontSize: 11, color: bloqueada ? "#6C7886" : "#F07362", fontWeight: 700, letterSpacing: 0.5 }}>
           {partido.res ? "✓ PARTIDO FINALIZADO" : "● HOY ES DÍA DE PARTIDO"}
         </div>
-        <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 600, marginTop: 4 }}>
+        <div style={{ fontSize: 15, color: "#F4F2EE", fontWeight: 600, marginTop: 4 }}>
           {categoria} vs {partido.rival}
         </div>
         {bloqueada && !partido.res && (
-          <div style={{ fontSize: 11, color: "#8f8f8c", marginTop: 3 }}>Se habilita cuando termine el de Intermedia</div>
+          <div style={{ fontSize: 11, color: "#949EAA", marginTop: 3 }}>Se habilita cuando termine el de Intermedia</div>
         )}
       </div>
       {!partido.res && (
@@ -6874,8 +6926,8 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
           disabled={bloqueada}
           style={{
             ...pillButton, fontWeight: 600, border: "none",
-            background: bloqueada ? "#2a2a2c" : "#e0665c",
-            color: bloqueada ? "#6b6b68" : "#141415",
+            background: bloqueada ? "#2B394B" : "#F07362",
+            color: bloqueada ? "#6C7886" : "#131C27",
             cursor: bloqueada ? "not-allowed" : "pointer",
           }}
         >
@@ -6905,11 +6957,11 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
             <div style={{ fontSize: 12, color: "#f2c230", fontWeight: 600, marginBottom: 8, letterSpacing: 0.5 }}>
               🔔 ÚLTIMA NOVEDAD
             </div>
-            <div style={{ fontSize: 14, color: "#f5f4f0", marginBottom: 4 }}>{novedad.mensaje}</div>
-            <div style={{ fontSize: 11, color: "#6b6b68", marginBottom: 16 }}>{tiempoRelativo(novedad.created_at)}</div>
+            <div style={{ fontSize: 14, color: "#F4F2EE", marginBottom: 4 }}>{novedad.mensaje}</div>
+            <div style={{ fontSize: 11, color: "#6C7886", marginBottom: 16 }}>{tiempoRelativo(novedad.created_at)}</div>
             <button
               onClick={() => setNovedadVista(true)}
-              style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none" }}
+              style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none" }}
             >
               Entendido
             </button>
@@ -6928,69 +6980,57 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
       )}
 
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 500 }}>Hola, {perfil?.nombre?.split(" ")[0] || "de nuevo"}</div>
-        <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 2 }}>Bienvenido al hub · {hoyStr}</div>
+        <div style={{ fontSize: 32, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1, letterSpacing: 0.2 }}>Hola, {perfil?.nombre?.split(" ")[0] || "de nuevo"}</div>
+        <div style={{ fontSize: 13, color: "#949EAA", marginTop: 4 }}>Hub de Obras · {hoyStr}</div>
       </div>
 
-      <div style={{ ...cardStyle, padding: "18px 22px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 500 }}>Sesión del día</div>
-          <div style={{ fontSize: 13, color: "#8f8f8c", marginTop: 4 }}>Todavía no planificaste la sesión de hoy.</div>
-        </div>
-        <button
-          onClick={() => onNavigate("sesion")}
-          style={{ ...pillButton, background: "transparent", border: "1px solid #f2c230", color: "#f2c230" }}
-        >
-          Planificar
-        </button>
-      </div>
-
-      <div style={{ display: "flex", gap: 14, marginBottom: 16, flexWrap: "wrap" }}>
-        <div style={{ ...cardStyle, flex: "1 1 260px", padding: "16px 18px" }}>
-          <div style={{ fontSize: 11, color: "#8f8f8c", marginBottom: 6 }}>Último partido (Superior)</div>
-          {ultimo ? (
-            <>
-              <div style={{ display: "flex", alignItems: "center", fontSize: 15, color: "#f5f4f0", fontWeight: 500 }}>
-                <TeamBadge name={ultimo.rival} size={20} />
+      <div style={{ ...cardStyle, padding: "20px 22px", marginBottom: 16, borderTop: "3px solid #f2c230" }}>
+        <div style={{ fontSize: 11, color: "#f2c230", fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 10 }}>El partido de la semana</div>
+        {proximo ? (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 26, color: "#F4F2EE", fontWeight: 800, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", lineHeight: 1.1 }}>
+              <TeamBadge name={proximo.rival} size={26} />
+              {proximo.cond === "Local" ? "vs" : "en cancha de"} {proximo.rival}
+            </div>
+            <div style={{ fontSize: 13, color: "#949EAA", marginTop: 6 }}>Fecha {proximo.fecha} · {proximo.date} · {proximo.cond}</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+              <button onClick={() => onNavigate("videoteca")} style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none", fontWeight: 600 }}>Ver videos del rival</button>
+              <button onClick={() => onNavigate("equipos")} style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#C8CED6" }}>Armar el equipo</button>
+            </div>
+          </>
+        ) : (
+          <div style={{ fontSize: 14, color: "#949EAA" }}>Sin próximo partido confirmado.</div>
+        )}
+        <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginTop: 18, paddingTop: 14, borderTop: "1px solid #223040" }}>
+          <div>
+            <div style={{ fontSize: 11, color: "#949EAA", marginBottom: 4 }}>Último resultado</div>
+            {ultimo ? (
+              <div style={{ display: "flex", alignItems: "center", fontSize: 14, color: "#F4F2EE", fontWeight: 500 }}>
+                <TeamBadge name={ultimo.rival} size={18} />
                 {ultimo.cond === "Local" ? "vs" : "@"} {ultimo.rival} · {ultimo.res.charAt(0)} {ultimo.gf}-{ultimo.gc}
               </div>
-              <div style={{ fontSize: 12, color: "#8f8f8c", marginTop: 4 }}>Fecha {ultimo.fecha} · {ultimo.date}</div>
-            </>
-          ) : (
-            <div style={{ fontSize: 13, color: "#6b6b68" }}>Sin partidos cargados.</div>
-          )}
-        </div>
-        <div style={{ ...cardStyle, flex: "1 1 260px", padding: "16px 18px" }}>
-          <div style={{ fontSize: 11, color: "#8f8f8c", marginBottom: 4 }}>Récord Superior · Desarrollo</div>
-          <div style={{ fontSize: 20, color: "#f5f4f0", fontWeight: 600, fontFamily: "'Oswald', sans-serif" }}>
-            {record.g}G · {record.e}E · {record.p}P
+            ) : (
+              <div style={{ fontSize: 13, color: "#6C7886" }}>Sin partidos cargados.</div>
+            )}
           </div>
-        </div>
-        <div style={{ ...cardStyle, flex: "1 1 260px", padding: "16px 18px" }}>
-          <div style={{ fontSize: 11, color: "#8f8f8c", marginBottom: 6 }}>Próximo partido</div>
-          {proximo ? (
-            <>
-              <div style={{ display: "flex", alignItems: "center", fontSize: 15, color: "#f5f4f0", fontWeight: 500 }}>
-                <TeamBadge name={proximo.rival} size={20} />
-                {proximo.cond === "Local" ? "vs" : "@"} {proximo.rival}
-              </div>
-              <div style={{ fontSize: 12, color: "#8f8f8c", marginTop: 4 }}>Fecha {proximo.fecha} · {proximo.date}</div>
-            </>
-          ) : (
-            <div style={{ fontSize: 13, color: "#6b6b68" }}>Sin próximo partido confirmado.</div>
-          )}
+          <div>
+            <div style={{ fontSize: 11, color: "#949EAA", marginBottom: 4 }}>Temporada</div>
+            <div style={{ fontSize: 18, color: "#F4F2EE", fontWeight: 700, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif" }}>
+              {record.g} ganados · {record.e} empatados · {record.p} perdidos
+            </div>
+          </div>
         </div>
       </div>
 
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
         <div style={{ ...cardStyle, flex: "1 1 320px", padding: "16px 18px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 14, color: "#f5f4f0", fontWeight: 500 }}>Disponibilidad</div>
+            <div style={{ fontSize: 14, color: "#F4F2EE", fontWeight: 600 }}>Quién está para jugar</div>
             <span onClick={() => onNavigate("disponibilidad")} style={{ fontSize: 12, color: "#f2c230", cursor: "pointer" }}>
-              ver tablero →
+              ver disponibilidad →
             </span>
           </div>
-          <div style={{ fontSize: 12, color: "#8f8f8c", marginBottom: 10 }}>Plantel completo · RTP + habilitación médica</div>
+          <div style={{ fontSize: 12, color: "#949EAA", marginBottom: 10 }}>Todo el plantel, con el estado físico y el alta médica</div>
           <div style={{ display: "flex", gap: 10 }}>
             <StatCard label="Disponibles" value={disponibles} tone="ok" />
             <StatCard label="A vigilar" value={aVigilarRtp} tone="warn" />
@@ -7001,28 +7041,41 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
 
         <div style={{ ...cardStyle, flex: "1 1 320px", padding: "16px 18px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 14, color: "#f5f4f0", fontWeight: 500 }}>Alertas de riesgo</div>
+            <div style={{ fontSize: 14, color: "#F4F2EE", fontWeight: 600 }}>Para mirar hoy</div>
             <span onClick={() => onNavigate("wellness")} style={{ fontSize: 12, color: "#f2c230", cursor: "pointer" }}>
-              ver todas →
+              ver wellness →
             </span>
           </div>
-          <div style={{ fontSize: 12, color: "#8f8f8c", marginBottom: 10 }}>Wellness de hoy · readiness bajo (≤16/28)</div>
+          <div style={{ fontSize: 12, color: "#949EAA", marginBottom: 10 }}>Jugadores con el wellness de hoy en 57 % o menos</div>
           {alertasHoy.cargando ? (
-            <div style={{ fontSize: 12.5, color: "#6b6b68" }}>Cargando…</div>
+            <div style={{ fontSize: 12.5, color: "#6C7886" }}>Cargando…</div>
           ) : alertasHoy.respuestas.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: "#5fbf7a" }}>✓ Todo bien — todavía nadie completó el wellness de hoy.</div>
+            <div style={{ fontSize: 12.5, color: "#3FC08A" }}>✓ Todo bien — todavía nadie completó el wellness de hoy.</div>
           ) : aMirarWellness.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: "#5fbf7a" }}>✓ Todo bien — nadie con readiness bajo hoy.</div>
+            <div style={{ fontSize: 12.5, color: "#3FC08A" }}>✓ Todo bien: nadie con el wellness bajo hoy.</div>
           ) : (
             aMirarWellness.map((a) => (
-              <div key={a.nombre} style={{ display: "flex", gap: 10, alignItems: "center", padding: "6px 0", borderTop: "1px solid #232324", fontSize: 13 }}>
+              <div key={a.nombre} style={{ display: "flex", gap: 10, alignItems: "center", padding: "6px 0", borderTop: "1px solid #223040", fontSize: 13 }}>
                 <span style={{ ...tagStyle, background: "#2a220a", color: "#f2c230", fontSize: 10 }}>A MIRAR</span>
-                <span style={{ color: "#f5f4f0" }}>{a.nombre}</span>
-                <span style={{ color: "#8f8f8c" }}>Readiness {a.readiness}/28</span>
+                <span style={{ color: "#F4F2EE" }}>{a.nombre}</span>
+                <span style={{ color: "#949EAA" }}>Wellness {pctWellness(a.readiness)}%</span>
               </div>
             ))
           )}
         </div>
+      </div>
+
+      <div style={{ ...cardStyle, padding: "18px 22px", marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 15, color: "#F4F2EE", fontWeight: 600 }}>Sesión de hoy</div>
+          <div style={{ fontSize: 13, color: "#949EAA", marginTop: 4 }}>Planificala y el plantel la ve en su celular.</div>
+        </div>
+        <button
+          onClick={() => onNavigate("sesion")}
+          style={{ ...pillButton, background: "transparent", border: "1px solid #f2c230", color: "#f2c230" }}
+        >
+          Ir a la sesión
+        </button>
       </div>
     </div>
   );
@@ -7081,7 +7134,7 @@ function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setCargando(false);
     if (error) setMensaje(error.message);
-    // Si no hay error, el listener de sesión en AppRoot te lleva solo al HUB.
+    // Si no hay error, el listener de sesión en AppRoot te lleva solo al Hub.
   }
 
   async function handleRegistro() {
@@ -7125,19 +7178,19 @@ function LoginPage() {
       setMensaje("¡Cuenta creada! Revisá tu email para confirmarla y después iniciá sesión.");
       setModo("ingresar");
     }
-    // Si Supabase ya devolvió sesión activa, el listener en AppRoot te lleva directo al HUB.
+    // Si Supabase ya devolvió sesión activa, el listener en AppRoot te lleva directo al Hub.
   }
 
   return (
     <div
       style={{
         minHeight: 620,
-        background: "#0b0b0c",
+        background: "#0A1018",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         padding: "40px 16px",
-        fontFamily: "'Inter', sans-serif",
+        fontFamily: "'Barlow', 'Inter', sans-serif",
       }}
     >
       <style>{FONTS}</style>
@@ -7147,11 +7200,11 @@ function LoginPage() {
           <div
             style={{
               marginTop: 10,
-              fontFamily: "'Oswald', sans-serif",
+              fontFamily: "'Barlow Condensed', 'Oswald', sans-serif",
               fontWeight: 600,
               fontSize: 18,
               letterSpacing: 0.5,
-              color: "#f5f4f0",
+              color: "#F4F2EE",
             }}
           >
             Obras <span style={{ color: "#f2c230" }}>Rugby Hub</span>
@@ -7159,7 +7212,7 @@ function LoginPage() {
           <div style={{ width: 36, height: 2, background: "#f2c230", marginTop: 10 }} />
         </div>
 
-        <div style={{ background: "#141415", border: "1px solid #262627", borderRadius: 10, padding: "26px 26px" }}>
+        <div style={{ background: "#131C27", border: "1px solid #263345", borderRadius: 10, padding: "26px 26px" }}>
           <div style={{ display: "flex", gap: 8, marginBottom: 22 }}>
             <button
               onClick={() => {
@@ -7169,9 +7222,9 @@ function LoginPage() {
               style={{
                 ...pillButton,
                 flex: 1,
-                border: "1px solid " + (modo === "ingresar" ? "#f2c230" : "#2a2a2c"),
+                border: "1px solid " + (modo === "ingresar" ? "#f2c230" : "#2B394B"),
                 background: modo === "ingresar" ? "#1d1a0c" : "transparent",
-                color: modo === "ingresar" ? "#f2c230" : "#c9c9c6",
+                color: modo === "ingresar" ? "#f2c230" : "#C8CED6",
               }}
             >
               Ingresar
@@ -7184,9 +7237,9 @@ function LoginPage() {
               style={{
                 ...pillButton,
                 flex: 1,
-                border: "1px solid " + (modo === "registro" ? "#f2c230" : "#2a2a2c"),
+                border: "1px solid " + (modo === "registro" ? "#f2c230" : "#2B394B"),
                 background: modo === "registro" ? "#1d1a0c" : "transparent",
-                color: modo === "registro" ? "#f2c230" : "#c9c9c6",
+                color: modo === "registro" ? "#f2c230" : "#C8CED6",
               }}
             >
               Crear cuenta
@@ -7199,7 +7252,7 @@ function LoginPage() {
               <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@email.com" />
               <label style={labelStyle}>Contraseña</label>
               <input type="password" style={inputStyle} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
-              {mensaje && <div style={{ color: "#e0665c", fontSize: 12.5, marginTop: 10 }}>{mensaje}</div>}
+              {mensaje && <div style={{ color: "#F07362", fontSize: 12.5, marginTop: 10 }}>{mensaje}</div>}
               <button type="button" onClick={handleIngresar} disabled={cargando} style={buttonStyle}>
                 {cargando ? "Ingresando…" : "Ingresar"}
               </button>
@@ -7209,7 +7262,7 @@ function LoginPage() {
               <label style={labelStyle}>¿Quién sos?</label>
               <select value={rol} onChange={(e) => setRol(e.target.value)} style={inputStyle}>
                 {ROLES_REGISTRO.map((r) => (
-                  <option key={r} value={r} style={{ background: "#0e0e0f" }}>
+                  <option key={r} value={r} style={{ background: "#0C131B" }}>
                     {r}
                   </option>
                 ))}
@@ -7223,9 +7276,9 @@ function LoginPage() {
                       onClick={() => setSoyNuevo(false)}
                       style={{
                         ...pillButton, flex: 1, fontSize: 12,
-                        border: "1px solid " + (!soyNuevo ? "#f2c230" : "#2a2a2c"),
+                        border: "1px solid " + (!soyNuevo ? "#f2c230" : "#2B394B"),
                         background: !soyNuevo ? "#1d1a0c" : "transparent",
-                        color: !soyNuevo ? "#f2c230" : "#c9c9c6",
+                        color: !soyNuevo ? "#f2c230" : "#C8CED6",
                       }}
                     >
                       Estoy en la lista
@@ -7235,9 +7288,9 @@ function LoginPage() {
                       onClick={() => setSoyNuevo(true)}
                       style={{
                         ...pillButton, flex: 1, fontSize: 12,
-                        border: "1px solid " + (soyNuevo ? "#f2c230" : "#2a2a2c"),
+                        border: "1px solid " + (soyNuevo ? "#f2c230" : "#2B394B"),
                         background: soyNuevo ? "#1d1a0c" : "transparent",
-                        color: soyNuevo ? "#f2c230" : "#c9c9c6",
+                        color: soyNuevo ? "#f2c230" : "#C8CED6",
                       }}
                     >
                       Soy nuevo
@@ -7249,7 +7302,7 @@ function LoginPage() {
                       <label style={labelStyle}>Elegí tu nombre</label>
                       <select value={jugadorId} onChange={(e) => setJugadorId(e.target.value)} style={inputStyle}>
                         {jugadoresLista.map((j) => (
-                          <option key={j.id} value={j.nombre} style={{ background: "#0e0e0f" }}>
+                          <option key={j.id} value={j.nombre} style={{ background: "#0C131B" }}>
                             {j.nombre}
                           </option>
                         ))}
@@ -7262,7 +7315,7 @@ function LoginPage() {
                       <label style={labelStyle}>Posición ideal</label>
                       <select value={posicionNueva} onChange={(e) => setPosicionNueva(e.target.value)} style={inputStyle}>
                         {Object.keys(POSICIONES_ALT).map((p) => (
-                          <option key={p} value={p} style={{ background: "#0e0e0f" }}>
+                          <option key={p} value={p} style={{ background: "#0C131B" }}>
                             {p}
                           </option>
                         ))}
@@ -7282,7 +7335,7 @@ function LoginPage() {
                 </>
               )}
 
-              <label style={labelStyle}>Usuario (para mostrar en el HUB)</label>
+              <label style={labelStyle}>Usuario (para mostrar en el Hub)</label>
               <input style={inputStyle} value={usuario} onChange={(e) => setUsuario(e.target.value)} placeholder="usuario" />
               <label style={labelStyle}>Email</label>
               <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@email.com" />
@@ -7291,7 +7344,7 @@ function LoginPage() {
               <label style={labelStyle}>Repetir contraseña</label>
               <input type="password" style={inputStyle} value={password2} onChange={(e) => setPassword2(e.target.value)} />
 
-              {mensaje && <div style={{ color: mensaje.startsWith("¡Cuenta") ? "#5fbf7a" : "#e0665c", fontSize: 12.5, marginTop: 10 }}>{mensaje}</div>}
+              {mensaje && <div style={{ color: mensaje.startsWith("¡Cuenta") ? "#3FC08A" : "#F07362", fontSize: 12.5, marginTop: 10 }}>{mensaje}</div>}
               <button type="button" onClick={handleRegistro} disabled={cargando} style={buttonStyle}>
                 {cargando ? "Creando…" : "Crear mi cuenta"}
               </button>
@@ -7299,7 +7352,7 @@ function LoginPage() {
           )}
         </div>
 
-        <div style={{ textAlign: "center", fontSize: 11, color: "#5a5a58", marginTop: 18 }}>
+        <div style={{ textAlign: "center", fontSize: 11, color: "#5B6774", marginTop: 18 }}>
           Obras Rugby Hub · datos del club
         </div>
       </div>
@@ -7368,18 +7421,18 @@ function PantallaCarga() {
     <div
       style={{
         minHeight: 620,
-        background: "#0b0b0c",
+        background: "#0A1018",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         gap: 14,
-        fontFamily: "'Inter', sans-serif",
+        fontFamily: "'Barlow', 'Inter', sans-serif",
       }}
     >
       <style>{FONTS}</style>
       <Shield size={40} />
-      <div style={{ fontSize: 13, color: "#8f8f8c" }}>Cargando datos del club…</div>
+      <div style={{ fontSize: 13, color: "#949EAA" }}>Cargando datos del club…</div>
     </div>
   );
 }
@@ -7407,19 +7460,19 @@ class ErrorBoundary extends React.Component {
             justifyContent: "center",
             gap: 14,
             padding: 24,
-            fontFamily: "'Inter', sans-serif",
+            fontFamily: "'Barlow', 'Inter', sans-serif",
             textAlign: "center",
           }}
         >
           <span style={{ fontSize: 28 }}>⚠️</span>
-          <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 500 }}>Esta pantalla tuvo un problema.</div>
-          <div style={{ fontSize: 12, color: "#8f8f8c", maxWidth: 420 }}>
-            El resto del HUB sigue funcionando. Si podés, abrí la consola del navegador (F12), copiá el error en
+          <div style={{ fontSize: 15, color: "#F4F2EE", fontWeight: 500 }}>Esta pantalla tuvo un problema.</div>
+          <div style={{ fontSize: 12, color: "#949EAA", maxWidth: 420 }}>
+            El resto del Hub sigue funcionando. Si podés, abrí la consola del navegador (F12), copiá el error en
             rojo y pasámelo — así lo corrijo de raíz.
           </div>
           <div
             style={{
-              fontSize: 10.5, color: "#e0665c", background: "#1c1c1d", padding: "8px 12px",
+              fontSize: 10.5, color: "#F07362", background: "#1A2431", padding: "8px 12px",
               borderRadius: 6, maxWidth: 480, overflowWrap: "break-word", fontFamily: "monospace",
             }}
           >
@@ -7427,7 +7480,7 @@ class ErrorBoundary extends React.Component {
           </div>
           <button
             onClick={() => this.setState({ error: null }, this.props.onReset)}
-            style={{ ...pillButton, background: "#f2c230", color: "#141415", border: "none", marginTop: 6 }}
+            style={{ ...pillButton, background: "#f2c230", color: "#131C27", border: "none", marginTop: 6 }}
           >
             Volver a Hoy
           </button>
@@ -7459,7 +7512,7 @@ export default function AppRoot() {
   useEffect(() => {
     const userId = sesion?.user?.id || null;
     // Supabase renueva el token de sesión solo cada tanto (y dispara este evento) sin que
-    // cambie el usuario — antes eso recargaba todo el HUB y te devolvía a "Hoy". Ahora solo
+    // cambie el usuario — antes eso recargaba todo el Hub y te devolvía a "Hoy". Ahora solo
     // recargamos cuando el usuario logueado realmente cambia (login/logout/otra cuenta).
     if (userId === userIdCargado.current) return;
     userIdCargado.current = userId;
@@ -7484,16 +7537,16 @@ export default function AppRoot() {
   if (!datosListos) return <PantallaCarga />;
   if (perfil?.bloqueado) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0b0b0c", padding: 24 }}>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0A1018", padding: 24 }}>
         <div style={{ ...cardStyle, maxWidth: 380, padding: "28px 26px", textAlign: "center" }}>
           <div style={{ fontSize: 28, marginBottom: 10 }}>🚫</div>
-          <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 600, marginBottom: 8 }}>Tu acceso está bloqueado</div>
-          <div style={{ fontSize: 12.5, color: "#8f8f8c", marginBottom: 18 }}>
+          <div style={{ fontSize: 15, color: "#F4F2EE", fontWeight: 600, marginBottom: 8 }}>Tu acceso está bloqueado</div>
+          <div style={{ fontSize: 12.5, color: "#949EAA", marginBottom: 18 }}>
             Hablá con el cuerpo técnico o el manager del club si creés que es un error.
           </div>
           <button
             onClick={() => supabase.auth.signOut()}
-            style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6" }}
+            style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#C8CED6" }}
           >
             Cerrar sesión
           </button>
@@ -7503,17 +7556,17 @@ export default function AppRoot() {
   }
   if (perfil && !perfil.confirmado) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0b0b0c", padding: 24 }}>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0A1018", padding: 24 }}>
         <div style={{ ...cardStyle, maxWidth: 380, padding: "28px 26px", textAlign: "center" }}>
           <div style={{ fontSize: 28, marginBottom: 10 }}>⏳</div>
-          <div style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 600, marginBottom: 8 }}>Cuenta pendiente de aprobación</div>
-          <div style={{ fontSize: 12.5, color: "#8f8f8c", marginBottom: 18 }}>
+          <div style={{ fontSize: 15, color: "#F4F2EE", fontWeight: 600, marginBottom: 8 }}>Cuenta pendiente de aprobación</div>
+          <div style={{ fontSize: 12.5, color: "#949EAA", marginBottom: 18 }}>
             Ya confirmaste tu email — ahora falta que el manager del club apruebe tu cuenta desde su panel. Te
             avisamos apenas puedas entrar.
           </div>
           <button
             onClick={() => supabase.auth.signOut()}
-            style={{ ...pillButton, background: "transparent", border: "1px solid #2a2a2c", color: "#c9c9c6" }}
+            style={{ ...pillButton, background: "transparent", border: "1px solid #2B394B", color: "#C8CED6" }}
           >
             Cerrar sesión
           </button>
@@ -7548,10 +7601,10 @@ function useIsMobile() {
 }
 
 const BOTTOM_NAV_ITEMS = [
-  { key: "hoy", label: "Hoy", icon: "📅" },
-  { key: "equipos", label: "Convoc.", icon: "📣" },
-  { key: "sesion", label: "Sesión", icon: "🏉" },
-  { key: "wellness", label: "Wellness", icon: "😴" },
+  { key: "hoy", label: "Hoy", icono: "hoy" },
+  { key: "wellness", label: "Wellness", icono: "wellness" },
+  { key: "equipos", label: "Equipos", icono: "equipos" },
+  { key: "reportes", label: "Informes", icono: "informes" },
 ];
 
 function MasMenu({ onSelect, onClose, active }) {
@@ -7570,8 +7623,8 @@ function MasMenu({ onSelect, onClose, active }) {
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "#141415",
-          borderTop: "1px solid #262627",
+          background: "#131C27",
+          borderTop: "1px solid #263345",
           borderRadius: "14px 14px 0 0",
           width: "100%",
           maxHeight: "80vh",
@@ -7580,14 +7633,14 @@ function MasMenu({ onSelect, onClose, active }) {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <span style={{ fontSize: 15, color: "#f5f4f0", fontWeight: 600, fontFamily: "'Oswald', sans-serif" }}>Menú</span>
-          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "#8f8f8c", fontSize: 20, cursor: "pointer" }}>
+          <span style={{ fontSize: 15, color: "#F4F2EE", fontWeight: 600, fontFamily: "'Barlow Condensed', 'Oswald', sans-serif" }}>Menú</span>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "#949EAA", fontSize: 20, cursor: "pointer" }}>
             ×
           </button>
         </div>
         {NAV.map((g) => (
           <div key={g.group} style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 10, color: "#6b6b68", letterSpacing: 0.6, padding: "0 6px 6px" }}>{g.group.toUpperCase()}</div>
+            <div style={{ fontSize: 10, color: "#6C7886", letterSpacing: 0.6, padding: "0 6px 6px" }}>{g.group.toUpperCase()}</div>
             {g.items.map((item) => (
               <button
                 key={item.key}
@@ -7602,15 +7655,24 @@ function MasMenu({ onSelect, onClose, active }) {
                   fontSize: 14,
                   cursor: "pointer",
                   background: active === item.key ? "#1d1a0c" : "transparent",
-                  color: active === item.key ? "#f2c230" : "#c9c9c6",
+                  color: active === item.key ? "#f2c230" : "#C8CED6",
                 }}
               >
-                {item.label}
+                <span style={{ display: "flex", alignItems: "center", gap: 10 }}><IconoNav nombre={item.icono} />{item.label}</span>
               </button>
             ))}
           </div>
         ))}
-        <div style={{ borderTop: "1px solid #232324", margin: "6px 0 10px" }} />
+        <div style={{ borderTop: "1px solid #223040", margin: "6px 0 10px" }} />
+        {[FEEDBACK_ITEM].map((item) => (
+          <button
+            key={item.key}
+            onClick={() => onSelect(item.key)}
+            style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", padding: "10px 10px", borderRadius: 6, border: "none", fontSize: 14, cursor: "pointer", background: active === item.key ? "#1d1a0c" : "transparent", color: active === item.key ? "#f2c230" : "#C8CED6" }}
+          >
+            <IconoNav nombre={item.icono} />{item.label}
+          </button>
+        ))}
         <button
           onClick={() => onSelect(CONFIG_ITEM.key)}
           style={{
@@ -7623,10 +7685,10 @@ function MasMenu({ onSelect, onClose, active }) {
             fontSize: 14,
             cursor: "pointer",
             background: active === CONFIG_ITEM.key ? "#1d1a0c" : "transparent",
-            color: active === CONFIG_ITEM.key ? "#f2c230" : "#c9c9c6",
+            color: active === CONFIG_ITEM.key ? "#f2c230" : "#C8CED6",
           }}
         >
-          {CONFIG_ITEM.label}
+          <span style={{ display: "flex", alignItems: "center", gap: 10 }}><IconoNav nombre={CONFIG_ITEM.icono} />{CONFIG_ITEM.label}</span>
         </button>
       </div>
     </div>
@@ -7703,13 +7765,14 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
     <div style={{ position: "relative" }}>
       <button
         onClick={() => setAbierto((v) => !v)}
-        style={{ background: "transparent", border: "none", cursor: "pointer", position: "relative", padding: 6, fontSize: 18 }}
+        style={{ background: "transparent", border: "none", cursor: "pointer", position: "relative", padding: 6, color: "#C8CED6", display: "flex" }}
+        aria-label="Notificaciones"
       >
-        🔔
+        <IconoNav nombre="campana" size={20} />
         {sinLeer > 0 && (
           <span
             style={{
-              position: "absolute", top: 0, right: 0, background: "#e0665c", color: "#fff",
+              position: "absolute", top: 0, right: 0, background: "#F07362", color: "#fff",
               borderRadius: "50%", fontSize: 10, minWidth: 15, height: 15, display: "flex",
               alignItems: "center", justifyContent: "center", fontWeight: 700,
             }}
@@ -7722,22 +7785,22 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
         <div
           style={{
             position: "absolute", top: "100%", [align]: 0, marginTop: 8, width: 300, maxWidth: "calc(100vw - 32px)", maxHeight: 360, overflowY: "auto",
-            background: "#141415", border: "1px solid #262627", borderRadius: 10, zIndex: 60, padding: 8,
+            background: "#131C27", border: "1px solid #263345", borderRadius: 10, zIndex: 60, padding: 8,
           }}
         >
-          <div style={{ fontSize: 12, color: "#8f8f8c", padding: "6px 8px" }}>Notificaciones</div>
-          {notis.length === 0 && <div style={{ fontSize: 12, color: "#6b6b68", padding: "10px 8px" }}>Nada por ahora.</div>}
+          <div style={{ fontSize: 12, color: "#949EAA", padding: "6px 8px" }}>Notificaciones</div>
+          {notis.length === 0 && <div style={{ fontSize: 12, color: "#6C7886", padding: "10px 8px" }}>Nada por ahora.</div>}
           {notis.map((n) => (
             <div
               key={n.id}
               onClick={() => abrirNotificacion(n)}
               style={{
-                padding: "10px 8px", borderTop: "1px solid #232324", cursor: "pointer",
+                padding: "10px 8px", borderTop: "1px solid #223040", cursor: "pointer",
                 background: "#1d1a0c",
               }}
             >
-              <div style={{ fontSize: 12.5, color: "#f5f4f0" }}>{n.mensaje}</div>
-              <div style={{ fontSize: 10.5, color: "#6b6b68", marginTop: 2 }}>{tiempoRelativo(n.created_at)}</div>
+              <div style={{ fontSize: 12.5, color: "#F4F2EE" }}>{n.mensaje}</div>
+              <div style={{ fontSize: 10.5, color: "#6C7886", marginTop: 2 }}>{tiempoRelativo(n.created_at)}</div>
             </div>
           ))}
         </div>
@@ -7763,26 +7826,27 @@ function ObrasHub({ perfil }) {
   // sin importar el dispositivo, tal como se elige en Configuración → Apariencia y preferencias.
   const mostrarSidebar = menuPref === "Menú lateral" || (menuPref === "Automático" && !isMobile);
   const activeLabel =
-    NAV.flatMap((g) => g.items).find((i) => i.key === active)?.label ||
+    [...NAV.flatMap((g) => g.items), FEEDBACK_ITEM].find((i) => i.key === active)?.label ||
     (active === CONFIG_ITEM.key ? CONFIG_ITEM.label : undefined);
 
   return (
     <div
       data-tema-claro={temaPref === "Claro" ? "" : undefined}
       style={{
-        display: "flex", minHeight: 620, background: "#0b0b0c", fontFamily: "'Inter', sans-serif",
+        display: "flex", minHeight: 620, background: "#0A1018", fontFamily: "'Barlow', 'Inter', sans-serif",
         filter: temaPref === "Claro" ? "invert(1) hue-rotate(180deg)" : "none",
       }}
     >
       <style>{RESPONSIVE_CSS}</style>
 
       {mostrarSidebar && (
-        <div style={{ width: 220, borderRight: "1px solid #202021", padding: "18px 12px", flexShrink: 0 }}>
+        <div style={{ width: 220, borderRight: "1px solid #1F2A37", padding: "18px 12px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "0 8px 20px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Shield size={26} />
-            <span style={{ fontFamily: "'Oswald', sans-serif", fontSize: 15, fontWeight: 600, color: "#f5f4f0", letterSpacing: 0.5 }}>
-              Obras <span style={{ color: "#f2c230" }}>Rugby Hub</span>
+            <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.05 }}>
+              <span style={{ fontFamily: "'Barlow Condensed', 'Oswald', sans-serif", fontSize: 18, fontWeight: 700, color: "#F4F2EE", letterSpacing: 0.3 }}>Obras</span>
+              <span style={{ fontSize: 10.5, color: "#949EAA", letterSpacing: 1.4, textTransform: "uppercase" }}>Hub del club</span>
             </span>
           </div>
           <CampanaNotificaciones perfil={perfil} align="left" onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
@@ -7790,7 +7854,7 @@ function ObrasHub({ perfil }) {
 
         {NAV.map((g) => (
           <div key={g.group} style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 10, color: "#6b6b68", letterSpacing: 0.6, padding: "0 10px 6px" }}>
+            <div style={{ fontSize: 10, color: "#6C7886", letterSpacing: 0.6, padding: "0 10px 6px" }}>
               {g.group.toUpperCase()}
             </div>
             {g.items.map((item) => (
@@ -7810,12 +7874,12 @@ function ObrasHub({ perfil }) {
                   fontSize: 13,
                   cursor: "pointer",
                   background: active === item.key ? "#1d1a0c" : "transparent",
-                  color: active === item.key ? "#f2c230" : "#c9c9c6",
+                  color: active === item.key ? "#f2c230" : "#C8CED6",
                 }}
               >
-                {item.label}
+                <span style={{ display: "flex", alignItems: "center", gap: 10 }}><IconoNav nombre={item.icono} />{item.label}</span>
                 {item.tag && (
-                  <span style={{ fontSize: 9, color: "#6b6b68", border: "1px solid #333", borderRadius: 4, padding: "1px 5px" }}>
+                  <span style={{ fontSize: 9, color: "#6C7886", border: "1px solid #2E3C4E", borderRadius: 4, padding: "1px 5px" }}>
                     {item.tag}
                   </span>
                 )}
@@ -7824,7 +7888,13 @@ function ObrasHub({ perfil }) {
           </div>
         ))}
 
-        <div style={{ borderTop: "1px solid #202021", margin: "8px 10px 8px" }} />
+        <div style={{ borderTop: "1px solid #1F2A37", margin: "8px 10px 8px" }} />
+        <button
+          onClick={() => setActive(FEEDBACK_ITEM.key)}
+          style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: 6, border: "none", marginBottom: 2, fontSize: 13, cursor: "pointer", background: active === FEEDBACK_ITEM.key ? "#1d1a0c" : "transparent", color: active === FEEDBACK_ITEM.key ? "#f2c230" : "#C8CED6" }}
+        >
+          <IconoNav nombre={FEEDBACK_ITEM.icono} />{FEEDBACK_ITEM.label}
+        </button>
         <button
           onClick={() => setActive(CONFIG_ITEM.key)}
           style={{
@@ -7838,11 +7908,15 @@ function ObrasHub({ perfil }) {
             fontSize: 13,
             cursor: "pointer",
             background: active === CONFIG_ITEM.key ? "#1d1a0c" : "transparent",
-            color: active === CONFIG_ITEM.key ? "#f2c230" : "#c9c9c6",
+            color: active === CONFIG_ITEM.key ? "#f2c230" : "#C8CED6",
           }}
         >
-          {CONFIG_ITEM.label}
+          <span style={{ display: "flex", alignItems: "center", gap: 10 }}><IconoNav nombre={CONFIG_ITEM.icono} />{CONFIG_ITEM.label}</span>
         </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "18px 10px 0", color: "#6C7886", fontSize: 11 }}>
+          <img src="/adn-insignia.svg" alt="" width="18" height="18" />
+          Hecho por ADN Sports
+        </div>
       </div>
       )}
 
@@ -7913,8 +7987,8 @@ function ObrasHub({ perfil }) {
           bottom: 0,
           left: 0,
           right: 0,
-          background: "#101011",
-          borderTop: "1px solid #202021",
+          background: "#0E1620",
+          borderTop: "1px solid #1F2A37",
           padding: "8px 4px",
           display: "flex",
           justifyContent: "space-around",
@@ -7933,11 +8007,11 @@ function ObrasHub({ perfil }) {
               background: "transparent",
               border: "none",
               cursor: "pointer",
-              color: active === item.key ? "#f2c230" : "#8f8f8c",
+              color: active === item.key ? "#f2c230" : "#949EAA",
               fontSize: 10,
             }}
           >
-            <span style={{ fontSize: 18 }}>{item.icon}</span>
+            <IconoNav nombre={item.icono} size={22} />
             {item.label}
           </button>
         ))}
@@ -7951,11 +8025,11 @@ function ObrasHub({ perfil }) {
             background: "transparent",
             border: "none",
             cursor: "pointer",
-            color: masAbierto ? "#f2c230" : "#8f8f8c",
+            color: masAbierto ? "#f2c230" : "#949EAA",
             fontSize: 10,
           }}
         >
-          <span style={{ fontSize: 18 }}>☰</span>
+          <IconoNav nombre="mas" size={22} />
           Más
         </button>
       </div>
@@ -7976,8 +8050,8 @@ function ObrasHub({ perfil }) {
 }
 
 const cardStyle = {
-  background: "#141415",
-  border: "1px solid #232324",
+  background: "#131C27",
+  border: "1px solid #223040",
   borderRadius: 10,
 };
 
@@ -7985,15 +8059,15 @@ const tagStyle = {
   fontSize: 11,
   padding: "3px 8px",
   borderRadius: 5,
-  background: "#1c1c1d",
-  color: "#c9c9c6",
+  background: "#1A2431",
+  color: "#C8CED6",
 };
 
 const pillButton = {
   padding: "8px 16px",
   borderRadius: 6,
   fontSize: 13,
-  fontFamily: "'Inter', sans-serif",
+  fontFamily: "'Barlow', 'Inter', sans-serif",
   fontWeight: 500,
   cursor: "pointer",
 };
@@ -8001,7 +8075,7 @@ const pillButton = {
 const labelStyle = {
   display: "block",
   fontSize: 12,
-  color: "#9a9a96",
+  color: "#9AA3AD",
   marginTop: 14,
   marginBottom: 6,
 };
@@ -8009,13 +8083,13 @@ const labelStyle = {
 const inputStyle = {
   width: "100%",
   boxSizing: "border-box",
-  background: "#0e0e0f",
-  border: "1px solid #2a2a2c",
+  background: "#0C131B",
+  border: "1px solid #2B394B",
   borderRadius: 6,
   padding: "10px 12px",
-  color: "#f5f4f0",
+  color: "#F4F2EE",
   fontSize: 14,
-  fontFamily: "'Inter', sans-serif",
+  fontFamily: "'Barlow', 'Inter', sans-serif",
   outline: "none",
 };
 
@@ -8026,8 +8100,8 @@ const buttonStyle = {
   background: "#f2c230",
   border: "none",
   borderRadius: 6,
-  color: "#141415",
-  fontFamily: "'Oswald', sans-serif",
+  color: "#131C27",
+  fontFamily: "'Barlow Condensed', 'Oswald', sans-serif",
   fontWeight: 600,
   fontSize: 14,
   letterSpacing: 0.5,
