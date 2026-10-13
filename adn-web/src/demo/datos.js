@@ -65,12 +65,13 @@ set(11, { estado: "Lesionado", lesion: { zona: "Isquiotibial izquierdo", vuelve:
 set(6, { estado: "A vigilar", lesion: { zona: "Hombro", vuelve: "entrena diferenciado" } });
 set(21, { estado: "A vigilar", lesion: { zona: "Rodilla", vuelve: "a evaluar el jueves" } });
 // Wellness en baja sostenida: el tipo de alerta que el Hub levanta
-for (const i of [8, 17, 25]) {
+// Cada uno baja distinto (más o menos sueño, dolor o fatiga) para que la demo no muestre valores repetidos.
+[[8, [0, 1, 0, 0]], [17, [1, 0, 1, 0]], [25, [1, 1, 1, 1]]].forEach(([i, extra]) => {
   JUGADORES[i].semana = JUGADORES[i].semana.map((d, k) => ({
-    sueno: Math.max(1, 6 - Math.floor(k * 0.6)), estres: Math.max(1, 5 - Math.floor(k * 0.5)),
-    dolor: Math.max(1, 6 - Math.floor(k * 0.7)), fatiga: Math.max(1, 5 - Math.floor(k * 0.6)),
+    sueno: Math.min(7, Math.max(1, 6 - Math.floor(k * 0.6) + extra[0])), estres: Math.min(7, Math.max(1, 5 - Math.floor(k * 0.5) + extra[1])),
+    dolor: Math.min(7, Math.max(1, 6 - Math.floor(k * 0.7) + extra[2])), fatiga: Math.min(7, Math.max(1, 5 - Math.floor(k * 0.6) + extra[3])),
   }));
-}
+});
 set(17, { asistencia: 54 });
 
 // Quiénes respondieron hoy el wellness (22 de 30)
