@@ -1,11 +1,11 @@
 {
-  "name": "Obras Rugby Hub",
-  "short_name": "Obras Rugby",
-  "description": "Hub de gestión del plantel de rugby de Obras Sanitarias de la Nación",
+  "name": "Hub de Obras",
+  "short_name": "Hub Obras",
+  "description": "Toda la información del club en una app. Hecho por ADN Sports.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0b0b0c",
-  "theme_color": "#0b0b0c",
+  "background_color": "#F4F2EE",
+  "theme_color": "#F4F2EE",
   "icons": [
     {
       "src": "/icon-192.png",

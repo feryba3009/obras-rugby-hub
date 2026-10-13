@@ -11,26 +11,26 @@ import { supabase } from "./supabaseClient";
 // =====================================================================================
 
 const C = {
-  fondoCard: "#141415",
-  borde: "#232324",
-  texto: "#f5f4f0",
-  suave: "#c9c9c6",
-  apagado: "#8f8f8c",
-  acento: "#f2c230",
-  ok: "#5fbf7a",
-  alerta: "#e8a33d",
-  error: "#e5674f",
+  fondoCard: "var(--h-panel)",
+  borde: "var(--h-borde)",
+  texto: "var(--h-texto)",
+  suave: "var(--h-texto2)",
+  apagado: "var(--h-sub)",
+  acento: "var(--h-acento)",
+  ok: "var(--h-ok)",
+  alerta: "var(--h-alerta)",
+  error: "var(--h-error)",
 };
 
 const card = { background: C.fondoCard, border: `1px solid ${C.borde}`, borderRadius: 10, padding: "16px 16px" };
 const boton = {
   padding: "8px 14px", minHeight: 36, borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: "pointer",
-  fontFamily: "'Inter', sans-serif", border: `1px solid ${C.borde}`, background: "#1c1c1d", color: C.texto,
+  fontFamily: "'Inter', sans-serif", border: `1px solid ${C.borde}`, background: "var(--h-panel2)", color: C.texto,
 };
-const botonPrincipal = { ...boton, background: C.acento, color: "#0b0b0c", border: "none" };
+const botonPrincipal = { ...boton, background: C.acento, color: "var(--h-fondo)", border: "none" };
 const input = {
   width: "100%", boxSizing: "border-box", padding: "9px 11px", borderRadius: 6, fontSize: 13,
-  background: "#0f0f10", border: `1px solid ${C.borde}`, color: C.texto, fontFamily: "'Inter', sans-serif",
+  background: "var(--h-fondo)", border: `1px solid ${C.borde}`, color: C.texto, fontFamily: "'Inter', sans-serif",
 };
 
 // Acepta youtu.be/ID, youtube.com/watch?v=ID, /embed/ID, /shorts/ID, /live/ID o el ID solo
@@ -66,7 +66,7 @@ function fechaCorta(iso) {
 
 function Etiqueta({ color, children }) {
   return (
-    <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: "#1c1c1d", color, whiteSpace: "nowrap" }}>
+    <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, background: "var(--h-panel2)", color, whiteSpace: "nowrap" }}>
       {children}
     </span>
   );
@@ -245,7 +245,7 @@ export default function VideotecaPage({ perfil }) {
             key={e.torneo_id}
             type="button"
             onClick={() => setTorneoId(e.torneo_id)}
-            style={{ ...boton, ...(e.torneo_id === torneoId ? { background: "#1d1a0c", color: C.acento, borderColor: "#3a3215" } : {}) }}
+            style={{ ...boton, ...(e.torneo_id === torneoId ? { background: "var(--h-acento-suave)", color: C.acento, borderColor: "var(--h-acento-suave)" } : {}) }}
           >
             {e.torneo}
           </button>
