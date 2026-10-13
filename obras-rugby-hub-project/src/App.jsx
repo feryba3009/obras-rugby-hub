@@ -1282,12 +1282,12 @@ function CalendarioPage({ perfil }) {
       </div>
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
-        <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 340px" }}>
+        <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 300px", minWidth: 0, overflowX: "auto" }}>
           <div style={{ fontSize: 20, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 12 }}>Fixture</div>
           <TablaFixture data={fixture} proximos={proximos} perfil={perfil} />
         </div>
 
-        <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 380px" }}>
+        <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 300px", minWidth: 0, overflowX: "auto" }}>
           <div style={{ fontSize: 20, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 4 }}>Tabla de posiciones</div>
           <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 12 }}>
             Hasta fecha 17 · Berazategui-San José (fecha 17) postergado, por eso tienen un partido menos
@@ -6015,7 +6015,7 @@ function PanelPerfil({ perfil }) {
     setSubiendo(false);
     if (url) {
       setAvatarUrl(url);
-      perfil.avatar_url = url; // mismo objeto que usa el resto del HUB, así queda al día sin recargar
+      perfil.avatar_url = url; // mismo objeto que usa el resto del Hub, así queda al día sin recargar
     }
   }
 
@@ -6126,7 +6126,7 @@ const INVITE_LINK = "https://obrasrugbyhub.app/invitacion";
 function textoInvitacion() {
   return (
     "🏉 ¡Sumate al plantel de Obras Rugby!\n\n" +
-    "Registrate en el HUB del club para cargar tus datos (altura, peso, posición) y quedar disponible para Superior e Intermedia:\n" +
+    "Registrate en el Hub del club para cargar tus datos (altura, peso, posición) y quedar disponible para Superior e Intermedia:\n" +
     INVITE_LINK +
     "\n\n" +
     "Elegí tu nombre en la lista y creá tu usuario y contraseña. ¡Nos vemos en la cancha!"
@@ -6362,7 +6362,7 @@ function PanelStaff({ perfil }) {
 
   return (
     <div>
-      <ConfigTitulo sub="Quién tiene acceso al HUB y con qué rol.">Staff y usuarios</ConfigTitulo>
+      <ConfigTitulo sub="Quién tiene acceso al Hub y con qué rol.">Staff y usuarios</ConfigTitulo>
 
       {pendientes.length > 0 && (
         <div style={{ marginBottom: 20 }}>
@@ -6470,7 +6470,7 @@ function PanelStaff({ perfil }) {
             </button>
           </div>
           <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginTop: 12 }}>
-            El link es de ejemplo — cuando el HUB tenga un dominio propio, se reemplaza acá por la URL real.
+            El link es de ejemplo — cuando el Hub tenga un dominio propio, se reemplaza acá por la URL real.
           </div>
         </div>
       )}
@@ -6492,7 +6492,7 @@ function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantall
   ];
   return (
     <div>
-      <ConfigTitulo sub="Ajustes personales del HUB.">Apariencia y preferencias</ConfigTitulo>
+      <ConfigTitulo sub="Ajustes personales del Hub.">Apariencia y preferencias</ConfigTitulo>
 
       <label style={labelStyle}>APARIENCIA</label>
       <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
@@ -6511,7 +6511,7 @@ function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantall
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 18 }}>El tema del HUB. Se aplica en toda la app al instante.</div>
+      <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 18 }}>El tema del Hub. Se aplica en toda la app al instante.</div>
 
       <label style={labelStyle}>PÁGINA DE INICIO</label>
       <select style={inputStyle} value={pantallaInicio} onChange={(e) => setPantallaInicio(e.target.value)}>
@@ -6522,7 +6522,7 @@ function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantall
         ))}
       </select>
       <div style={{ fontSize: 11, color: "var(--h-sub2)", marginTop: 6, marginBottom: 26 }}>
-        La pantalla que se abre al entrar al HUB. Se aplica la próxima vez que inicies sesión.
+        La pantalla que se abre al entrar al Hub. Se aplica la próxima vez que inicies sesión.
       </div>
 
       <div style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600, marginBottom: 4 }}>📱 Posición del menú (en el celular)</div>
@@ -6564,7 +6564,7 @@ function PanelInstalar() {
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         <div style={{ ...cardStyle, padding: "18px", flex: "1 1 280px" }}>
           <div style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600, marginBottom: 10 }}>🤖 Android</div>
-          <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 10 }}>Con Chrome abierto en el HUB:</div>
+          <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 10 }}>Con Chrome abierto en el Hub:</div>
           <button style={{ ...buttonStyle, width: "auto", padding: "9px 18px", marginTop: 0, marginBottom: 14 }}>⬇ Instalar ahora</button>
           <ol style={{ fontSize: 12.5, color: "var(--h-texto2)", paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
             <li>Tocá el menú ⋮ (arriba a la derecha).</li>
@@ -6715,7 +6715,7 @@ function PanelNotificaciones({ perfil }) {
     <div>
       <ConfigTitulo>🔔 Notificaciones</ConfigTitulo>
       <div style={{ fontSize: 13, color: "var(--h-texto2)", marginBottom: 18, lineHeight: 1.6 }}>
-        Recibí avisos del HUB en el celular <b>aunque no lo tengas abierto</b> (alertas de carga, wellness pendiente,
+        Recibí avisos del Hub en el celular <b>aunque no lo tengas abierto</b> (alertas de carga, wellness pendiente,
         RTP, etc.). Hay que permitirlo una sola vez en este dispositivo.
       </div>
       <div style={{ ...cardStyle, padding: "18px" }}>
@@ -6768,7 +6768,7 @@ function ConfiguracionPage({ menuPref, setMenuPref, temaPref, setTemaPref, panta
     <div>
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Configuración</div>
-        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>Tu cuenta y preferencias en el HUB.</div>
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>Tu cuenta y preferencias en el Hub.</div>
       </div>
 
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
@@ -7378,7 +7378,7 @@ function LoginPage() {
                 </>
               )}
 
-              <label style={labelStyle}>Usuario (para mostrar en el HUB)</label>
+              <label style={labelStyle}>Usuario (para mostrar en el Hub)</label>
               <input style={inputStyle} value={usuario} onChange={(e) => setUsuario(e.target.value)} placeholder="usuario" />
               <label style={labelStyle}>Email</label>
               <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@email.com" />
@@ -7510,7 +7510,7 @@ class ErrorBoundary extends React.Component {
           <span style={{ fontSize: 28 }}>⚠️</span>
           <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 500 }}>Esta pantalla tuvo un problema.</div>
           <div style={{ fontSize: 12, color: "var(--h-sub)", maxWidth: 420 }}>
-            El resto del HUB sigue funcionando. Si podés, abrí la consola del navegador (F12), copiá el error en
+            El resto del Hub sigue funcionando. Si podés, abrí la consola del navegador (F12), copiá el error en
             rojo y pasámelo — así lo corrijo de raíz.
           </div>
           <div
