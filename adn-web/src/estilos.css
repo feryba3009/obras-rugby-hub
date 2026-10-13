@@ -376,5 +376,14 @@ html:has(.d-embed)::-webkit-scrollbar { display: none; }
 .d-j-test b { font: 700 18px var(--titulo); }
 @media (max-width: 760px) {
   .d-modo-movil { display: block; }
-  .d-inferior.tres { grid-template-columns: repeat(3, 1fr); }
+  .d-inferior.cuatro { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* Demo: mi gimnasio */
+.d-gym-ej { border-top: 1px solid var(--d-borde); padding: 12px 0; }
+.d-gym-cab { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; justify-content: space-between; }
+.d-gym-series { display: grid; gap: 8px; margin-top: 8px; }
+.d-gym-series label { display: flex; flex-direction: column; gap: 3px; text-align: center; }
+.d-gym-series input { width: 100%; box-sizing: border-box; border: 1px solid var(--d-borde); background: var(--d-panel2); color: var(--d-texto); border-radius: 10px; padding: 10px 4px; font: 700 17px var(--titulo); text-align: center; min-height: 44px; }
+.d-gym-ok { color: var(--d-ok); font-weight: 600; margin-top: 8px; }
+.d-gym-sel { border: 1px solid var(--d-borde); background: var(--d-panel); color: var(--d-texto); border-radius: 10px; padding: 6px 10px; font: 500 14px var(--texto); }

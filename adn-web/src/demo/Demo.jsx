@@ -27,6 +27,7 @@ function Icono({ d, size = 20 }) {
 const SECCIONES_JUGADOR = [
   { key: "j-hoy", grupo: "Mi semana", label: "Mi día", icono: "M4 5h16v15H4zM4 9h16M9 3v4M15 3v4" },
   { key: "j-wellness", grupo: "Mi semana", label: "Mi wellness", corto: "Wellness", icono: "M3 12h4l3-7 4 14 3-7h4" },
+  { key: "j-gym", grupo: "Mi semana", label: "Mi gimnasio", corto: "Gimnasio", icono: "M3 10v4M6 8v8M18 8v8M21 10v4M6 12h12" },
   { key: "j-perfil", grupo: "Mi perfil", label: "Mi perfil", corto: "Perfil", icono: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c0-4 4-6 8-6s8 2 8 6" },
 ];
 const YO = JUGADORES[9];
@@ -41,6 +42,7 @@ export default function Demo() {
   const [jugadorId, setJugadorId] = useState(null);
   const [modo, setModo] = useState("staff");
   const [miWellness, setMiWellness] = useState(null);
+  const [misCargas, setMisCargas] = useState(null);
   const jugador = JUGADORES.find((j) => j.id === jugadorId);
   const secciones = modo === "staff" ? SECCIONES : SECCIONES_JUGADOR;
 
@@ -98,6 +100,8 @@ export default function Demo() {
           {modo === "jugador" ? (
             seccion === "j-wellness" ? (
               <JugadorWellness respuesta={miWellness} onEnviar={setMiWellness} />
+            ) : seccion === "j-gym" ? (
+              <JugadorGimnasio cargas={misCargas} onGuardar={setMisCargas} />
             ) : seccion === "j-perfil" ? (
               <JugadorPerfil respuesta={miWellness} />
             ) : (
@@ -122,7 +126,7 @@ export default function Demo() {
           )}
         </main>
       </div>
-      <nav className={`d-inferior${modo === "jugador" ? " tres" : ""}`} aria-label="Secciones del Hub">
+      <nav className={`d-inferior${modo === "jugador" ? " cuatro" : ""}`} aria-label="Secciones del Hub">
         {secciones.map((s) => (
           <button key={s.key} type="button" className={`d-inf${seccion === s.key ? " activo" : ""}`} aria-current={seccion === s.key ? "page" : undefined} onClick={() => ir(s.key)}>
             <Icono d={s.icono} size={22} />
@@ -411,6 +415,82 @@ function JugadorWellness({ respuesta, onEnviar }) {
       <button type="button" className="d-boton-j" disabled={!completo} onClick={() => onEnviar(valores)}>
         {completo ? "Enviar" : "Respondé las cuatro preguntas"}
       </button>
+    </>
+  );
+}
+
+// Mi gimnasio: el jugador anota los kilos de cada serie y ve su progreso.
+const HISTORIA_GYM = {
+  "Sentadilla trasera": [["08/09", 90], ["15/09", 92.5], ["22/09", 95], ["29/09", 95], ["06/10", 97.5]],
+  "Peso muerto rumano": [["08/09", 70], ["15/09", 72.5], ["22/09", 75], ["29/09", 77.5], ["06/10", 77.5]],
+  "Press de banca": [["08/09", 62.5], ["15/09", 65], ["22/09", 65], ["29/09", 67.5], ["06/10", 70]],
+};
+const SESION_GYM = [["Sentadilla trasera", 4, 6], ["Peso muerto rumano", 3, 8], ["Press de banca", 4, 6]];
+
+function JugadorGimnasio({ cargas, onGuardar }) {
+  const [borrador, setBorrador] = useState({});
+  const [ver, setVer] = useState("Sentadilla trasera");
+  const historia = (ej) => [...HISTORIA_GYM[ej], ...(cargas?.[ej] ? [["Hoy", Math.max(...cargas[ej])]] : [])];
+  const ultima = (ej) => HISTORIA_GYM[ej][HISTORIA_GYM[ej].length - 1][1];
+  const record = (ej) => Math.max(...historia(ej).map((x) => x[1]));
+  function guardar() {
+    const out = {};
+    for (const [ej, series] of SESION_GYM) {
+      const kg = Array.from({ length: series }, (_, i) => Number(String(borrador[ej]?.[i] ?? "").replace(",", "."))).filter((v) => v > 0);
+      if (kg.length) out[ej] = kg;
+    }
+    if (Object.keys(out).length) onGuardar(out);
+  }
+  const serie = historia(ver);
+  const max = Math.max(...serie.map((x) => x[1]));
+  return (
+    <>
+      <Encabezado titulo="Mi gimnasio" sub="Martes · Fuerza tren inferior y empuje" />
+      <section className="d-tarjeta">
+        <h2>Sesión de hoy</h2>
+        {SESION_GYM.map(([ej, series, reps]) => (
+          <div key={ej} className="d-gym-ej">
+            <div className="d-gym-cab">
+              <b>{ej}</b> <span className="d-chip">{series}x{reps}</span>
+              <span className="d-sub">Última vez: {ultima(ej)} kg · Récord {record(ej)} kg</span>
+            </div>
+            {cargas?.[ej] ? (
+              <p className="d-gym-ok">✓ {cargas[ej].map((k) => `${k} kg × ${reps}`).join(" · ")}</p>
+            ) : (
+              <div className="d-gym-series" style={{ gridTemplateColumns: `repeat(${series}, minmax(0, 1fr))` }}>
+                {Array.from({ length: series }, (_, i) => (
+                  <label key={i}>
+                    <span className="d-sub">Serie {i + 1}</span>
+                    <input type="number" inputMode="decimal" min="0" step="0.5" placeholder={String(ultima(ej))}
+                      aria-label={`${ej}, serie ${i + 1}, kilos`} value={borrador[ej]?.[i] ?? ""}
+                      onChange={(e) => setBorrador((b) => ({ ...b, [ej]: { ...(b[ej] || {}), [i]: e.target.value } }))} />
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {!cargas && <button type="button" className="d-boton-j" onClick={guardar}>Guardar cargas de hoy</button>}
+        {cargas && <button type="button" className="d-link" onClick={() => { onGuardar(null); setBorrador({}); }}>Corregir</button>}
+      </section>
+      <section className="d-tarjeta">
+        <div className="d-gym-cab">
+          <h2>Mi progreso</h2>
+          <select value={ver} onChange={(e) => setVer(e.target.value)} aria-label="Ejercicio" className="d-gym-sel">
+            {Object.keys(HISTORIA_GYM).map((x) => <option key={x}>{x}</option>)}
+          </select>
+        </div>
+        <div className="d-barras" role="img" aria-label={`Peso máximo por sesión en ${ver}: ${serie.map((x) => x[1] + " kg").join(", ")}`} style={{ gridTemplateColumns: `repeat(${serie.length}, 1fr)` }}>
+          {serie.map(([f, kg]) => (
+            <div key={f} className="d-barra">
+              <span className="d-barra-v">{kg}</span>
+              <span className="d-barra-col" style={{ height: `${(kg / max) * 100}%`, background: f === "Hoy" ? "var(--d-ok)" : "var(--d-club)" }} />
+              <span className="d-sub">{f}</span>
+            </div>
+          ))}
+        </div>
+        <p className="d-sub">+{Math.round((serie[serie.length - 1][1] - serie[0][1]) * 10) / 10} kg desde el {serie[0][0]}. Tu preparador físico ve lo mismo en su tablero.</p>
+      </section>
     </>
   );
 }

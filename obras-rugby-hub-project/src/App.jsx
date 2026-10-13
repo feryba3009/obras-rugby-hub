@@ -1822,7 +1822,7 @@ function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDele
   );
 }
 
-function GimnasioPage() {
+function GimnasioPage({ perfil }) {
   const [plan, setPlan] = useState(PLAN_GYM_INICIAL);
   const [dia, setDia] = useState("Lunes");
   const [editMode, setEditMode] = useState(false);
@@ -1924,6 +1924,240 @@ function GimnasioPage() {
         >
           + Agregar bloque
         </button>
+      )}
+
+      {!editMode && <RegistroCargas perfil={perfil} dia={dia} bloques={bloques} />}
+    </div>
+  );
+}
+
+// ───────────────────────── Registro de cargas del gimnasio ─────────────────────────
+// El jugador anota peso y repeticiones de cada serie; el staff ve y carga los de todos.
+// Solo se registran los ejercicios con formato "series x repeticiones" (ej. 4x6).
+const fechaHoyGym = () => new Date().toLocaleDateString("sv-SE");
+const fechaCorta = (iso) => { const [, m, d] = iso.split("-"); return `${d}/${m}`; };
+function ejerciciosConCarga(bloques) {
+  return bloques.flatMap((b) =>
+    b.ejercicios
+      .map((e) => ({ ...e, m: String(e.valor || "").match(/^(\d+)\s*x\s*(\d+)/i) }))
+      .filter((e) => e.nombre && e.m && !/["'’”]/.test(String(e.valor))) // los de tiempo (3x40") no llevan peso
+      .map((e) => ({ nombre: e.nombre, series: Math.min(10, Number(e.m[1])), reps: Number(e.m[2]), valor: e.valor }))
+  );
+}
+// Agrupa los registros por fecha: mejor peso y volumen (kg x reps) de cada día.
+function resumenPorFecha(registros) {
+  const porFecha = {};
+  for (const r of registros) {
+    if (!porFecha[r.fecha]) porFecha[r.fecha] = { fecha: r.fecha, max: 0, volumen: 0, series: 0 };
+    const f = porFecha[r.fecha];
+    const kg = Number(r.peso_kg) || 0;
+    f.max = Math.max(f.max, kg);
+    f.volumen += kg * (Number(r.repeticiones) || 0);
+    f.series += 1;
+  }
+  return Object.values(porFecha).sort((a, b) => a.fecha.localeCompare(b.fecha));
+}
+
+function RegistroCargas({ perfil, dia, bloques }) {
+  const staff = esStaff(perfil);
+  const [jugadores, setJugadores] = useState([]);
+  const [jugadorId, setJugadorId] = useState(staff ? "" : perfil?.jugador_id || "");
+  const [registros, setRegistros] = useState([]);
+  const [cargando, setCargando] = useState(false);
+  const [borrador, setBorrador] = useState({});
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [ejercicioVer, setEjercicioVer] = useState("");
+  const ejercicios = ejerciciosConCarga(bloques);
+
+  useEffect(() => {
+    if (!staff) return;
+    supabase.from("jugadores").select("id, nombre").order("nombre").then(({ data }) => setJugadores(data || []));
+  }, [staff]);
+
+  async function cargar() {
+    if (!jugadorId) { setRegistros([]); return; }
+    setCargando(true);
+    const { data } = await supabase
+      .from("registros_gimnasio")
+      .select("id, fecha, ejercicio, serie, repeticiones, peso_kg")
+      .eq("jugador_id", jugadorId)
+      .order("fecha", { ascending: true })
+      .limit(2000);
+    setRegistros(data || []);
+    setCargando(false);
+  }
+  useEffect(() => { cargar(); setBorrador({}); setMsg(""); }, [jugadorId]);
+
+  if (!staff && !perfil?.jugador_id) return null;
+
+  const hoy = fechaHoyGym();
+  const deHoy = (ej) => registros.filter((r) => r.ejercicio === ej && r.fecha === hoy);
+  const ultimaVez = (ej) => {
+    const previos = registros.filter((r) => r.ejercicio === ej && r.fecha < hoy);
+    if (!previos.length) return null;
+    const f = previos[previos.length - 1].fecha;
+    const del = previos.filter((r) => r.fecha === f);
+    return { fecha: f, max: Math.max(...del.map((r) => Number(r.peso_kg) || 0)), reps: del.map((r) => r.repeticiones).join("-") };
+  };
+  const record = (ej) => Math.max(0, ...registros.filter((r) => r.ejercicio === ej).map((r) => Number(r.peso_kg) || 0));
+
+  function valor(ej, i, campo, def) {
+    const v = borrador[ej]?.[i]?.[campo];
+    return v === undefined ? def : v;
+  }
+  function cambiar(ej, i, campo, v) {
+    setBorrador((b) => ({ ...b, [ej]: { ...(b[ej] || {}), [i]: { ...(b[ej]?.[i] || {}), [campo]: v } } }));
+  }
+
+  async function guardar() {
+    const filas = [];
+    for (const e of ejercicios) {
+      if (deHoy(e.nombre).length) continue;
+      for (let i = 0; i < e.series; i++) {
+        const kg = valor(e.nombre, i, "kg", "");
+        if (kg === "" || kg === null) continue;
+        filas.push({
+          jugador_id: jugadorId, fecha: hoy, dia_plan: dia, ejercicio: e.nombre, serie: i + 1,
+          repeticiones: Number(valor(e.nombre, i, "reps", e.reps)) || null, peso_kg: Number(String(kg).replace(",", ".")),
+        });
+      }
+    }
+    if (!filas.length) { setMsg("Cargá el peso de al menos una serie."); return; }
+    if (filas.some((f) => !(f.peso_kg >= 0 && f.peso_kg <= 1000))) { setMsg("Revisá los pesos: tienen que ser números entre 0 y 1000."); return; }
+    setGuardando(true);
+    const { error } = await supabase.from("registros_gimnasio").insert(filas);
+    setGuardando(false);
+    if (error) { setMsg("No se pudo guardar: " + error.message); return; }
+    setBorrador({});
+    setMsg(`✓ Guardado: ${filas.length} series.`);
+    cargar();
+  }
+  async function borrarDeHoy(ej) {
+    if (!window.confirm(`¿Borrar lo cargado hoy en ${ej}?`)) return;
+    await supabase.from("registros_gimnasio").delete().eq("jugador_id", jugadorId).eq("fecha", hoy).eq("ejercicio", ej);
+    cargar();
+  }
+
+  const ejerciciosConHistoria = [...new Set(registros.map((r) => r.ejercicio))];
+  const verEj = ejercicioVer || ejerciciosConHistoria[0] || "";
+  const serie = resumenPorFecha(registros.filter((r) => r.ejercicio === verEj)).slice(-10);
+  const maxSerie = Math.max(1, ...serie.map((x) => x.max));
+  const numInput = { ...inputStyle, padding: "8px 8px", fontSize: 14, width: "100%", textAlign: "center" };
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ fontSize: 24, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", lineHeight: 1.1 }}>
+        {staff ? "Cargas del plantel" : "Mis cargas"}
+      </div>
+      <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2, marginBottom: 14 }}>
+        {staff ? "Elegí un jugador para ver su progreso o cargar su sesión." : "Anotá el peso de cada serie. Tu preparador físico ve tu progreso."}
+      </div>
+
+      {staff && (
+        <select value={jugadorId} onChange={(e) => setJugadorId(e.target.value)} style={{ ...inputStyle, maxWidth: 360, marginBottom: 16 }} aria-label="Jugador">
+          <option value="">Elegí un jugador…</option>
+          {jugadores.map((j) => <option key={j.id} value={j.id}>{j.nombre}</option>)}
+        </select>
+      )}
+
+      {jugadorId && (
+        <>
+          <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 16 }}>
+            <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 600, marginBottom: 4 }}>Sesión de hoy · {dia}</div>
+            {ejercicios.length === 0 ? (
+              <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Este día no tiene ejercicios con series y repeticiones para registrar.</div>
+            ) : (
+              ejercicios.map((e) => {
+                const cargadoHoy = deHoy(e.nombre);
+                const ult = ultimaVez(e.nombre);
+                const pr = record(e.nombre);
+                return (
+                  <div key={e.nombre} style={{ borderTop: "1px solid var(--h-borde)", padding: "12px 0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
+                      <span style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600 }}>{e.nombre} <span style={tagStyle}>{e.valor}</span></span>
+                      <span style={{ fontSize: 12, color: "var(--h-sub)" }}>
+                        {ult ? `Última vez (${fechaCorta(ult.fecha)}): ${ult.max} kg · ${ult.reps}` : "Primera vez"}{pr > 0 ? ` · Récord ${pr} kg` : ""}
+                      </span>
+                    </div>
+                    {cargadoHoy.length ? (
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8, fontSize: 13, color: "var(--h-ok)" }}>
+                        ✓ {cargadoHoy.sort((a, b) => a.serie - b.serie).map((r) => `${Number(r.peso_kg)} kg × ${r.repeticiones ?? "–"}`).join(" · ")}
+                        <button onClick={() => borrarDeHoy(e.nombre)} style={{ background: "transparent", border: "none", color: "var(--h-sub2)", cursor: "pointer", fontSize: 12, textDecoration: "underline" }}>corregir</button>
+                      </div>
+                    ) : (
+                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${e.series}, minmax(64px, 1fr))`, gap: 8, marginTop: 8, overflowX: "auto" }}>
+                        {Array.from({ length: e.series }, (_, i) => (
+                          <div key={i}>
+                            <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginBottom: 3, textAlign: "center" }}>Serie {i + 1}</div>
+                            <input
+                              type="number" inputMode="decimal" min="0" step="0.5" placeholder={ult ? String(ult.max) : "kg"}
+                              aria-label={`${e.nombre}, serie ${i + 1}, kilos`}
+                              value={valor(e.nombre, i, "kg", "")} onChange={(ev) => cambiar(e.nombre, i, "kg", ev.target.value)}
+                              style={numInput}
+                            />
+                            <input
+                              type="number" inputMode="numeric" min="0" step="1"
+                              aria-label={`${e.nombre}, serie ${i + 1}, repeticiones`}
+                              value={valor(e.nombre, i, "reps", e.reps)} onChange={(ev) => cambiar(e.nombre, i, "reps", ev.target.value)}
+                              style={{ ...numInput, marginTop: 4, fontSize: 12, padding: "5px 6px", color: "var(--h-sub)" }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+            {ejercicios.length > 0 && (
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
+                <button onClick={guardar} disabled={guardando} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none", fontWeight: 600 }}>
+                  {guardando ? "Guardando…" : "Guardar cargas de hoy"}
+                </button>
+                <span style={{ fontSize: 11.5, color: "var(--h-sub2)" }}>Arriba los kilos, abajo las repeticiones.</span>
+                {msg && <span style={{ fontSize: 12.5, color: msg.startsWith("✓") ? "var(--h-ok)" : "var(--h-error)" }}>{msg}</span>}
+              </div>
+            )}
+          </div>
+
+          <div style={{ ...cardStyle, padding: "16px 18px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 600 }}>Progreso</div>
+              {ejerciciosConHistoria.length > 0 && (
+                <select value={verEj} onChange={(e) => setEjercicioVer(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "6px 10px", fontSize: 13 }} aria-label="Ejercicio">
+                  {ejerciciosConHistoria.map((x) => <option key={x}>{x}</option>)}
+                </select>
+              )}
+            </div>
+            {cargando ? (
+              <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Cargando…</div>
+            ) : serie.length === 0 ? (
+              <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay cargas registradas. Cuando se guarden, acá se ve la evolución.</div>
+            ) : (
+              <>
+                <div role="img" aria-label={`Peso máximo por sesión en ${verEj}: ${serie.map((x) => x.max + " kg").join(", ")}`}
+                  style={{ display: "grid", gridTemplateColumns: `repeat(${serie.length}, minmax(0, 1fr))`, gap: 6, alignItems: "end", height: 140 }}>
+                  {serie.map((x) => (
+                    <div key={x.fecha} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, height: "100%", justifyContent: "flex-end" }}>
+                      <span style={{ fontSize: 11, color: "var(--h-texto2)", fontWeight: 600 }}>{x.max}</span>
+                      <span style={{ width: "70%", maxWidth: 34, height: `${Math.max(4, (x.max / maxSerie) * 100)}%`, background: "var(--h-acento)", borderRadius: "4px 4px 0 0" }} />
+                      <span style={{ fontSize: 10.5, color: "var(--h-sub2)" }}>{fechaCorta(x.fecha)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 12, fontSize: 12.5, color: "var(--h-sub)" }}>
+                  <span>Récord: <b style={{ color: "var(--h-texto)" }}>{record(verEj)} kg</b></span>
+                  {serie.length > 1 && (
+                    <span>Cambio desde {fechaCorta(serie[0].fecha)}: <b style={{ color: serie[serie.length - 1].max >= serie[0].max ? "var(--h-ok)" : "var(--h-error)" }}>
+                      {serie[serie.length - 1].max - serie[0].max >= 0 ? "+" : ""}{Math.round((serie[serie.length - 1].max - serie[0].max) * 10) / 10} kg</b></span>
+                  )}
+                  <span>Volumen última sesión: <b style={{ color: "var(--h-texto)" }}>{Math.round(serie[serie.length - 1].volumen)} kg</b></span>
+                </div>
+              </>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
@@ -7977,7 +8211,7 @@ function ObrasHub({ perfil }) {
         ) : active === "sesion" ? (
           <SesionPage perfil={perfil} />
         ) : active === "gimnasio" ? (
-          <GimnasioPage />
+          <GimnasioPage perfil={perfil} />
         ) : active === "plantel-completo" ? (
           <PlantelCompletoPage perfil={perfil} />
         ) : active === "equipos" ? (
