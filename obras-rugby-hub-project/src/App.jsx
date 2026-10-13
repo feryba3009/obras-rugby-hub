@@ -6558,7 +6558,7 @@ function PanelInstalar() {
     <div>
       <ConfigTitulo>📲 Instalar la app</ConfigTitulo>
       <div style={{ fontSize: 13, color: "var(--h-texto2)", marginBottom: 20, lineHeight: 1.6 }}>
-        Obras Rugby Hub se instala en el celular como una app: ícono en la pantalla de inicio y pantalla completa,
+        El Hub de Obras se instala en el celular como una app: ícono en la pantalla de inicio y pantalla completa,
         sin la barra del navegador. No ocupa casi nada y se actualiza sola.
       </div>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
@@ -7250,7 +7250,7 @@ function LoginPage() {
               color: "var(--h-texto)",
             }}
           >
-            Obras <span style={{ color: "var(--h-acento)" }}>Rugby Hub</span>
+            Hub de <span style={{ color: "var(--h-acento)" }}>Obras</span>
           </div>
           <div style={{ width: 36, height: 2, background: "var(--h-acento)", marginTop: 10 }} />
         </div>
@@ -7396,7 +7396,7 @@ function LoginPage() {
         </div>
 
         <div style={{ textAlign: "center", fontSize: 11, color: "var(--h-sub2)", marginTop: 18 }}>
-          Obras Rugby Hub · datos del club
+          Hub de Obras · hecho por ADN Sports
         </div>
       </div>
     </div>
