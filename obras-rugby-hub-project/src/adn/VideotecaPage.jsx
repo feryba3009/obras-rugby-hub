@@ -211,7 +211,7 @@ export default function VideotecaPage({ perfil }) {
   if (!esStaff) {
     return (
       <div style={{ ...card, maxWidth: 520 }}>
-        <div style={{ fontSize: 15, color: C.texto, fontWeight: 600, marginBottom: 6 }}>Videoteca</div>
+        <div style={{ fontSize: 15, color: C.texto, fontWeight: 600, marginBottom: 6 }}>Videos del rival</div>
         <div style={{ fontSize: 13, color: C.apagado }}>La videoteca es solo para el cuerpo técnico y el manager del club.</div>
       </div>
     );
@@ -220,7 +220,7 @@ export default function VideotecaPage({ perfil }) {
   if (estados.length === 0) {
     return (
       <div style={{ ...card, maxWidth: 560 }}>
-        <div style={{ fontSize: 15, color: C.texto, fontWeight: 600, marginBottom: 6 }}>Videoteca</div>
+        <div style={{ fontSize: 15, color: C.texto, fontWeight: 600, marginBottom: 6 }}>Videos del rival</div>
         <div style={{ fontSize: 13, color: C.apagado }}>
           Tu club todavía no está inscripto en ningún torneo de ADN Sports. Cuando lo esté, acá vas a ver el fixture
           y vas a poder cargar y mirar videos de partidos.

@@ -12,45 +12,48 @@ const FONTS = `
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600&display=swap');
 `;
 
-// Menú del Hub, ordenado por cómo transcurre la semana de un staff: la semana, el plantel,
-// el partido y lo que viene después. Cada sección tiene su ícono de línea (sin emojis).
+// Menú de la app, agrupado por función: entrenamiento, jugadores, partido y análisis.
+// Cada sección tiene su ícono de línea (sin emojis). Un grupo sin nombre va sin título.
 const NAV = [
   {
-    group: "La semana",
+    group: "",
+    items: [{ key: "hoy", label: "Inicio", icono: "inicio" }],
+  },
+  {
+    group: "Entrenamiento",
     items: [
-      { key: "hoy", label: "Hoy", icono: "inicio" },
-      { key: "calendario", label: "Calendario", icono: "calendario" },
-      { key: "sesion", label: "Sesión del día", icono: "sesion" },
-      { key: "gimnasio", label: "Plan de gimnasio", icono: "gimnasio" },
+      { key: "calendario", label: "Agenda", icono: "calendario" },
+      { key: "sesion", label: "Práctica del día", icono: "sesion" },
+      { key: "gimnasio", label: "Gimnasio", icono: "gimnasio" },
       { key: "wellness", label: "Wellness", icono: "wellness" },
     ],
   },
   {
-    group: "El plantel",
+    group: "Jugadores",
     items: [
-      { key: "plantel-completo", label: "Jugadores", icono: "plantel" },
-      { key: "disponibilidad", label: "Disponibilidad", icono: "disponibilidad" },
-      { key: "evaluaciones", label: "Evaluaciones físicas", icono: "evaluaciones" },
-      { key: "rtp", label: "Lesiones y vuelta al juego", icono: "rtp" },
+      { key: "plantel-completo", label: "Plantel", icono: "plantel" },
+      { key: "disponibilidad", label: "Disponibles", icono: "disponibilidad" },
+      { key: "evaluaciones", label: "Tests físicos", icono: "evaluaciones" },
+      { key: "rtp", label: "Lesiones", icono: "rtp" },
     ],
   },
   {
-    group: "El partido",
+    group: "Partido",
     items: [
-      { key: "equipos", label: "Convocatoria", icono: "equipos" },
-      { key: "videoteca", label: "Videoteca", icono: "videoteca" },
+      { key: "equipos", label: "Equipo del partido", icono: "equipos" },
+      { key: "videoteca", label: "Videos del rival", icono: "videoteca" },
     ],
   },
   {
-    group: "Después del partido",
+    group: "Análisis",
     items: [
-      { key: "reportes", label: "Informes", icono: "reportes" },
-      { key: "veo", label: "Análisis de video", icono: "analisis" },
+      { key: "reportes", label: "Estadísticas", icono: "reportes" },
       { key: "gps", label: "GPS", icono: "gps" },
+      { key: "veo", label: "Análisis de video", icono: "analisis" },
     ],
   },
   {
-    group: "El club",
+    group: "ADN",
     items: [{ key: "feedback-adn", label: "Ideas para ADN", icono: "feedback" }],
   },
 ];
@@ -1146,7 +1149,7 @@ function CalendarioPage({ perfil }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
         <div>
-          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Calendario</div>
+          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Agenda</div>
           <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
             Fixture y posiciones · Desarrollo · URBA — datos reales (urba.org.ar)
           </div>
@@ -1596,7 +1599,7 @@ function SesionPage({ perfil }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
-          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Sesión del día</div>
+          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Práctica del día</div>
           <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>{sesion.fecha}</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -1871,7 +1874,7 @@ function GimnasioPage({ perfil }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
-          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Plan de gimnasio</div>
+          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Gimnasio</div>
           <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>3 estímulos por semana</div>
         </div>
         {editMode ? (
@@ -4647,7 +4650,7 @@ function RtpPage() {
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Lesiones y vuelta al juego</div>
+        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Lesiones</div>
         <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>Lesiones actuales cruzadas con el historial médico</div>
       </div>
 
@@ -5333,7 +5336,7 @@ function ReportesPage({ perfil }) {
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Informes</div>
+        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Estadísticas</div>
         <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
           Lo que dejó el partido, listo para compartir con el staff.
         </div>
@@ -5431,7 +5434,7 @@ function EvaluacionesPage({ perfil }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
-          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Evaluaciones físicas</div>
+          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Tests físicos</div>
           <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
             Últimos tests físicos cargados por el preparador físico
           </div>
@@ -6040,7 +6043,7 @@ function EquiposPage({ perfil }) {
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Convocatoria</div>
+        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Equipo del partido</div>
         <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>Elegí una categoría para ver su formación</div>
       </div>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -6085,7 +6088,7 @@ function DisponibilidadPage() {
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Disponibilidad</div>
+        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Disponibles</div>
         <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 2 }}>Combina el estado físico (Return to Play) y la habilitación médica de cada jugador.</div>
       </div>
 
@@ -6752,9 +6755,9 @@ function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantall
     { key: "Menú lateral", titulo: "Menú lateral", desc: "Siempre al costado, como en la compu" },
   ];
   const paginasInicio = [
-    { key: "hoy", label: "📅 Hoy" },
-    { key: "calendario", label: "🏆 Calendario" },
-    { key: "equipos", label: "🛡️ Equipos" },
+    { key: "hoy", label: "📅 Inicio" },
+    { key: "calendario", label: "🏆 Agenda" },
+    { key: "equipos", label: "🛡️ Equipo del partido" },
   ];
   return (
     <div>
@@ -7290,7 +7293,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
           <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Todavía no planificaste la sesión de hoy.</div>
         </div>
         <div style={{ ...cardStyle, padding: "18px 20px" }}>
-          <EncabezadoTarjeta titulo="La temporada" accion="Ver calendario" onAccion={() => onNavigate("calendario")} />
+          <EncabezadoTarjeta titulo="La temporada" accion="Ver agenda" onAccion={() => onNavigate("calendario")} />
           <div style={{ display: "flex", gap: 18, alignItems: "baseline", flexWrap: "wrap" }}>
             <div style={{ fontFamily: "var(--h-titulo)", fontSize: 28, fontWeight: 800, color: "var(--h-texto)" }}>
               {record.g}G <span style={{ color: "var(--h-sub)" }}>·</span> {record.e}E <span style={{ color: "var(--h-sub)" }}>·</span> {record.p}P
@@ -7333,7 +7336,7 @@ function CaminoAlPartido({ proximo, onNavigate }) {
     return (
       <div style={{ ...caja, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div style={{ fontFamily: "var(--h-titulo)", fontSize: 24, fontWeight: 800 }}>Sin próximo partido confirmado</div>
-        <BotonCamino fuerte onClick={() => onNavigate("calendario")}>Ver calendario</BotonCamino>
+        <BotonCamino fuerte onClick={() => onNavigate("calendario")}>Ver agenda</BotonCamino>
       </div>
     );
   }
@@ -7373,7 +7376,7 @@ function CaminoAlPartido({ proximo, onNavigate }) {
       )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 }}>
         <BotonCamino onClick={() => onNavigate("videoteca")}>Ver al rival</BotonCamino>
-        <BotonCamino fuerte onClick={() => onNavigate("equipos")}>Armar la convocatoria</BotonCamino>
+        <BotonCamino fuerte onClick={() => onNavigate("equipos")}>Armar el equipo</BotonCamino>
       </div>
     </section>
   );
@@ -7914,10 +7917,10 @@ function useIsMobile() {
 }
 
 const BOTTOM_NAV_ITEMS = [
-  { key: "hoy", label: "Hoy", icono: "inicio" },
+  { key: "hoy", label: "Inicio", icono: "inicio" },
+  { key: "calendario", label: "Agenda", icono: "calendario" },
   { key: "plantel-completo", label: "Plantel", icono: "plantel" },
-  { key: "wellness", label: "Wellness", icono: "wellness" },
-  { key: "calendario", label: "Partidos", icono: "calendario" },
+  { key: "equipos", label: "Partido", icono: "equipos" },
 ];
 
 // Botón de una sección del menú (lateral o del panel "Más").
@@ -7972,14 +7975,14 @@ function MasMenu({ onSelect, onClose, active }) {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <span style={{ fontSize: 22, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Todas las secciones</span>
+          <span style={{ fontSize: 22, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Menú</span>
           <button onClick={onClose} aria-label="Cerrar" style={{ background: "transparent", border: "none", color: "var(--h-sub)", fontSize: 24, cursor: "pointer", minWidth: 44, minHeight: 44 }}>
             ×
           </button>
         </div>
         {NAV.map((g) => (
-          <div key={g.group} style={{ marginBottom: 14 }}>
-            <TituloGrupo>{g.group}</TituloGrupo>
+          <div key={g.group || "inicio"} style={{ marginBottom: 14 }}>
+            {g.group && <TituloGrupo>{g.group}</TituloGrupo>}
             {g.items.map((item) => (
               <BotonNav key={item.key} item={item} grande activo={active === item.key} onClick={() => onSelect(item.key)} />
             ))}
@@ -8180,8 +8183,8 @@ function ObrasHub({ perfil }) {
           </div>
 
           {NAV.map((g) => (
-            <div key={g.group} style={{ marginBottom: 14 }}>
-              <TituloGrupo>{g.group}</TituloGrupo>
+            <div key={g.group || "inicio"} style={{ marginBottom: 14 }}>
+              {g.group && <TituloGrupo>{g.group}</TituloGrupo>}
               {g.items.map((item) => (
                 <BotonNav key={item.key} item={item} activo={active === item.key} onClick={() => setActive(item.key)} />
               ))}
@@ -8270,7 +8273,7 @@ function ObrasHub({ perfil }) {
             padding: "6px 4px calc(6px + env(safe-area-inset-bottom))", display: "grid", gridTemplateColumns: "repeat(5, 1fr)", zIndex: 40,
           }}
         >
-          {[...BOTTOM_NAV_ITEMS, { key: "__mas", label: "Todo", icono: "mas" }].map((item) => {
+          {[...BOTTOM_NAV_ITEMS, { key: "__mas", label: "Menú", icono: "mas" }].map((item) => {
             const activo = item.key === "__mas" ? masAbierto : active === item.key;
             return (
               <button
