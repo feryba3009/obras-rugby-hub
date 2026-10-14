@@ -165,6 +165,8 @@ p { margin: 0; }
 .mp-img { display: block; width: auto; }
 .mp-nombre { font: 700 16px var(--texto); color: #0E1620; white-space: nowrap; }
 .plan-mp { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--gris); }
+.plan-mp .mp-img { background: #fff; border-radius: 8px; padding: 4px 8px; box-sizing: content-box; }
+.plan.destacado .plan-mp { color: #C3CBD5; }
 @media (max-width: 860px) { .pasos { grid-template-columns: 1fr; } }
 
 /* ----- Preguntas ----- */
