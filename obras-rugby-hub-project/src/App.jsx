@@ -17,15 +17,17 @@ const FONTS = `
 const NAV = [
   {
     group: "",
-    items: [{ key: "hoy", label: "Inicio", icono: "inicio" }],
+    items: [
+      { key: "hoy", label: "Inicio", icono: "inicio" },
+      { key: "wellness", label: "Wellness", icono: "wellness" },
+      { key: "gimnasio", label: "Gimnasio", icono: "gimnasio" },
+    ],
   },
   {
     group: "Entrenamiento",
     items: [
       { key: "calendario", label: "Agenda", icono: "calendario" },
       { key: "sesion", label: "Práctica del día", icono: "sesion" },
-      { key: "gimnasio", label: "Gimnasio", icono: "gimnasio" },
-      { key: "wellness", label: "Wellness", icono: "wellness" },
     ],
   },
   {
@@ -7110,10 +7112,11 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   useEffect(() => {
     supabase
       .from("wellness_respuestas")
-      .select("estres, sueno, doms, fatiga, jugadores(nombre)")
+      .select("jugador_id, estres, sueno, doms, fatiga, jugadores(nombre)")
       .eq("fecha", hoyISO())
       .then(({ data }) => {
         const conReadiness = (data || []).map((r) => ({
+          jugadorId: r.jugador_id,
           nombre: r.jugadores?.nombre || "—",
           readiness: r.estres + r.sueno + r.doms + r.fatiga,
         }));
@@ -7196,6 +7199,57 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
     </div>
   );
 
+  const staff = puedeGestionar(perfil) || perfil?.rol === "Cuerpo médico";
+  const esJugador = perfil?.rol === "Jugador";
+  const yaHizoWellness = esJugador && alertasHoy.respuestas.some((x) => x.jugadorId === perfil?.jugador_id);
+  const diaHoy = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date().getDay()];
+  const gymHoy = PLAN_GYM_INICIAL[diaHoy];
+  const proximoGym = DIAS_GYM.find((d) => ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].indexOf(d) > ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].indexOf(diaHoy)) || DIAS_GYM[0];
+  const practicaHoy = SESIONES_INICIALES[diaHoy];
+  const bloquesPractica = practicaHoy ? Object.keys(practicaHoy).filter((k) => k.startsWith("grupo")).flatMap((k) => practicaHoy[k]) : [];
+  const aVigilarNombres = POOL.filter((j) => ["A vigilar", "Lesionado"].includes(disponibilidadReal(j))).map((j) => ({ nombre: j.id, estado: disponibilidadReal(j) }));
+  const ultimos = fixture.filter((p) => p.res).slice(-3).reverse();
+  const fechaCorta = new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+  const totalPlantel = POOL.length;
+
+  const tarjeta = { ...cardStyle, padding: "16px 18px" };
+  const AccesoDiario = ({ icono, titulo, linea, estado, onClick }) => (
+    <button
+      onClick={onClick}
+      style={{
+        ...tarjeta, margin: 0, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, width: "100%",
+        fontFamily: "var(--h-texto-fuente)", color: "var(--h-texto)", borderLeft: "4px solid var(--h-club)",
+      }}
+    >
+      <span style={{ width: 42, height: 42, borderRadius: 12, background: "var(--h-acento-suave)", color: "var(--h-club-tinta)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <Icono nombre={icono} size={22} />
+      </span>
+      <span style={{ minWidth: 0, flex: 1 }}>
+        <span style={{ display: "block", fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800 }}>{titulo}</span>
+        <span style={{ display: "block", fontSize: 13, color: "var(--h-sub)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{linea}</span>
+      </span>
+      {estado && <span style={{ ...tagStyle, borderRadius: 999, fontWeight: 700, background: estado.fondo, color: estado.color, flexShrink: 0 }}>{estado.texto}</span>}
+    </button>
+  );
+
+  let lineaWellness, estadoWellness;
+  if (alertasHoy.cargando) lineaWellness = "Cargando…";
+  else if (staff) {
+    lineaWellness = `${alertasHoy.respuestas.length}${totalPlantel ? ` de ${totalPlantel}` : ""} respondieron hoy`;
+    estadoWellness = aMirarWellness.length
+      ? { texto: `${aMirarWellness.length} para mirar`, fondo: "var(--h-error-suave)", color: "var(--h-error)" }
+      : alertasHoy.respuestas.length ? { texto: "Todo bien", fondo: "var(--h-ok-suave, var(--h-acento-suave))", color: "var(--h-ok)" } : null;
+  } else if (yaHizoWellness) {
+    lineaWellness = "Ya lo cargaste hoy. ¡Gracias!";
+    estadoWellness = { texto: "Listo", fondo: "var(--h-ok-suave, var(--h-acento-suave))", color: "var(--h-ok)" };
+  } else {
+    lineaWellness = "Contá cómo llegás hoy: lleva un minuto.";
+    estadoWellness = { texto: "Pendiente", fondo: "var(--h-alerta-suave, var(--h-acento-suave))", color: "var(--h-alerta)" };
+  }
+  const lineaGym = gymHoy
+    ? gymHoy.map((b) => b.titulo.charAt(0) + b.titulo.slice(1).toLowerCase()).join(" · ")
+    : `Hoy no hay gimnasio. El próximo es el ${proximoGym.toLowerCase()}.`;
+
   return (
     <div>
       {puedeGestionar(perfil) && intermediaHoy && <TarjetaMatchday categoria="Intermedia" partido={intermediaHoy} bloqueada={false} />}
@@ -7238,75 +7292,116 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
         />
       )}
 
-      <div style={{ marginBottom: 18, display: "flex", alignItems: "center", gap: 14 }}>
-        <Shield size={52} />
+      {/* Saludo en una línea */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <Shield size={36} />
         <div style={{ minWidth: 0 }}>
-          <h1 style={{ margin: 0, fontFamily: "var(--h-titulo)", fontSize: 38, lineHeight: 1, fontWeight: 800, color: "var(--h-texto)", textTransform: "capitalize" }}>{hoyStr}</h1>
-          <div style={{ fontSize: 14, color: "var(--h-sub)", marginTop: 6 }}>Hola, {perfil?.nombre?.split(" ")[0] || "de nuevo"}. Esto es lo que importa hoy.</div>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, lineHeight: 1.05, color: "var(--h-texto)" }}>
+            Hola, {perfil?.nombre?.split(" ")[0] || "de nuevo"}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2, textTransform: "capitalize" }}>{fechaCorta}</div>
         </div>
       </div>
+
+      {/* Lo de todos los días: wellness y gimnasio, a un toque */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10, marginBottom: 14 }}>
+        <AccesoDiario icono="wellness" titulo="Wellness" linea={lineaWellness} estado={estadoWellness} onClick={() => onNavigate("wellness")} />
+        <AccesoDiario
+          icono="gimnasio"
+          titulo={gymHoy ? `Gimnasio de hoy` : "Gimnasio"}
+          linea={lineaGym}
+          estado={gymHoy ? { texto: esJugador ? "Registrar cargas" : "Ver plan", fondo: "var(--h-acento-suave)", color: "var(--h-club-tinta)" } : null}
+          onClick={() => onNavigate("gimnasio")}
+        />
+      </div>
+
+      {/* Números rápidos del plantel */}
+      {staff && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
+          {[
+            ["Disponibles", disponibles, "var(--h-ok)", "disponibilidad"],
+            ["A vigilar", aVigilarRtp + noHabilitados, "var(--h-alerta)", "disponibilidad"],
+            ["Lesionados", lesionados, "var(--h-error)", "rtp"],
+          ].map(([l, v, c, destino]) => (
+            <button
+              key={l}
+              onClick={() => onNavigate(destino)}
+              style={{ ...tarjeta, margin: 0, padding: "12px 14px", textAlign: "left", cursor: "pointer", fontFamily: "var(--h-texto-fuente)" }}
+            >
+              <div style={{ fontFamily: "var(--h-titulo)", fontSize: 28, fontWeight: 800, color: c, lineHeight: 1 }}>{v}</div>
+              <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 4 }}>{l}</div>
+            </button>
+          ))}
+        </div>
+      )}
 
       <CaminoAlPartido proximo={proximo} onNavigate={onNavigate} />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginBottom: 14 }}>
-        <div style={{ ...cardStyle, padding: "18px 20px" }}>
-          <EncabezadoTarjeta titulo="Quién está para jugar" accion="Ver disponibilidad" onAccion={() => onNavigate("disponibilidad")} />
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-            {[
-              ["Disponibles", disponibles, "var(--h-ok)"],
-              ["A vigilar", aVigilarRtp, "var(--h-alerta)"],
-              ["Lesionados", lesionados, "var(--h-error)"],
-              ["Sin alta", noHabilitados, "var(--h-sub)"],
-            ].map(([l, v, c]) => (
-              <div key={l} style={{ borderLeft: "3px solid " + c, padding: "2px 0 2px 10px" }}>
-                <div style={{ fontFamily: "var(--h-titulo)", fontSize: 30, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1 }}>{v}</div>
-                <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 4 }}>{l}</div>
-              </div>
-            ))}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
+        {staff && (
+          <div style={tarjeta}>
+            <EncabezadoTarjeta titulo="Alertas" />
+            {aMirarWellness.length === 0 && aVigilarNombres.length === 0 ? (
+              <div style={{ fontSize: 13, color: "var(--h-ok)", fontWeight: 600 }}>Todo en orden.</div>
+            ) : (
+              <>
+                {aMirarWellness.map((a) => (
+                  <FilaAlerta key={"w" + a.nombre} nombre={a.nombre} texto={`Wellness ${Math.round((a.readiness / 28) * 100)}%`} color="var(--h-error)" fondo="var(--h-error-suave)" onClick={() => onNavigate("wellness")} />
+                ))}
+                {aVigilarNombres.slice(0, 6).map((a) => (
+                  <FilaAlerta key={"r" + a.nombre} nombre={a.nombre} texto={a.estado} color={a.estado === "Lesionado" ? "var(--h-error)" : "var(--h-alerta)"} fondo={a.estado === "Lesionado" ? "var(--h-error-suave)" : "var(--h-alerta-suave, var(--h-acento-suave))"} onClick={() => onNavigate("rtp")} />
+                ))}
+              </>
+            )}
           </div>
-        </div>
+        )}
 
-        <div style={{ ...cardStyle, padding: "18px 20px" }}>
-          <EncabezadoTarjeta titulo="Para mirar hoy" accion="Ver wellness" onAccion={() => onNavigate("wellness")} />
-          {alertasHoy.cargando ? (
-            <div style={{ fontSize: 13, color: "var(--h-sub2)" }}>Cargando…</div>
-          ) : alertasHoy.respuestas.length === 0 ? (
-            <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Todavía nadie completó el wellness de hoy.</div>
-          ) : aMirarWellness.length === 0 ? (
-            <div style={{ fontSize: 13, color: "var(--h-ok)" }}>Nadie llega con el wellness bajo. {alertasHoy.respuestas.length} respuestas.</div>
-          ) : (
-            aMirarWellness.map((a) => (
-              <div key={a.nombre} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: "9px 0", borderTop: "1px solid var(--h-borde)", fontSize: 14 }}>
-                <span style={{ color: "var(--h-texto)", fontWeight: 500 }}>{a.nombre}</span>
-                <span style={{ ...tagStyle, borderRadius: 999, background: "var(--h-error-suave)", color: "var(--h-error)", fontWeight: 600 }}>
-                  Wellness {Math.round((a.readiness / 28) * 100)}%
-                </span>
+        <div style={tarjeta}>
+          <EncabezadoTarjeta titulo="Práctica de hoy" accion={staff ? (practicaHoy ? "Ver" : "Cargar") : practicaHoy ? "Ver" : undefined} onAccion={() => onNavigate("sesion")} />
+          {bloquesPractica.length ? (
+            bloquesPractica.slice(0, 5).map((f, i) => (
+              <div key={i} style={{ display: "flex", gap: 10, padding: "7px 0", borderTop: i ? "1px solid var(--h-borde)" : "none", fontSize: 13.5 }}>
+                <span style={{ width: 34, color: "var(--h-sub)", flexShrink: 0 }}>{f.t}</span>
+                <span style={{ color: "var(--h-texto)", fontWeight: 500, textTransform: "capitalize" }}>{(f.c || "").toLowerCase()}</span>
               </div>
             ))
+          ) : (
+            <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Hoy no hay práctica cargada.</div>
+          )}
+        </div>
+
+        <div style={tarjeta}>
+          <EncabezadoTarjeta titulo="Últimos resultados" accion="Agenda" onAccion={() => onNavigate("calendario")} />
+          {ultimos.length === 0 ? (
+            <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay partidos jugados.</div>
+          ) : (
+            ultimos.map((p, i) => {
+              const color = p.res === "Ganado" ? "var(--h-ok)" : p.res === "Perdido" ? "var(--h-error)" : "var(--h-sub)";
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: i ? "1px solid var(--h-borde)" : "none", fontSize: 13.5 }}>
+                  <span style={{ width: 22, height: 22, borderRadius: 6, background: color, color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{(p.res || "")[0]}</span>
+                  <TeamBadge name={p.rival} size={20} />
+                  <span style={{ flex: 1, minWidth: 0, color: "var(--h-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.cond === "Local" ? "vs" : "en"} {p.rival}</span>
+                  <b style={{ color: "var(--h-texto)", fontFamily: "var(--h-titulo)", fontSize: 16 }}>{p.gf}-{p.gc}</b>
+                </div>
+              );
+            })
           )}
         </div>
       </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
-        <div style={{ ...cardStyle, padding: "18px 20px" }}>
-          <EncabezadoTarjeta titulo="Sesión de hoy" accion="Planificar" onAccion={() => onNavigate("sesion")} />
-          <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Todavía no planificaste la sesión de hoy.</div>
-        </div>
-        <div style={{ ...cardStyle, padding: "18px 20px" }}>
-          <EncabezadoTarjeta titulo="La temporada" accion="Ver agenda" onAccion={() => onNavigate("calendario")} />
-          <div style={{ display: "flex", gap: 18, alignItems: "baseline", flexWrap: "wrap" }}>
-            <div style={{ fontFamily: "var(--h-titulo)", fontSize: 28, fontWeight: 800, color: "var(--h-texto)" }}>
-              {record.g}G <span style={{ color: "var(--h-sub)" }}>·</span> {record.e}E <span style={{ color: "var(--h-sub)" }}>·</span> {record.p}P
-            </div>
-            {ultimo && (
-              <div style={{ fontSize: 13, color: "var(--h-sub)" }}>
-                Último: {ultimo.cond === "Local" ? "vs" : "en"} {ultimo.rival} · <b style={{ color: "var(--h-texto)" }}>{ultimo.gf}-{ultimo.gc}</b>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
     </div>
+  );
+}
+
+function FilaAlerta({ nombre, texto, color, fondo, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: "8px 0", borderTop: "1px solid var(--h-borde)", fontSize: 14, width: "100%", background: "none", borderLeft: "none", borderRight: "none", borderBottom: "none", cursor: "pointer", fontFamily: "var(--h-texto-fuente)", textAlign: "left" }}
+    >
+      <span style={{ color: "var(--h-texto)", fontWeight: 500 }}>{nombre}</span>
+      <span style={{ ...tagStyle, borderRadius: 999, background: fondo, color, fontWeight: 600 }}>{texto}</span>
+    </button>
   );
 }
 
@@ -7329,13 +7424,13 @@ function fechaDesdeDisplay(s) {
   return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
 }
 
-// Tarjeta principal del inicio: el próximo partido y cuántos días faltan, con la semana como recorrido.
+// Tarjeta del próximo partido: escudo contra escudo, cuánto falta y un botón para armar el equipo.
 function CaminoAlPartido({ proximo, onNavigate }) {
-  const caja = { borderRadius: 18, padding: "20px 22px", marginBottom: 14, background: "var(--h-club)", color: "var(--h-club-txt)" };
+  const caja = { borderRadius: 16, padding: "16px 18px", marginBottom: 14, background: "var(--h-club)", color: "var(--h-club-txt)" };
   if (!proximo) {
     return (
       <div style={{ ...caja, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 24, fontWeight: 800 }}>Sin próximo partido confirmado</div>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800 }}>Sin próximo partido confirmado</div>
         <BotonCamino fuerte onClick={() => onNavigate("calendario")}>Ver agenda</BotonCamino>
       </div>
     );
@@ -7343,40 +7438,26 @@ function CaminoAlPartido({ proximo, onNavigate }) {
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
   const fecha = fechaDesdeDisplay(proximo.date);
   const faltan = fecha ? Math.round((fecha - hoy) / 86400000) : null;
-  const dias = faltan !== null && faltan >= 0 && faltan <= 7
-    ? Array.from({ length: faltan + 1 }, (_, i) => { const d = new Date(hoy); d.setDate(d.getDate() + i); return d; })
-    : [];
-  const corto = (d) => d.toLocaleDateString("es-AR", { weekday: "short" }).replace(".", "");
+  const cuando = faltan === 0 ? "Hoy" : faltan === 1 ? "Mañana" : faltan > 1 ? `En ${faltan} días` : "Próximo";
   return (
     <section style={caja} aria-label="Próximo partido">
-      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 13, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", opacity: 0.85 }}>
-        {faltan === 0 ? "Hoy se juega" : faltan === 1 ? "Mañana se juega" : faltan > 1 ? `Faltan ${faltan} días` : "Próximo partido"}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6 }}>
-        <span style={{ background: "#fff", borderRadius: "50%", padding: 3, display: "inline-flex", flexShrink: 0 }}><Shield size={30} /></span>
-        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 16, fontWeight: 700, opacity: 0.8 }}>{proximo.cond === "Local" ? "vs" : "en"}</span>
-        <TeamBadge name={proximo.rival} size={34} />
-        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 34, fontWeight: 800, lineHeight: 1 }}>
-          {proximo.rival}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <span style={{ background: "#fff", borderRadius: "50%", padding: 3, display: "inline-flex" }}><Shield size={34} /></span>
+          <span style={{ fontFamily: "var(--h-titulo)", fontSize: 14, fontWeight: 700, opacity: 0.8 }}>{proximo.cond === "Local" ? "vs" : "en"}</span>
+          <TeamBadge name={proximo.rival} size={40} />
         </div>
-      </div>
-      <div style={{ fontSize: 14, opacity: 0.85, marginTop: 6 }}>Fecha {proximo.fecha} · {proximo.date} · {proximo.cond}</div>
-      {dias.length > 1 && (
-        <div aria-hidden="true" style={{ display: "grid", gridTemplateColumns: `repeat(${dias.length}, 1fr)`, gap: 6, marginTop: 16 }}>
-          {dias.map((d, i) => {
-            const esHoy = i === 0, esPartido = i === dias.length - 1;
-            return (
-              <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, fontSize: 12, fontWeight: esHoy || esPartido ? 700 : 500, opacity: esHoy || esPartido ? 1 : 0.75, textTransform: "capitalize" }}>
-                <span style={{ width: "100%", height: 6, borderRadius: 3, background: esPartido ? "#1FA37A" : "currentColor", opacity: esPartido ? 1 : esHoy ? 0.95 : 0.3 }} />
-                {esHoy ? "Hoy" : corto(d)}
-              </div>
-            );
-          })}
+        <div style={{ flex: 1, minWidth: 160 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Próximo partido · {cuando}</div>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, lineHeight: 1.05 }}>{proximo.rival}</div>
+          <div style={{ fontSize: 13, opacity: 0.85, marginTop: 2 }}>Fecha {proximo.fecha} · {proximo.date} · {proximo.cond}</div>
         </div>
-      )}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 }}>
-        <BotonCamino onClick={() => onNavigate("videoteca")}>Ver al rival</BotonCamino>
-        <BotonCamino fuerte onClick={() => onNavigate("equipos")}>Armar el equipo</BotonCamino>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          <BotonCamino fuerte onClick={() => onNavigate("equipos")}>Armar el equipo</BotonCamino>
+          <button onClick={() => onNavigate("videoteca")} style={{ background: "none", border: "none", color: "inherit", fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0, textDecoration: "underline", opacity: 0.9 }}>
+            Videos del rival
+          </button>
+        </div>
       </div>
     </section>
   );
@@ -7918,8 +7999,8 @@ function useIsMobile() {
 
 const BOTTOM_NAV_ITEMS = [
   { key: "hoy", label: "Inicio", icono: "inicio" },
-  { key: "calendario", label: "Agenda", icono: "calendario" },
-  { key: "plantel-completo", label: "Plantel", icono: "plantel" },
+  { key: "wellness", label: "Wellness", icono: "wellness" },
+  { key: "gimnasio", label: "Gimnasio", icono: "gimnasio" },
   { key: "equipos", label: "Partido", icono: "equipos" },
 ];
 
