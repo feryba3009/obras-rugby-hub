@@ -50,7 +50,6 @@ const NAV = [
     group: "Análisis",
     items: [
       { key: "reportes", label: "Estadísticas", icono: "reportes" },
-      { key: "gps", label: "GPS", icono: "gps" },
       { key: "veo", label: "Análisis de video", icono: "analisis" },
     ],
   },
@@ -77,7 +76,6 @@ const ICONOS = {
   videoteca: "M3 6h13v12H3zM16 10l5-3v10l-5-3",
   reportes: "M6 3h9l4 4v14H6zM15 3v4h4M9 12h7M9 16h7",
   analisis: "M4 19h16M7 16V9M12 16V5M17 16v-4",
-  gps: "M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11zM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
   feedback: "M4 5h16v11H9l-5 4z",
   configuracion: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z",
   mas: "M4 7h16M4 12h16M4 17h16",
@@ -3561,21 +3559,6 @@ function PlantelCompletoPage({ perfil }) {
   );
 }
 
-// GPS (Oliver Pro) — carga de rendimiento físico por partido, jugador por jugador.
-function gpsMetricas(nombre, fecha) {
-  const seed = [...((nombre || "?") + fecha)].reduce((a, c) => a + c.charCodeAt(0), 0);
-  const val = (mult, min, max) => min + ((seed * mult) % (max - min + 1));
-  return {
-    min: val(3, 40, 80),
-    distancia: val(5, 4200, 7800),
-    altaInt: val(7, 80, 520),
-    acc: val(11, 15, 46),
-    dec: val(13, 15, 44),
-    velMax: Math.round(val(17, 240, 335) / 10),
-    pctVelMax: val(19, 74, 100),
-  };
-}
-
 function MatchSelector({ partidos, fecha, onSelect }) {
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
@@ -3599,364 +3582,9 @@ function MatchSelector({ partidos, fecha, onSelect }) {
   );
 }
 
-// El club solo tiene 15 chalecos GPS — únicamente el XV titular (no los suplentes) queda registrado.
-function jugadoresConGps() {
-  // Si un jugador titular fue eliminado del plantel, su camiseta queda vacante (jugadorId null) —
-  // no entra en los reportes de GPS/partido, que necesitan un jugador real para calcular datos.
-  return LINEUPS_INICIALES.Superior.filter((s) => s.grupo !== "suplentes" && s.jugadorId);
-}
-
-// Titulares de cualquier categoría, sin camisetas vacantes — para el informe de partido,
-// que no depende de los chalecos GPS (esos solo existen para Superior).
+// Titulares de cualquier categoría, sin camisetas vacantes — para el informe de partido.
 function jugadoresTitulares(categoriaNombre) {
   return (LINEUPS_INICIALES[categoriaNombre] || []).filter((s) => s.grupo !== "suplentes" && s.jugadorId);
-}
-
-const DIAS_ENTRENAMIENTO_GPS = ["Lunes", "Martes", "Jueves"];
-
-function gpsMetricasEntrenamiento(nombre, dia) {
-  const seed = [...((nombre || "?") + dia)].reduce((a, c) => a + c.charCodeAt(0), 0);
-  const val = (mult, min, max) => min + ((seed * mult) % (max - min + 1));
-  return {
-    distancia: val(5, 2500, 5500),
-    altaInt: val(7, 30, 220),
-    acc: val(11, 8, 28),
-    dec: val(13, 8, 26),
-    velMax: Math.round(val(17, 220, 310) / 10),
-  };
-}
-
-async function cargarGpsPartido(partidoId) {
-  const { data, error } = await supabase.from("gps_datos").select("*, jugadores(nombre)").eq("partido_id", partidoId);
-  if (error) {
-    console.error("Error cargando GPS del partido:", error);
-    return {};
-  }
-  const porNombre = {};
-  (data || []).forEach((r) => {
-    if (r.jugadores?.nombre) {
-      porNombre[r.jugadores.nombre] = { min: r.minutos, distancia: r.distancia, altaInt: r.alta_int, acc: r.acc, dec: r.dec, velMax: r.vel_max };
-    }
-  });
-  return porNombre;
-}
-
-function ImportarGps({ partidoId, onImportado }) {
-  const [abierto, setAbierto] = useState(false);
-  const [texto, setTexto] = useState("");
-  const [msg, setMsg] = useState("");
-
-  async function importar() {
-    const filas = texto
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .map((l) => l.split(/[,\t]/).map((c) => c.trim()));
-
-    let ok = 0;
-    let noEncontrados = [];
-    for (const [nombre, min, distancia, altaInt, acc, dec, velMax] of filas) {
-      const jugador = POOL.find((j) => j.id.toLowerCase() === (nombre || "").toLowerCase());
-      if (!jugador) {
-        if (nombre) noEncontrados.push(nombre);
-        continue;
-      }
-      const { error } = await supabase.from("gps_datos").upsert(
-        {
-          partido_id: partidoId,
-          jugador_id: jugador.dbId,
-          minutos: Number(min) || null,
-          distancia: Number(distancia) || null,
-          alta_int: Number(altaInt) || null,
-          acc: Number(acc) || null,
-          dec: Number(dec) || null,
-          vel_max: Number(velMax) || null,
-        },
-        { onConflict: "partido_id,jugador_id" }
-      );
-      if (!error) ok++;
-    }
-    setMsg(`Importadas ${ok} filas.` + (noEncontrados.length ? ` No encontrados: ${noEncontrados.join(", ")}` : ""));
-    onImportado();
-  }
-
-  return (
-    <div style={{ marginBottom: 20 }}>
-      {!abierto ? (
-        <button onClick={() => setAbierto(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}>
-          + Importar datos de GPS
-        </button>
-      ) : (
-        <div style={{ ...cardStyle, padding: "16px 18px" }}>
-          <div style={{ fontSize: 12.5, color: "var(--h-texto2)", marginBottom: 8 }}>
-            Pegá una fila por jugador: <b>Nombre, Minutos, Distancia, Alta int., ACC, DEC, Vel máx</b> (separado por coma o tab).
-          </div>
-          <textarea
-            value={texto}
-            onChange={(e) => setTexto(e.target.value)}
-            rows={6}
-            placeholder="Lautaro Beresi, 80, 6200, 320, 22, 18, 28.4"
-            style={{ ...inputStyle, fontFamily: "monospace", fontSize: 12 }}
-          />
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <button onClick={importar} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
-              Importar
-            </button>
-            <button onClick={() => setAbierto(false)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
-              Cerrar
-            </button>
-          </div>
-          {msg && <div style={{ fontSize: 11.5, color: "var(--h-sub)", marginTop: 8 }}>{msg}</div>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function GpsPartidos({ perfil }) {
-  const partidos = FIXTURE.superior;
-  const [fecha, setFecha] = useState(partidos[partidos.length - 1].fecha);
-  const partido = partidos.find((p) => p.fecha === fecha) || partidos[partidos.length - 1];
-  const [gpsReal, setGpsReal] = useState({});
-
-  useEffect(() => {
-    if (partido.id) cargarGpsPartido(partido.id).then(setGpsReal);
-  }, [partido.id]);
-
-  // Solo 15 chalecos GPS disponibles en el club — se los pone el XV titular.
-  // Si hay datos reales importados para un jugador, se usan esos; si no, se completa con datos de referencia.
-  const jugadores = jugadoresConGps().map((s) => ({
-    ...s,
-    ...(gpsReal[s.jugadorId] || gpsMetricas(s.jugadorId, fecha)),
-  }));
-  const todos = jugadores;
-  const hayDatosReales = Object.keys(gpsReal).length > 0;
-
-  const top = (campo, n = 5) => [...todos].sort((a, b) => b[campo] - a[campo]).slice(0, n);
-
-  const seedPartido = fecha * 7;
-  const ballInPlay = (20 + (seedPartido % 10)).toFixed(1);
-  const secuencias = 32 + (seedPartido % 18);
-  const promSecuencia = (28 + (seedPartido % 15)).toFixed(1);
-
-  return (
-    <div>
-      <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 14 }}>
-        vs {partido.rival} ({partido.cond === "Local" ? "L" : "V"}) · {partido.gf}-{partido.gc} · {partido.date}
-      </div>
-
-      <MatchSelector partidos={partidos} fecha={fecha} onSelect={setFecha} />
-
-      {esEntrenador(perfil) && <ImportarGps partidoId={partido.id} onImportado={() => cargarGpsPartido(partido.id).then(setGpsReal)} />}
-
-      <div style={{ fontSize: 11, color: hayDatosReales ? "var(--h-ok)" : "var(--h-sub2)", marginBottom: 16 }}>
-        {hayDatosReales
-          ? "✓ Mostrando datos reales importados para los jugadores cargados (el resto usa datos de referencia)."
-          : "Todavía no se importaron datos de GPS para este partido — se muestran valores de referencia."}
-      </div>
-
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
-        <StatCard label="Ball in play (min)" value={ballInPlay} tone="ok" />
-        <StatCard label="Secuencias" value={secuencias} tone="ok" />
-        <StatCard label="Prom. secuencia (seg)" value={promSecuencia} tone="ok" />
-      </div>
-
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
-        {[
-          { titulo: "Velocidad máx (km/h)", campo: "velMax" },
-          { titulo: "Distancia alta int. (m)", campo: "altaInt" },
-          { titulo: "Distancia recorrida (m)", campo: "distancia" },
-          { titulo: "ACC (+3 m/s²)", campo: "acc" },
-        ].map(({ titulo, campo }) => (
-          <div key={campo} style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
-            <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 10 }}>{titulo}</div>
-            {top(campo).map((j, i) => (
-              <div key={j.jugadorId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "4px 0" }}>
-                <span style={{ color: "var(--h-texto2)" }}>
-                  {i + 1}. {j.jugadorId}
-                </span>
-                <span style={{ color: "var(--h-texto)", fontFamily: "var(--h-titulo)" }}>{j[campo]}</span>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-
-      <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 820 }}>
-          <thead>
-            <tr style={{ color: "var(--h-sub)", textAlign: "left" }}>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Puesto</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Min</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Distancia</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Alta int.</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>ACC</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>DEC</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Vel máx</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>%Vel máx</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jugadores.map((j) => (
-              <tr key={j.numero} style={{ borderTop: "1px solid var(--h-borde)" }}>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto)", fontWeight: 500, whiteSpace: "nowrap" }}>{j.jugadorId}</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-sub)" }}>{j.puesto}</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.min}</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.distancia} m</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.altaInt} m</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.acc}</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.dec}</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.velMax} km/h</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.pctVelMax}%</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function GpsEntrenamientos() {
-  const [dia, setDia] = useState("Lunes");
-  const jugadores = jugadoresConGps().map((s) => ({ ...s, ...gpsMetricasEntrenamiento(s.jugadorId, dia) }));
-  const distanciaTotal = jugadores.reduce((a, j) => a + j.distancia, 0);
-  const sprintsTotales = jugadores.reduce((a, j) => a + j.acc, 0);
-
-  return (
-    <div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
-        {DIAS_ENTRENAMIENTO_GPS.map((d) => (
-          <button
-            key={d}
-            onClick={() => setDia(d)}
-            style={{
-              ...pillButton,
-              border: "1px solid " + (dia === d ? "var(--h-acento)" : "var(--h-borde2)"),
-              background: dia === d ? "var(--h-acento-suave)" : "transparent",
-              color: dia === d ? "var(--h-acento)" : "var(--h-texto2)",
-            }}
-          >
-            {d}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
-        <StatCard label="Jugadores con carga" value={jugadores.length} tone="ok" />
-        <StatCard label="Distancia total equipo (m)" value={distanciaTotal.toLocaleString("es-AR")} tone="ok" />
-        <StatCard label="ACC totales" value={sprintsTotales} tone="ok" />
-      </div>
-
-      <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 700 }}>
-          <thead>
-            <tr style={{ color: "var(--h-sub)", textAlign: "left" }}>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Puesto</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Distancia</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Alta int.</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>ACC</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>DEC</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Vel máx</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jugadores.map((j) => (
-              <tr key={j.numero} style={{ borderTop: "1px solid var(--h-borde)" }}>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto)", fontWeight: 500, whiteSpace: "nowrap" }}>{j.jugadorId}</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-sub)" }}>{j.puesto}</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.distancia} m</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.altaInt} m</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.acc}</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.dec}</td>
-                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.velMax} km/h</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function GpsPage({ perfil }) {
-  const [vista, setVista] = useState("partidos");
-
-  return (
-    <div>
-      <div style={{ marginBottom: 6 }}>
-        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>GPS</div>
-        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
-          Solo Plantel Superior · 15 chalecos disponibles — cubren únicamente al XV titular
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: 8, margin: "16px 0 20px" }}>
-        {[
-          { key: "partidos", label: "Partidos" },
-          { key: "entrenamientos", label: "Entrenamientos" },
-        ].map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setVista(t.key)}
-            style={{
-              ...pillButton,
-              border: "1px solid " + (vista === t.key ? "var(--h-acento)" : "var(--h-borde2)"),
-              background: vista === t.key ? "var(--h-acento-suave)" : "transparent",
-              color: vista === t.key ? "var(--h-acento)" : "var(--h-texto2)",
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {vista === "partidos" ? <GpsPartidos perfil={perfil} /> : <GpsEntrenamientos />}
-    </div>
-  );
-}
-
-// VEO Cam — cámara automática de partido: video + estadísticas de posesión/territorio y eventos etiquetados.
-const JUGADORES_TRY = {
-  Superior: ["Ramiro Escudero", "Federico Sosa", "Agustín Colombo", "Tomás Villanueva", "Joaquín Ferrari", "Valentín Cazenave"],
-  Intermedia: ["Enzo Robledo", "Lisandro Godoy", "Federico Aráoz", "Pedro Lencina", "Julián Benítez", "Martín Quiroga"],
-};
-
-function generarEventos(partido, categoria) {
-  const jugadoresTry = JUGADORES_TRY[categoria];
-  const seed = partido.fecha * 17 + partido.rival.length;
-  const triesObras = Math.max(1, Math.round(partido.gf / 6));
-  const triesRival = Math.max(1, Math.round(partido.gc / 6));
-  const eventos = [];
-  for (let i = 0; i < triesObras; i++) {
-    eventos.push({
-      minNum: 4 + ((i * 15 + seed * 3) % 76),
-      tipo: "Try",
-      detalle: jugadoresTry[(seed + i) % jugadoresTry.length],
-      equipo: "obras",
-    });
-  }
-  for (let i = 0; i < triesRival; i++) {
-    eventos.push({
-      minNum: 3 + ((i * 13 + seed * 5) % 77),
-      tipo: "Try",
-      detalle: partido.rival,
-      equipo: "rival",
-    });
-  }
-  eventos.push({ minNum: 2 + (seed % 78), tipo: "Turnover ganado", detalle: jugadoresTry[seed % jugadoresTry.length], equipo: "obras" });
-  if (seed % 3 === 0) {
-    eventos.push({ minNum: 10 + (seed % 65), tipo: "Tarjeta amarilla", detalle: jugadoresTry[(seed + 2) % jugadoresTry.length], equipo: "obras" });
-  }
-  return eventos.sort((a, b) => a.minNum - b.minNum);
-}
-
-function formatoRelojMMSS(seg) {
-  const m = Math.floor(seg / 60).toString().padStart(2, "0");
-  const s = Math.floor(seg % 60).toString().padStart(2, "0");
-  return `${m}:${s}`;
 }
 
 // Panel de anotación mientras se mira el video: el cuerpo técnico marca en juego/fuera,
@@ -4613,7 +4241,7 @@ function VeoPage({ perfil }) {
   const partidos = FIXTURE[categoria.toLowerCase()];
   const [fecha, setFecha] = useState(partidos[partidos.length - 1].fecha);
   const partido = partidos.find((p) => p.fecha === fecha) || partidos[partidos.length - 1];
-  const jugadoresParaTries = categoria === "Superior" ? jugadoresConGps() : jugadoresTitulares("Intermedia");
+  const jugadoresParaTries = jugadoresTitulares(categoria);
   const trysGenerados = generarTries(partido, jugadoresParaTries, partido.informe?.triesReales).filter((t) => t.pts === 5 || t.pts === 7);
   const trysVeo = partido.informe?.triesVeo;
   const trysDelPartido = trysVeo || trysGenerados;
@@ -5167,8 +4795,7 @@ function InformePartidoPage({ perfil }) {
 
   const stats = partido.informe || statsPartido(partido);
   const esReal = !!partido.informe;
-  // GPS (los chalecos) solo existe para Superior — para Intermedia usamos los titulares del partido igual.
-  const jugadoresTry = categoria === "Superior" ? jugadoresConGps() : jugadoresTitulares("Intermedia");
+  const jugadoresTry = jugadoresTitulares(categoria);
   const tries = generarTries(partido, jugadoresTry, partido.informe?.triesReales);
   const totalPerdidas = Object.values(stats.desfavorables).reduce((a, b) => a + b, 0) - stats.desfavorables.penalesEnContra;
 
@@ -5584,7 +5211,7 @@ function ReportesPage({ perfil }) {
   const [vista, setVista] = useState(null);
 
   if (vista) {
-    const Componente = { gps: GpsPage, rtp: RtpPage, individual: ReporteIndividualPage, partido: InformePartidoPage }[vista];
+    const Componente = { rtp: RtpPage, individual: ReporteIndividualPage, partido: InformePartidoPage }[vista];
     return (
       <div>
         <button
@@ -5600,8 +5227,7 @@ function ReportesPage({ perfil }) {
 
   const tiles = [
     { key: "partido", titulo: "El partido, en números", desc: "Obtención, situaciones de juego, tries y la planilla de cada jugador.", icono: "reportes" },
-    { key: "gps", titulo: "Cuánto corrió cada uno", desc: "Velocidad, distancia y carga de cada puesto comparada con lo que pide el partido.", icono: "gps" },
-    { key: "individual", titulo: "Ficha de un jugador", desc: "Físico, carga, estadísticas de la temporada y lesiones, en una sola página.", icono: "plantel" },
+    { key: "individual", titulo: "Ficha de un jugador", desc: "Físico, estadísticas de la temporada y lesiones, en una sola página.", icono: "plantel" },
     { key: "rtp", titulo: "Lesionados y vuelta al juego", desc: "Quién está lesionado hoy y cómo viene, cruzado con su historial.", icono: "rtp" },
   ];
 
@@ -6868,7 +6494,6 @@ const CONFIG_TABS = [
   { key: "escudos", label: "Escudos de rivales", icon: "🛡️", admin: true },
   { key: "apariencia", label: "Apariencia y preferencias", icon: "🎨" },
   { key: "instalar", label: "Instalar la app", icon: "📲" },
-  { key: "gps-acwr", label: "GPS · ACWR", icon: "📡", admin: true },
   { key: "evaluaciones-cfg", label: "Evaluaciones del jugador", icon: "📊", admin: true },
   { key: "metricas", label: "Métricas", icon: "📈", admin: true },
   { key: "notificaciones", label: "Notificaciones", icon: "🔔" },
@@ -7546,27 +7171,6 @@ function PanelInstalar() {
   );
 }
 
-function PanelGpsAcwr() {
-  const [config, setConfig] = useState({
-    "Ventana ACWR corta (días)": true,
-    "Alerta automática si ACWR > 1.5": true,
-    "Alerta automática si ACWR < 0.8": false,
-  });
-  return (
-    <div>
-      <ConfigTitulo sub="Parámetros de carga externa, solo para el plantel Superior (15 chalecos).">GPS · ACWR</ConfigTitulo>
-      <label style={labelStyle}>VENTANA ACWR (días)</label>
-      <input style={inputStyle} defaultValue="7 / 28" />
-      <label style={labelStyle}>UMBRAL DE RIESGO ALTO</label>
-      <input style={inputStyle} defaultValue="1.5" />
-      {Object.entries(config).map(([k, v]) => (
-        <ToggleRow key={k} label={k} checked={v} onChange={() => setConfig((p) => ({ ...p, [k]: !p[k] }))} />
-      ))}
-      <button style={{ ...buttonStyle, width: "auto", padding: "10px 22px", marginTop: 20 }}>Guardar cambios</button>
-    </div>
-  );
-}
-
 function PanelEvaluacionesCfg() {
   const [config, setConfig] = useState({
     "Recordar test pendiente al preparador físico": true,
@@ -7714,7 +7318,6 @@ function ConfiguracionPage({ menuPref, setMenuPref, temaPref, setTemaPref, panta
       />
     ),
     instalar: <PanelInstalar />,
-    "gps-acwr": <PanelGpsAcwr />,
     "evaluaciones-cfg": <PanelEvaluacionesCfg />,
     metricas: <PanelMetricas />,
     notificaciones: <PanelNotificaciones perfil={perfil} />,
@@ -8196,11 +7799,11 @@ const ROLES_REGISTRO = ["Jugador", "Cuerpo técnico", "Manager", "Cuerpo médico
 function puedeGestionar(perfil) {
   return !!perfil && (perfil.rol === "Cuerpo técnico" || perfil.rol === "Manager");
 }
-// Trabajo técnico específico (formaciones, GPS, VEO, informe de partido): solo Cuerpo técnico.
+// Trabajo técnico específico (formaciones, VEO, informe de partido): solo Cuerpo técnico.
 function esEntrenador(perfil) {
   return !!perfil && perfil.rol === "Cuerpo técnico";
 }
-// Herramientas internas del club (staff, escudos, GPS·ACWR, evaluaciones, métricas): todo el staff.
+// Herramientas internas del club (staff, escudos, evaluaciones, métricas): todo el staff.
 function esStaff(perfil) {
   return !!perfil && ["Cuerpo técnico", "Cuerpo médico", "Manager"].includes(perfil.rol);
 }
@@ -9032,8 +8635,6 @@ function ObrasHub({ perfil }) {
           <DisponibilidadPage />
         ) : active === "evaluaciones" ? (
           <EvaluacionesPage perfil={perfil} />
-        ) : active === "gps" ? (
-          <GpsPage perfil={perfil} />
         ) : active === "veo" ? (
           <VeoPage perfil={perfil} />
         ) : active === "wellness" ? (
