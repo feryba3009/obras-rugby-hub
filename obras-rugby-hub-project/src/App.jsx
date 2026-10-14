@@ -5854,8 +5854,9 @@ function wellnessDeterministico(nombre) {
   return { estres: val(3), sueno: val(5), doms: val(7), fatiga: val(11) };
 }
 
+// Fecha de hoy en Argentina (no en UTC: a la noche UTC ya es "mañana").
 function hoyISO() {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
 }
 
 // Asistencia a entrenamientos — una fila por jugador y fecha real (no por "día de la semana").
@@ -5968,281 +5969,401 @@ async function guardarAnalisisJugador(partidoId, jugadorId, datos, perfilId) {
   return !error;
 }
 
-async function abrirWellnessHoy(perfilId) {
-  const { error } = await supabase
-    .from("wellness_ventanas")
-    .upsert({ fecha: hoyISO(), abierta: true, abierta_por: perfilId, abierta_en: new Date().toISOString() });
-  if (error) console.error("Error abriendo wellness:", error);
-  else crearNotificacion("wellness_abierto", "🟡 Se abrió el wellness de hoy — completá el tuyo.", ["Jugador"], perfilId);
-  return !error;
+// ── Wellness ─────────────────────────────────────────────────────────────
+// La carga se abre y se cierra sola (horarios del club, hora de Argentina) y los avisos salen
+// automáticos desde la base. Escala nueva de 1 a 5 con colores; las respuestas viejas (1 a 7) se
+// normalizan para que todo se compare en 0–100.
+const COLORES_5 = ["#D64545", "#E8843A", "#E2B93B", "#8CC152", "#2FA36B"];
+const ITEMS_WELLNESS = [
+  { k: "estres", label: "Estrés", pregunta: "¿Cómo estás de estrés?", opciones: ["Muy estresado", "Estresado", "Normal", "Tranquilo", "Muy tranquilo"] },
+  { k: "sueno", label: "Sueño", pregunta: "¿Cómo dormiste?", opciones: ["Muy mal", "Mal", "Normal", "Bien", "Muy bien"] },
+  { k: "doms", label: "Dolor muscular", pregunta: "¿Cuánto dolor muscular tenés?", opciones: ["Mucho", "Bastante", "Algo", "Poco", "Nada"] },
+  { k: "fatiga", label: "Cansancio", pregunta: "¿Qué tan cansado estás?", opciones: ["Agotado", "Cansado", "Normal", "Fresco", "Muy fresco"] },
+];
+const DIAS_NOMBRE = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+// 0 a 100: 0 = todo en lo peor, 100 = todo en lo mejor.
+function pctWellness(r) {
+  const e = r.escala || 7;
+  const suma = (r.estres || 0) + (r.sueno || 0) + (r.doms || 0) + (r.fatiga || 0);
+  return Math.max(0, Math.min(100, Math.round(((suma - 4) / (4 * (e - 1))) * 100)));
 }
-async function cerrarWellnessHoy() {
-  const { error } = await supabase.from("wellness_ventanas").update({ abierta: false }).eq("fecha", hoyISO());
-  if (error) console.error("Error cerrando wellness:", error);
-  return !error;
+function pctItem(r, k) {
+  const e = r.escala || 7;
+  return Math.round((((r[k] || 1) - 1) / (e - 1)) * 100);
+}
+function colorPct(p) {
+  return p >= 80 ? COLORES_5[4] : p >= 60 ? COLORES_5[3] : p >= 40 ? COLORES_5[2] : p >= 20 ? COLORES_5[1] : COLORES_5[0];
+}
+
+// Respuestas de los últimos días y, para hoy, a quién hay que mirar comparando contra su propio promedio.
+async function cargarWellnessHistorial(dias = 15) {
+  const desde = new Date();
+  desde.setDate(desde.getDate() - dias);
+  const desdeISO = `${desde.getFullYear()}-${String(desde.getMonth() + 1).padStart(2, "0")}-${String(desde.getDate()).padStart(2, "0")}`;
+  const { data, error } = await supabase
+    .from("wellness_respuestas")
+    .select("jugador_id, fecha, estres, sueno, doms, fatiga, escala, estado_entrenamiento, observaciones, jugadores(nombre)")
+    .gte("fecha", desdeISO)
+    .order("fecha");
+  if (error) console.error("Error cargando wellness:", error);
+  const filas = data || [];
+  const hoy = hoyISO();
+  const porJugador = {};
+  filas.forEach((r) => { (porJugador[r.jugador_id] = porJugador[r.jugador_id] || []).push(r); });
+  const hoyLista = filas.filter((r) => r.fecha === hoy).map((r) => {
+    const previas = (porJugador[r.jugador_id] || []).filter((x) => x.fecha < hoy);
+    const pct = pctWellness(r);
+    const base = previas.length >= 3 ? Math.round(previas.reduce((a, x) => a + pctWellness(x), 0) / previas.length) : null;
+    const bajos = ITEMS_WELLNESS.filter((it) => {
+      const v = pctItem(r, it.k);
+      if (v <= 25) return true;
+      if (previas.length >= 3) {
+        const prom = previas.reduce((a, x) => a + pctItem(x, it.k), 0) / previas.length;
+        return v <= prom - 30;
+      }
+      return false;
+    }).map((it) => it.label);
+    let motivo = null;
+    if (r.estado_entrenamiento === "Lesión") motivo = "Marcó lesión";
+    else if (base !== null && pct <= base - 15) motivo = `${base - pct} puntos por debajo de su promedio`;
+    else if (base === null && pct < 40) motivo = "Wellness bajo";
+    else if (bajos.length) motivo = `Bajo en ${bajos.join(" y ").toLowerCase()}`;
+    return {
+      jugadorId: r.jugador_id, nombre: r.jugadores?.nombre || "—", pct, base, bajos, motivo,
+      estado: r.estado_entrenamiento, observaciones: r.observaciones, fila: r,
+      historial: (porJugador[r.jugador_id] || []).map((x) => ({ fecha: x.fecha, pct: pctWellness(x) })),
+    };
+  });
+  return { hoy: hoyLista, porJugador };
+}
+
+function MiniBarras({ puntos, alto = 40 }) {
+  if (!puntos.length) return <div style={{ fontSize: 12, color: "var(--h-sub2)" }}>Sin datos todavía.</div>;
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: alto }} aria-label="Evolución de las últimas dos semanas">
+      {puntos.slice(-14).map((p, i) => (
+        <span key={i} title={`${p.fecha.split("-").reverse().slice(0, 2).join("/")}: ${p.pct}%`} style={{ flex: 1, maxWidth: 16, height: Math.max(4, (p.pct / 100) * alto), borderRadius: 3, background: colorPct(p.pct) }} />
+      ))}
+    </div>
+  );
+}
+
+function textoVentana(v) {
+  if (!v) return { abierta: false, texto: "No se pudo leer el horario de hoy." };
+  if (!v.abre) return { abierta: false, texto: "Hoy no hay carga de wellness." };
+  const ahora = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Argentina/Buenos_Aires" });
+  if (v.abierta) return { abierta: true, texto: `🟢 Abierta hasta las ${v.cierra}.` };
+  if (ahora < v.abre) return { abierta: false, texto: `⚪ Hoy se abre a las ${v.abre} y cierra a las ${v.cierra}.` };
+  return { abierta: false, texto: `⚪ Hoy cerró a las ${v.cierra}. Mañana se vuelve a abrir.` };
 }
 
 function FormularioWellness({ jugadorDbId, onEnviado }) {
-  const [estado, setEstado] = useState("Full");
-  const [estres, setEstres] = useState(4);
-  const [sueno, setSueno] = useState(4);
-  const [doms, setDoms] = useState(4);
-  const [fatiga, setFatiga] = useState(4);
+  const [paso, setPaso] = useState(0); // 0 estado · 1..4 ítems · 5 observaciones
+  const [estado, setEstado] = useState(null);
+  const [valores, setValores] = useState({});
   const [observaciones, setObservaciones] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState("");
+  const total = ITEMS_WELLNESS.length + 2;
 
   async function enviar() {
     setEnviando(true);
-    const { error } = await supabase
-      .from("wellness_respuestas")
-      .upsert({ jugador_id: jugadorDbId, fecha: hoyISO(), estado_entrenamiento: estado, estres, sueno, doms, fatiga, observaciones: observaciones || null });
+    setError("");
+    const { error: err } = await supabase.from("wellness_respuestas").upsert({
+      jugador_id: jugadorDbId, fecha: hoyISO(), estado_entrenamiento: estado, escala: 5,
+      estres: valores.estres, sueno: valores.sueno, doms: valores.doms, fatiga: valores.fatiga,
+      observaciones: observaciones.trim() || null,
+    });
     setEnviando(false);
-    if (!error) onEnviado();
-    else console.error("Error enviando wellness:", error);
+    if (err) {
+      console.error("Error enviando wellness:", err);
+      setError(err.message?.includes("cerrada") ? "La carga ya está cerrada." : "No se pudo enviar. Probá de nuevo.");
+      return;
+    }
+    onEnviado();
   }
 
-  const Campo = ({ label, value, onChange, izq, der }) => (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "var(--h-texto2)", marginBottom: 6 }}>
-        <span>{label}</span>
-        <span style={{ color: "var(--h-acento)", fontWeight: 600 }}>{value}/7</span>
-      </div>
-      <input type="range" min={1} max={7} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ width: "100%" }} />
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--h-sub2)", marginTop: 2 }}>
-        <span>{izq}</span>
-        <span>{der}</span>
-      </div>
-    </div>
-  );
+  const botonGrande = (activo, color) => ({
+    width: "100%", minHeight: 52, borderRadius: 14, border: `2px solid ${activo ? color : "var(--h-borde)"}`,
+    background: activo ? color : "var(--h-panel)", color: activo ? "#fff" : "var(--h-texto)",
+    fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: "var(--h-texto-fuente)",
+    display: "flex", alignItems: "center", gap: 12, padding: "0 16px", textAlign: "left",
+  });
 
-  return (
-    <div style={{ ...cardStyle, padding: "18px", marginBottom: 24, border: "1px solid var(--h-acento)" }}>
-      <div style={{ fontSize: 14, color: "var(--h-acento)", fontWeight: 600, marginBottom: 4 }}>🟡 Cuestionario Wellness</div>
-      <div style={{ fontSize: 11.5, color: "var(--h-sub)", marginBottom: 16, lineHeight: 1.5 }}>
-        Herramienta no invasiva para conocer tu estado antes de cada estímulo — nos ayuda a controlar mejor las
-        cargas.
-      </div>
-
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 12.5, color: "var(--h-texto2)", marginBottom: 6 }}>Estado de entrenamiento</div>
-        <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginBottom: 8 }}>
-          Lesión: no podés entrenar o es diferenciado · Parcial: todo menos contacto · Full: 100% disponible
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {["Lesión", "Parcial", "Full"].map((e) => (
-            <button
-              key={e}
-              onClick={() => setEstado(e)}
-              style={{
-                ...pillButton,
-                flex: 1,
-                border: "1px solid " + (estado === e ? "var(--h-acento)" : "var(--h-borde2)"),
-                background: estado === e ? "var(--h-acento-suave)" : "transparent",
-                color: estado === e ? "var(--h-acento)" : "var(--h-texto2)",
-              }}
-            >
-              {e}
+  let cuerpo;
+  if (paso === 0) {
+    cuerpo = (
+      <>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, color: "var(--h-texto)", marginBottom: 14 }}>¿Cómo llegás a entrenar?</div>
+        <div style={{ display: "grid", gap: 10 }}>
+          {[["Full", "Al 100%", COLORES_5[4]], ["Parcial", "Todo menos contacto", COLORES_5[2]], ["Lesión", "No puedo entrenar o hago diferenciado", COLORES_5[0]]].map(([v, desc, c]) => (
+            <button key={v} onClick={() => { setEstado(v); setPaso(1); }} style={botonGrande(estado === v, c)}>
+              <span style={{ width: 14, height: 14, borderRadius: "50%", background: estado === v ? "#fff" : c, flexShrink: 0 }} />
+              <span>{v}<span style={{ display: "block", fontSize: 12.5, fontWeight: 500, opacity: 0.85 }}>{desc}</span></span>
             </button>
           ))}
         </div>
-      </div>
+      </>
+    );
+  } else if (paso <= ITEMS_WELLNESS.length) {
+    const it = ITEMS_WELLNESS[paso - 1];
+    cuerpo = (
+      <>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, color: "var(--h-texto)", marginBottom: 14 }}>{it.pregunta}</div>
+        <div style={{ display: "grid", gap: 8 }}>
+          {[...it.opciones].map((txt, i) => ({ txt, v: i + 1 })).reverse().map(({ txt, v }) => (
+            <button key={v} onClick={() => { setValores((p) => ({ ...p, [it.k]: v })); setPaso(paso + 1); }} style={botonGrande(valores[it.k] === v, COLORES_5[v - 1])}>
+              <span style={{ width: 14, height: 14, borderRadius: "50%", background: valores[it.k] === v ? "#fff" : COLORES_5[v - 1], flexShrink: 0 }} />
+              {txt}
+            </button>
+          ))}
+        </div>
+      </>
+    );
+  } else {
+    cuerpo = (
+      <>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, color: "var(--h-texto)", marginBottom: 6 }}>¿Algo más para contar?</div>
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 12 }}>Opcional. Ej.: tengo un golpe en la rodilla, hoy llego tarde.</div>
+        <textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical", fontSize: 15 }} />
+        {error && <div style={{ color: "var(--h-error)", fontSize: 13, marginTop: 8 }}>{error}</div>}
+        <button onClick={enviar} disabled={enviando} style={{ ...buttonStyle, marginTop: 12, minHeight: 50, fontSize: 16 }}>
+          {enviando ? "Enviando…" : "Enviar"}
+        </button>
+      </>
+    );
+  }
 
-      <Campo label="Nivel de estrés" value={estres} onChange={setEstres} izq="Mucho estrés" der="Sin estrés" />
-      <Campo label="Calidad de sueño" value={sueno} onChange={setSueno} izq="Muy mala" der="Excelente" />
-      <Campo label="Dolor muscular" value={doms} onChange={setDoms} izq="Mucho dolor" der="Sin dolor" />
-      <Campo label="Fatiga" value={fatiga} onChange={setFatiga} izq="Mucha fatiga" der="Sin fatiga" />
-
-      <div style={{ marginBottom: 4 }}>
-        <div style={{ fontSize: 12.5, color: "var(--h-texto2)", marginBottom: 6 }}>Observaciones (opcional)</div>
-        <textarea
-          value={observaciones}
-          onChange={(e) => setObservaciones(e.target.value)}
-          placeholder="Ej: tengo un golpe en la rodilla / hoy falto por x motivo"
-          rows={2}
-          style={{ ...inputStyle, resize: "vertical" }}
-        />
+  return (
+    <div style={{ ...cardStyle, padding: "18px", marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style={{ display: "flex", gap: 5 }} aria-label={`Paso ${paso + 1} de ${total}`}>
+          {Array.from({ length: total }, (_, i) => (
+            <span key={i} style={{ width: i === paso ? 20 : 8, height: 8, borderRadius: 4, background: i <= paso ? "var(--h-club)" : "var(--h-borde)" }} />
+          ))}
+        </div>
+        {paso > 0 && (
+          <button onClick={() => setPaso(paso - 1)} style={{ background: "none", border: "none", color: "var(--h-sub)", fontSize: 13, cursor: "pointer" }}>← Atrás</button>
+        )}
       </div>
-      <button onClick={enviar} disabled={enviando} style={{ ...buttonStyle, width: "auto", padding: "9px 20px", marginTop: 4 }}>
-        {enviando ? "Enviando…" : "Enviar"}
+      {cuerpo}
+    </div>
+  );
+}
+
+function EditorHorariosWellness() {
+  const [abierto, setAbierto] = useState(false);
+  const [h, setH] = useState(null);
+  const [aviso, setAviso] = useState("");
+  useEffect(() => {
+    if (!abierto || h) return;
+    supabase.from("wellness_horarios").select("horarios").maybeSingle().then(({ data }) => {
+      setH(data?.horarios || {
+        semana: { abre: "12:00", cierra: "19:00" }, domingo: { abre: "12:00", cierra: "20:00" },
+        sabado: { Superior: { abre: "08:00", cierra: "12:00" }, Intermedia: { abre: "08:00", cierra: "10:30" }, Resto: { abre: "08:00", cierra: "10:30" } },
+      });
+    });
+  }, [abierto]);
+  async function guardar() {
+    const { error } = await supabase.from("wellness_horarios").upsert({ horarios: h, updated_at: new Date().toISOString() }, { onConflict: "club_id" });
+    setAviso(error ? "No se pudo guardar." : "Horarios guardados.");
+    if (error) console.error("Error guardando horarios de wellness:", error);
+    setTimeout(() => setAviso(""), 2500);
+  }
+  if (!abierto) {
+    return (
+      <button onClick={() => setAbierto(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)", marginTop: 20 }}>
+        🕒 Horarios de carga
       </button>
+    );
+  }
+  const fila = (titulo, valor, cambiar) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid var(--h-borde)", flexWrap: "wrap" }}>
+      <span style={{ flex: "1 1 140px", fontSize: 14, color: "var(--h-texto)" }}>{titulo}</span>
+      <input type="time" value={valor.abre} onChange={(e) => cambiar({ ...valor, abre: e.target.value })} style={{ ...inputStyle, width: 110 }} aria-label={`${titulo}: abre`} />
+      <span style={{ color: "var(--h-sub)", fontSize: 13 }}>a</span>
+      <input type="time" value={valor.cierra} onChange={(e) => cambiar({ ...valor, cierra: e.target.value })} style={{ ...inputStyle, width: 110 }} aria-label={`${titulo}: cierra`} />
+    </div>
+  );
+  return (
+    <div style={{ ...cardStyle, padding: "16px 18px", marginTop: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)" }}>Horarios de carga</span>
+        <button onClick={() => setAbierto(false)} style={{ background: "none", border: "none", color: "var(--h-sub2)", fontSize: 12.5, cursor: "pointer" }}>Cerrar</button>
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 8 }}>
+        Hora de Argentina. Se abre y se cierra solo, con aviso al abrirse y 10 minutos antes del cierre a los que faltan.
+        El sábado va según el equipo en que juega cada uno (su formación).
+      </div>
+      {!h ? <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Cargando…</div> : (
+        <>
+          {fila("Lunes a viernes", h.semana, (v) => setH({ ...h, semana: v }))}
+          {["Superior", "Intermedia", "Resto"].map((eq) =>
+            fila(`Sábado · ${eq === "Resto" ? "resto del plantel" : eq}`, h.sabado?.[eq] || { abre: "08:00", cierra: "10:30" }, (v) => setH({ ...h, sabado: { ...(h.sabado || {}), [eq]: v } }))
+          )}
+          {fila("Domingo", h.domingo, (v) => setH({ ...h, domingo: v }))}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12 }}>
+            <button onClick={guardar} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>Guardar</button>
+            {aviso && <span style={{ fontSize: 12.5, color: aviso.startsWith("No") ? "var(--h-error)" : "var(--h-ok)" }}>{aviso}</span>}
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
 function WellnessPage({ perfil }) {
   const [ventana, setVentana] = useState(null);
-  const [respuestas, setRespuestas] = useState([]);
-  const [yaRespondio, setYaRespondio] = useState(false);
+  const [datos, setDatos] = useState({ hoy: [], porJugador: {} });
   const [cargando, setCargando] = useState(true);
+  const [abiertoJugador, setAbiertoJugador] = useState(null);
+  const [recordado, setRecordado] = useState("");
+  const esJugador = perfil?.rol === "Jugador";
 
   async function recargar() {
     setCargando(true);
-    const [{ data: v }, { data: r }] = await Promise.all([
-      supabase.from("wellness_ventanas").select("*").eq("fecha", hoyISO()).maybeSingle(),
-      supabase.from("wellness_respuestas").select("*, jugadores(nombre)").eq("fecha", hoyISO()),
-    ]);
+    const [{ data: v }, d] = await Promise.all([supabase.rpc("wellness_mi_ventana"), cargarWellnessHistorial()]);
     setVentana(v || null);
-    setRespuestas(r || []);
-    if (perfil?.rol === "Jugador" && perfil.jugador_id) {
-      setYaRespondio((r || []).some((x) => x.jugador_id === perfil.jugador_id));
-    }
+    setDatos(d);
     setCargando(false);
   }
-
-  useEffect(() => {
-    recargar();
-  }, []);
-
-  const conReadiness = respuestas.map((r) => ({
-    nombre: r.jugadores?.nombre || "—",
-    estado: r.estado_entrenamiento,
-    estres: r.estres,
-    sueno: r.sueno,
-    doms: r.doms,
-    fatiga: r.fatiga,
-    observaciones: r.observaciones,
-    readiness: r.estres + r.sueno + r.doms + r.fatiga,
-  }));
-  const promedio = conReadiness.length ? (conReadiness.reduce((a, r) => a + r.readiness, 0) / conReadiness.length).toFixed(1) : "—";
-  const aMirar = conReadiness.filter((r) => r.readiness <= 16);
+  useEffect(() => { recargar(); }, []);
 
   if (cargando) return <div style={{ color: "var(--h-sub)", fontSize: 13 }}>Cargando…</div>;
-
-  const esJugador = perfil?.rol === "Jugador";
+  const estadoVentana = textoVentana(ventana);
+  const titulo = (sub) => (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Wellness</div>
+      <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>{sub}</div>
+    </div>
+  );
+  const franja = (
+    <div style={{ ...cardStyle, padding: "10px 16px", marginBottom: 16, borderLeft: "4px solid " + (estadoVentana.abierta ? "var(--h-ok)" : "var(--h-sub2)") }}>
+      <span style={{ fontSize: 13.5, color: estadoVentana.abierta ? "var(--h-ok)" : "var(--h-sub)", fontWeight: 600 }}>{estadoVentana.texto}</span>
+      {ventana?.equipo && ventana.equipo !== "Resto" && new Date().getDay() === 6 && (
+        <span style={{ fontSize: 12.5, color: "var(--h-sub)" }}> · Horario de {ventana.equipo}</span>
+      )}
+    </div>
+  );
 
   if (esJugador) {
+    const mia = datos.hoy.find((x) => x.jugadorId === perfil.jugador_id);
+    const historial = (datos.porJugador[perfil.jugador_id] || []).map((x) => ({ fecha: x.fecha, pct: pctWellness(x) }));
     return (
       <div>
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Wellness</div>
-          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>Tu cuestionario de hoy, antes del estímulo.</div>
-        </div>
-
-        <div style={{ ...cardStyle, padding: "10px 16px", marginBottom: 20, borderLeft: "3px solid " + (ventana?.abierta ? "var(--h-ok)" : "var(--h-sub2)") }}>
-          <span style={{ fontSize: 12.5, color: ventana?.abierta ? "var(--h-ok)" : "var(--h-sub)" }}>
-            {ventana?.abierta ? "🟢 La carga de hoy está abierta." : "⚪ Todavía no se abrió la carga de hoy — esperá a que el cuerpo técnico la habilite."}
-          </span>
-        </div>
-
-        {ventana?.abierta && !yaRespondio && perfil.jugador_id && <FormularioWellness jugadorDbId={perfil.jugador_id} onEnviado={recargar} />}
-        {ventana?.abierta && yaRespondio && (
-          <div style={{ ...cardStyle, padding: "14px 18px", borderLeft: "3px solid var(--h-ok)" }}>
-            <span style={{ fontSize: 13, color: "var(--h-ok)" }}>✓ Ya completaste tu wellness de hoy.</span>
+        {titulo("Contá cómo llegás hoy. Lleva menos de un minuto.")}
+        {franja}
+        {!perfil.jugador_id ? (
+          <div style={{ ...cardStyle, padding: "14px 18px", borderLeft: "3px solid var(--h-error)", fontSize: 13, color: "var(--h-error)" }}>
+            Tu cuenta no está vinculada a ningún jugador del plantel. Pedile al cuerpo técnico que lo revise.
           </div>
-        )}
-        {!perfil.jugador_id && (
-          <div style={{ ...cardStyle, padding: "14px 18px", borderLeft: "3px solid var(--h-error)" }}>
-            <span style={{ fontSize: 13, color: "var(--h-error)" }}>
-              Tu cuenta no está vinculada a ningún jugador del plantel — pedile al cuerpo técnico que lo revise.
-            </span>
+        ) : mia ? (
+          <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 16, borderLeft: `4px solid ${colorPct(mia.pct)}` }}>
+            <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Tu wellness de hoy</div>
+            <div style={{ fontFamily: "var(--h-titulo)", fontSize: 40, fontWeight: 800, color: colorPct(mia.pct), lineHeight: 1.1 }}>{mia.pct}%</div>
+            <div style={{ fontSize: 13, color: "var(--h-texto2)", marginBottom: 12 }}>¡Gracias! Ya quedó cargado.</div>
+          </div>
+        ) : estadoVentana.abierta ? (
+          <FormularioWellness jugadorDbId={perfil.jugador_id} onEnviado={recargar} />
+        ) : null}
+        {perfil.jugador_id && (
+          <div style={{ ...cardStyle, padding: "16px 18px" }}>
+            <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 600, marginBottom: 10 }}>Tus últimas 2 semanas</div>
+            <MiniBarras puntos={historial} alto={56} />
           </div>
         )}
       </div>
     );
   }
 
+  const respondieron = new Set(datos.hoy.map((x) => x.jugadorId));
+  const faltan = POOL.filter((j) => j.dbId && !respondieron.has(j.dbId)).sort((a, b) => a.id.localeCompare(b.id));
+  const aMirar = datos.hoy.filter((x) => x.motivo).sort((a, b) => a.pct - b.pct);
+  const resto = datos.hoy.filter((x) => !x.motivo).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const promedio = datos.hoy.length ? Math.round(datos.hoy.reduce((a, x) => a + x.pct, 0) / datos.hoy.length) : null;
+
+  async function recordar() {
+    await crearNotificacion("wellness_recordatorio", "⏰ Todavía no cargaste tu wellness de hoy. ¡Es un minuto!", ["Jugador"], perfil?.id, faltan.map((j) => j.dbId));
+    setRecordado(`Aviso enviado a ${faltan.length}.`);
+  }
+
+  const TarjetaJugador = ({ x, alerta }) => (
+    <div style={{ ...cardStyle, padding: "12px 14px", borderLeft: `4px solid ${colorPct(x.pct)}`, cursor: "pointer" }} onClick={() => setAbiertoJugador(abiertoJugador === x.jugadorId ? null : x.jugadorId)}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
+        <span style={{ fontWeight: 600, color: "var(--h-texto)", fontSize: 14 }}>{x.nombre}</span>
+        <span style={{ fontFamily: "var(--h-titulo)", fontWeight: 800, fontSize: 20, color: colorPct(x.pct) }}>{x.pct}%</span>
+      </div>
+      <div style={{ fontSize: 12, color: alerta ? "var(--h-error)" : "var(--h-sub)", marginTop: 2 }}>
+        {alerta ? x.motivo : x.estado && x.estado !== "Full" ? x.estado : "Full"}
+        {alerta && x.estado && x.estado !== "Full" && x.motivo !== "Marcó lesión" ? ` · ${x.estado}` : ""}
+      </div>
+      {abiertoJugador === x.jugadorId && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--h-borde)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginBottom: 10 }}>
+            {ITEMS_WELLNESS.map((it) => {
+              const v = pctItem(x.fila, it.k);
+              return (
+                <div key={it.k} style={{ textAlign: "center" }}>
+                  <div style={{ height: 6, borderRadius: 3, background: colorPct(v), marginBottom: 4 }} />
+                  <div style={{ fontSize: 11, color: "var(--h-sub)" }}>{it.label}</div>
+                </div>
+              );
+            })}
+          </div>
+          <MiniBarras puntos={x.historial} />
+          {x.base !== null && <div style={{ fontSize: 11.5, color: "var(--h-sub)", marginTop: 6 }}>Su promedio: {x.base}%</div>}
+          {x.observaciones && <div style={{ fontSize: 12.5, color: "var(--h-texto2)", marginTop: 6 }}>“{x.observaciones}”</div>}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
-        <div>
-          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Wellness</div>
-          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>Respuestas de hoy, agrupadas y analizadas.</div>
-        </div>
-        {puedeGestionar(perfil) &&
-          (ventana?.abierta ? (
-            <button
-              onClick={async () => {
-                await cerrarWellnessHoy();
-                recargar();
-              }}
-              style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}
-            >
-              Cerrar carga de hoy
-            </button>
-          ) : (
-            <button
-              onClick={async () => {
-                await abrirWellnessHoy(perfil.id);
-                recargar();
-              }}
-              style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}
-            >
-              Abrir wellness de hoy
-            </button>
-          ))}
-      </div>
+      {titulo("Se abre y se cierra solo. Tocá un jugador para ver cómo viene.")}
+      {franja}
 
-      <div style={{ ...cardStyle, padding: "10px 16px", marginBottom: 20, borderLeft: "3px solid " + (ventana?.abierta ? "var(--h-ok)" : "var(--h-sub2)") }}>
-        <span style={{ fontSize: 12.5, color: ventana?.abierta ? "var(--h-ok)" : "var(--h-sub)" }}>
-          {ventana?.abierta ? "🟢 Carga del plantel: ABIERTA — los jugadores pueden completar su wellness." : "⚪ Carga del plantel: cerrada."}
-        </span>
-      </div>
-
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
-        <StatCard label="Respondieron" value={conReadiness.length} tone="ok" />
-        <StatCard label="Wellness del equipo" value={promedio === "—" ? "—" : `${Math.round((Number(promedio) / 28) * 100)}%`} tone="ok" />
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
+        <StatCard label="Respondieron" value={`${datos.hoy.length}${POOL.length ? ` de ${POOL.length}` : ""}`} tone="ok" />
+        <StatCard label="Promedio del plantel" value={promedio === null ? "—" : `${promedio}%`} tone="ok" />
         <StatCard label="Para mirar" value={aMirar.length} tone={aMirar.length ? "warn" : "ok"} />
       </div>
 
       {aMirar.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500, marginBottom: 12 }}>Para mirar hoy · wellness bajo</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-            {aMirar.map((j) => (
-              <div key={j.nombre} style={{ ...cardStyle, borderLeft: "3px solid var(--h-acento)", padding: "10px 14px", minWidth: 200 }}>
-                <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500 }}>{j.nombre}</div>
-                <div style={{ fontSize: 11, color: "var(--h-sub)", marginTop: 2 }}>Wellness {Math.round((j.readiness / 28) * 100)}%</div>
-              </div>
-            ))}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", marginBottom: 10 }}>Para mirar</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 10 }}>
+            {aMirar.map((x) => <TarjetaJugador key={x.jugadorId} x={x} alerta />)}
           </div>
         </div>
       )}
 
-      <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500, marginBottom: 12 }}>Todas las respuestas de hoy</div>
-      <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
-        {conReadiness.length === 0 ? (
-          <div style={{ padding: "14px 10px", color: "var(--h-sub2)", fontSize: 12.5 }}>Todavía no hay respuestas hoy.</div>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 820 }}>
-            <thead>
-              <tr style={{ color: "var(--h-sub)", textAlign: "left" }}>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Estado</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Wellness</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Estrés</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Sueño</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>DOMS</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Fatiga</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Observaciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {conReadiness.map((r) => (
-                <tr key={r.nombre} style={{ borderTop: "1px solid var(--h-borde)" }}>
-                  <td style={{ padding: "9px 10px", color: "var(--h-texto)", fontWeight: 500, whiteSpace: "nowrap" }}>{r.nombre}</td>
-                  <td style={{ padding: "9px 10px" }}>
-                    <span
-                      style={{
-                        ...tagStyle,
-                        background: r.estado === "Lesión" ? "var(--h-error-suave)" : r.estado === "Parcial" ? "var(--h-alerta-suave)" : "var(--h-ok-suave)",
-                        color: r.estado === "Lesión" ? "var(--h-error)" : r.estado === "Parcial" ? "var(--h-acento)" : "var(--h-ok)",
-                      }}
-                    >
-                      {r.estado || "—"}
-                    </span>
-                  </td>
-                  <td style={{ padding: "9px 10px", color: r.readiness <= 16 ? "var(--h-error)" : "var(--h-texto2)", fontWeight: 600 }}>{Math.round((r.readiness / 28) * 100)}%</td>
-                  <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{r.estres}</td>
-                  <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{r.sueno}</td>
-                  <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{r.doms}</td>
-                  <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{r.fatiga}</td>
-                  <td style={{ padding: "9px 10px", color: "var(--h-sub)" }}>{r.observaciones || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {faltan.length > 0 && (
+        <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+            <span style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 14 }}>Faltan {faltan.length}</span>
+            {estadoVentana.abierta && (
+              recordado ? <span style={{ fontSize: 12.5, color: "var(--h-ok)" }}>{recordado}</span> : (
+                <button onClick={recordar} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>Recordarles</button>
+              )
+            )}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--h-sub)", lineHeight: 1.6 }}>{faltan.map((j) => j.id).join(" · ")}</div>
+        </div>
+      )}
+
+      {resto.length > 0 && (
+        <>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", marginBottom: 10 }}>Bien</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 10 }}>
+            {resto.map((x) => <TarjetaJugador key={x.jugadorId} x={x} />)}
+          </div>
+        </>
+      )}
+      {datos.hoy.length === 0 && <div style={{ ...cardStyle, padding: "16px", fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay respuestas hoy.</div>}
+
+      {puedeGestionar(perfil) && <EditorHorariosWellness />}
     </div>
   );
 }
@@ -7398,18 +7519,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const intermediaTerminada = !intermediaHoy || !!intermediaHoy.res;
 
   useEffect(() => {
-    supabase
-      .from("wellness_respuestas")
-      .select("jugador_id, estres, sueno, doms, fatiga, jugadores(nombre)")
-      .eq("fecha", hoyISO())
-      .then(({ data }) => {
-        const conReadiness = (data || []).map((r) => ({
-          jugadorId: r.jugador_id,
-          nombre: r.jugadores?.nombre || "—",
-          readiness: r.estres + r.sueno + r.doms + r.fatiga,
-        }));
-        setAlertasHoy({ cargando: false, respuestas: conReadiness });
-      });
+    cargarWellnessHistorial().then((d) => setAlertasHoy({ cargando: false, respuestas: d.hoy }));
   }, []);
 
   useEffect(() => {
@@ -7419,7 +7529,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
       .order("created_at", { ascending: false })
       .limit(5)
       .then(({ data }) => {
-        const relevante = (data || []).find((n) => !n.roles_destino || (perfil && n.roles_destino.includes(perfil.rol)));
+        const relevante = (data || []).find((n) => esParaMi(n, perfil));
         if (relevante) setNovedad(relevante);
       });
   }, [perfil?.rol]);
@@ -7428,7 +7538,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const lesionados = POOL.filter((j) => disponibilidadReal(j) === "Lesionado").length;
   const aVigilarRtp = POOL.filter((j) => disponibilidadReal(j) === "A vigilar").length;
   const noHabilitados = POOL.filter((j) => disponibilidadReal(j) === "No habilitado").length;
-  const aMirarWellness = alertasHoy.respuestas.filter((r) => r.readiness <= 16);
+  const aMirarWellness = alertasHoy.respuestas.filter((r) => r.motivo);
 
   const fixture = FIXTURE.superior;
   const proximos = PROXIMOS.superior;
@@ -7635,7 +7745,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
             ) : (
               <>
                 {aMirarWellness.map((a) => (
-                  <FilaAlerta key={"w" + a.nombre} nombre={a.nombre} texto={`Wellness ${Math.round((a.readiness / 28) * 100)}%`} color="var(--h-error)" fondo="var(--h-error-suave)" onClick={() => onNavigate("wellness")} />
+                  <FilaAlerta key={"w" + a.nombre} nombre={a.nombre} texto={`Wellness ${a.pct}%`} color="var(--h-error)" fondo="var(--h-error-suave)" onClick={() => onNavigate("wellness")} />
                 ))}
                 {aVigilarNombres.slice(0, 6).map((a) => (
                   <FilaAlerta key={"r" + a.nombre} nombre={a.nombre} texto={a.estado} color={a.estado === "Lesionado" ? "var(--h-error)" : "var(--h-alerta)"} fondo={a.estado === "Lesionado" ? "var(--h-error-suave)" : "var(--h-alerta-suave, var(--h-acento-suave))"} onClick={() => onNavigate("rtp")} />
@@ -8051,10 +8161,17 @@ let ESCUDOS_RIVALES = {}; // nombre de club -> url del escudo real subido a Supa
 let TEMPORADA_ACTIVA = "2026"; // se sobreescribe con el valor real de la base al cargar
 
 // Crea una notificación in-app. roles null = la ven todos; si no, solo esos roles.
-async function crearNotificacion(tipo, mensaje, roles, creadoPor) {
+// Una notificación es para este usuario si coincide el rol (o no tiene) y, si va a jugadores puntuales, él está entre ellos.
+function esParaMi(n, perfil) {
+  if (n.roles_destino && !(perfil && n.roles_destino.includes(perfil.rol))) return false;
+  if (n.jugadores_destino && n.jugadores_destino.length && !(perfil?.jugador_id && n.jugadores_destino.includes(perfil.jugador_id))) return false;
+  return true;
+}
+
+async function crearNotificacion(tipo, mensaje, roles, creadoPor, jugadoresDestino) {
   const { error } = await supabase
     .from("notificaciones")
-    .insert({ tipo, mensaje, roles_destino: roles || null, creado_por: creadoPor || null });
+    .insert({ tipo, mensaje, roles_destino: roles || null, creado_por: creadoPor || null, jugadores_destino: jugadoresDestino?.length ? jugadoresDestino : null });
   if (error) console.error("Error creando notificación:", error);
 }
 
@@ -8400,7 +8517,7 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
     ]);
     const leidasSet = new Set((l || []).map((x) => x.notificacion_id));
     const relevantes = (n || []).filter(
-      (x) => (!x.roles_destino || (perfil && x.roles_destino.includes(perfil.rol))) && !leidasSet.has(x.id)
+      (x) => esParaMi(x, perfil) && !leidasSet.has(x.id)
     );
     setNotis(relevantes);
     setLeidas(leidasSet);
