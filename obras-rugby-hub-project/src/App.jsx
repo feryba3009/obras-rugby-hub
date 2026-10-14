@@ -1339,7 +1339,7 @@ function CalendarioPage({ perfil }) {
   );
 }
 
-const DIAS_SEMANA = ["Lunes", "Martes", "Jueves"];
+const DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
 const SESIONES_INICIALES = {
   Lunes: {
@@ -1409,74 +1409,122 @@ const editInputStyle = {
   outline: "none",
 };
 
+// Plan de práctica guardado en la base (un registro por día). Arranca con el plan base y
+// se pisa con lo que haya cargado el staff.
+let SESIONES = Object.fromEntries(
+  Object.entries(SESIONES_INICIALES).map(([d, v]) => [d, { grupo1: v.grupo1, grupo2: v.grupo2 }])
+);
+
+async function cargarSesiones() {
+  const { data, error } = await supabase.from("sesiones_practica").select("dia, grupos");
+  if (error) {
+    console.error("Error cargando la práctica:", error);
+    return;
+  }
+  for (const row of data || []) SESIONES[row.dia] = { grupo1: row.grupos?.grupo1 || [], grupo2: row.grupos?.grupo2 || [] };
+}
+
+const TIPOS_BLOQUE = {
+  fisico: { label: "Físico", color: "#E0812C" },
+  tecnico: { label: "Técnico", color: "#2F7FD8" },
+  tactico: { label: "Táctico", color: "#7A5AD6" },
+  gimnasio: { label: "Gimnasio", color: "#6B7785" },
+  juego: { label: "Juego", color: "#1FA37A" },
+};
+
+// Tipo del bloque: el elegido por el staff o, si no tiene, el que se deduce del contenido.
+function tipoBloque(f) {
+  if (f.k && TIPOS_BLOQUE[f.k]) return f.k;
+  const c = (f.c || "").toUpperCase();
+  if (c.includes("GIMNASIO") || c.includes("GYM")) return "gimnasio";
+  if (c.includes("JUEGO") || c.includes("PARTIDO")) return "juego";
+  if (c.includes("ATAQUE") || c.includes("DEFENSA") || c.includes("TÁCTIC") || c.includes("TACTIC")) return "tactico";
+  if (c.includes("UNIDADES") || c.includes("TÉCNIC") || c.includes("TECNIC") || c.includes("BALÓN PARADO") || c.includes("SCRUM") || c.includes("LINE")) return "tecnico";
+  return "fisico";
+}
+
+function minutosBloque(f) {
+  const n = parseInt(String(f.t || "").replace(/[^0-9]/g, ""), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function BarraTipos({ filas }) {
+  const total = filas.reduce((a, f) => a + minutosBloque(f), 0);
+  if (!total) return null;
+  const porTipo = {};
+  filas.forEach((f) => { const k = tipoBloque(f); porTipo[k] = (porTipo[k] || 0) + minutosBloque(f); });
+  return (
+    <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", gap: 2, marginBottom: 14 }} aria-hidden="true">
+      {Object.keys(TIPOS_BLOQUE).filter((k) => porTipo[k]).map((k) => (
+        <span key={k} title={`${TIPOS_BLOQUE[k].label}: ${porTipo[k]}'`} style={{ flex: porTipo[k], background: TIPOS_BLOQUE[k].color }} />
+      ))}
+    </div>
+  );
+}
+
 function GrupoTabla({ titulo, filas, editMode, onChange, onDelete, onAdd }) {
+  const total = filas.reduce((a, f) => a + minutosBloque(f), 0);
+  let acumulado = 0;
   return (
     <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 340px" }}>
-      <div style={{ fontSize: 13, color: "var(--h-acento)", fontWeight: 600, marginBottom: 12, letterSpacing: 0.4 }}>
-        {titulo}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)" }}>{titulo}</span>
+        <span style={{ fontSize: 13, color: "var(--h-sub)" }}>{total} min</span>
       </div>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-        <thead>
-          <tr style={{ color: "var(--h-sub2)", textAlign: "left" }}>
-            <th style={{ fontWeight: 400, paddingBottom: 8, width: 46 }}>Tiempo</th>
-            <th style={{ fontWeight: 400, paddingBottom: 8 }}>Contenido</th>
-            <th style={{ fontWeight: 400, paddingBottom: 8 }}>Explicación</th>
-            <th style={{ fontWeight: 400, paddingBottom: 8, width: 90 }}>Sector</th>
-            {editMode && <th style={{ width: 20 }} />}
-          </tr>
-        </thead>
-        <tbody>
-          {filas.map((f, i) =>
-            editMode ? (
-              <tr key={i} style={{ borderTop: "1px solid var(--h-borde)" }}>
-                <td style={{ padding: "9px 8px 9px 0", verticalAlign: "top" }}>
-                  <input style={editInputStyle} value={f.t} onChange={(e) => onChange(i, "t", e.target.value)} />
-                </td>
-                <td style={{ padding: "9px 8px 9px 0", verticalAlign: "top" }}>
-                  <input style={editInputStyle} value={f.c} onChange={(e) => onChange(i, "c", e.target.value)} />
-                </td>
-                <td style={{ padding: "9px 8px 9px 0", verticalAlign: "top" }}>
-                  <input style={editInputStyle} value={f.e} onChange={(e) => onChange(i, "e", e.target.value)} />
-                </td>
-                <td style={{ padding: "9px 8px 9px 0", verticalAlign: "top" }}>
-                  <input style={editInputStyle} value={f.s} onChange={(e) => onChange(i, "s", e.target.value)} />
-                </td>
-                <td style={{ padding: "9px 0", verticalAlign: "top" }}>
-                  <button
-                    onClick={() => onDelete(i)}
-                    style={{ background: "transparent", border: "none", color: "var(--h-sub2)", cursor: "pointer", fontSize: 14 }}
-                    title="Eliminar fila"
-                  >
-                    ×
-                  </button>
-                </td>
-              </tr>
-            ) : (
-              <tr key={i} style={{ borderTop: "1px solid var(--h-borde)" }}>
-                <td style={{ padding: "9px 8px 9px 0", color: "var(--h-texto)", fontWeight: 600, verticalAlign: "top" }}>{f.t}</td>
-                <td style={{ padding: "9px 8px 9px 0", color: "var(--h-texto)", fontWeight: 500, verticalAlign: "top" }}>{f.c}</td>
-                <td style={{ padding: "9px 8px 9px 0", color: "var(--h-sub)", verticalAlign: "top" }}>{f.e}</td>
-                <td style={{ padding: "9px 0", verticalAlign: "top" }}>
-                  <span style={tagStyle}>{f.s}</span>
-                </td>
-              </tr>
-            )
-          )}
-        </tbody>
-      </table>
+      <BarraTipos filas={filas} />
+      <div style={{ position: "relative" }}>
+        {filas.length > 0 && <span aria-hidden="true" style={{ position: "absolute", left: 5, top: 10, bottom: 10, width: 2, background: "var(--h-borde)" }} />}
+        {filas.map((f, i) => {
+          const k = tipoBloque(f);
+          const color = TIPOS_BLOQUE[k].color;
+          const desde = acumulado;
+          acumulado += minutosBloque(f);
+          return (
+            <div key={i} style={{ position: "relative", paddingLeft: 22, marginBottom: 10 }}>
+              <span aria-hidden="true" style={{ position: "absolute", left: 0, top: 12, width: 12, height: 12, borderRadius: "50%", background: color, boxShadow: "0 0 0 3px var(--h-panel)" }} />
+              <div style={{ border: "1px solid var(--h-borde)", borderLeft: `3px solid ${color}`, borderRadius: 10, padding: "10px 12px", background: "var(--h-panel)" }}>
+                {editMode ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "56px 1fr 24px", gap: 8, alignItems: "start" }}>
+                    <input style={editInputStyle} value={f.t} placeholder="15'" aria-label="Duración" onChange={(e) => onChange(i, "t", e.target.value)} />
+                    <div style={{ display: "grid", gap: 6 }}>
+                      <input style={{ ...editInputStyle, fontWeight: 600 }} value={f.c} placeholder="Contenido" aria-label="Contenido" onChange={(e) => onChange(i, "c", e.target.value)} />
+                      <input style={editInputStyle} value={f.e} placeholder="Detalle" aria-label="Detalle" onChange={(e) => onChange(i, "e", e.target.value)} />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input style={editInputStyle} value={f.s} placeholder="Cancha / sector" aria-label="Sector" onChange={(e) => onChange(i, "s", e.target.value)} />
+                        <select value={k} onChange={(e) => onChange(i, "k", e.target.value)} aria-label="Tipo de trabajo" style={{ ...editInputStyle, width: 110 }}>
+                          {Object.entries(TIPOS_BLOQUE).map(([kk, v]) => <option key={kk} value={kk}>{v.label}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <button onClick={() => onDelete(i)} title="Quitar bloque" aria-label="Quitar bloque" style={{ background: "transparent", border: "none", color: "var(--h-sub2)", cursor: "pointer", fontSize: 18, padding: 0 }}>×</button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
+                      <span style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 14, textTransform: "capitalize" }}>{(f.c || "").toLowerCase()}</span>
+                      <span style={{ fontFamily: "var(--h-titulo)", fontWeight: 800, fontSize: 16, color: "var(--h-texto)", flexShrink: 0 }}>{f.t}</span>
+                    </div>
+                    {f.e && <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 3 }}>{f.e}</div>}
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, fontSize: 11.5, color: "var(--h-sub2)" }}>
+                      <span style={{ color, fontWeight: 700 }}>{TIPOS_BLOQUE[k].label}</span>
+                      <span>·</span>
+                      <span>min {desde}–{acumulado}</span>
+                      {f.s && <><span>·</span><span style={{ textTransform: "capitalize" }}>{f.s.toLowerCase()}</span></>}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {filas.length === 0 && !editMode && <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Sin bloques.</div>}
+      </div>
       {editMode && (
         <button
           onClick={onAdd}
-          style={{
-            ...pillButton,
-            marginTop: 12,
-            background: "transparent",
-            border: "1px dashed var(--h-borde2)",
-            color: "var(--h-sub)",
-            width: "100%",
-          }}
+          style={{ ...pillButton, marginTop: 4, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)", width: "100%" }}
         >
-          + Agregar fila
+          + Agregar bloque
         </button>
       )}
     </div>
@@ -1572,102 +1620,165 @@ function AsistenciaPanel({ perfil }) {
   );
 }
 
-function SesionPage({ perfil }) {
-  const [sesiones, setSesiones] = useState(SESIONES_INICIALES);
-  const [dia, setDia] = useState("Lunes");
-  const [editMode, setEditMode] = useState(false);
-  const sesion = sesiones[dia];
+// Fecha (de esta semana) del día elegido: "Martes 14".
+function fechaDiaSemana(dia) {
+  const orden = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const hoy = new Date();
+  const lunes = new Date(hoy);
+  lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+  const d = new Date(lunes);
+  d.setDate(lunes.getDate() + orden.indexOf(dia));
+  return `${dia} ${d.getDate()}`;
+}
 
-  function updateFila(grupo, index, field, value) {
+function SesionPage({ perfil }) {
+  const puedeEditar = puedeGestionar(perfil);
+  const [sesiones, setSesiones] = useState(() => ({ ...SESIONES }));
+  const [dia, setDia] = useState(() => {
+    const hoy = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date().getDay()];
+    if (DIAS_SEMANA.includes(hoy) && SESIONES[hoy]) return hoy;
+    return DIAS_SEMANA.find((d) => SESIONES[d]) || "Lunes";
+  });
+  const [editMode, setEditMode] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [aviso, setAviso] = useState("");
+  const sesion = sesiones[dia] || { grupo1: [], grupo2: [] };
+
+  useEffect(() => {
+    cargarSesiones().then(() => setSesiones({ ...SESIONES }));
+  }, []);
+
+  function cambiarDia(grupo, fn) {
     setSesiones((prev) => {
-      const filas = prev[dia][grupo].map((f, i) => (i === index ? { ...f, [field]: value } : f));
-      return { ...prev, [dia]: { ...prev[dia], [grupo]: filas } };
+      const actual = prev[dia] || { grupo1: [], grupo2: [] };
+      return { ...prev, [dia]: { ...actual, [grupo]: fn(actual[grupo] || []) } };
     });
   }
-  function addFila(grupo) {
-    setSesiones((prev) => ({
-      ...prev,
-      [dia]: { ...prev[dia], [grupo]: [...prev[dia][grupo], { t: "", c: "", e: "", s: "" }] },
-    }));
+  const updateFila = (grupo, index, field, value) => cambiarDia(grupo, (filas) => filas.map((f, i) => (i === index ? { ...f, [field]: value } : f)));
+  const addFila = (grupo) => cambiarDia(grupo, (filas) => [...filas, { t: "", c: "", e: "", s: "", k: "fisico" }]);
+  const deleteFila = (grupo, index) => cambiarDia(grupo, (filas) => filas.filter((_, i) => i !== index));
+
+  async function guardar() {
+    setGuardando(true);
+    const limpiar = (filas) => (filas || []).filter((f) => (f.c || "").trim() || (f.t || "").trim()).map((f) => ({ ...f, k: tipoBloque(f) }));
+    const grupos = { grupo1: limpiar(sesion.grupo1), grupo2: limpiar(sesion.grupo2) };
+    const { error } = await supabase
+      .from("sesiones_practica")
+      .upsert({ dia, grupos, updated_at: new Date().toISOString() }, { onConflict: "club_id,dia" });
+    setGuardando(false);
+    if (error) {
+      console.error("Error guardando la práctica:", error);
+      setAviso("No se pudo guardar. Probá de nuevo.");
+      return;
+    }
+    SESIONES[dia] = grupos;
+    setSesiones((prev) => ({ ...prev, [dia]: grupos }));
+    setEditMode(false);
+    setAviso("Práctica guardada.");
+    setTimeout(() => setAviso(""), 2500);
   }
-  function deleteFila(grupo, index) {
-    setSesiones((prev) => ({
-      ...prev,
-      [dia]: { ...prev[dia], [grupo]: prev[dia][grupo].filter((_, i) => i !== index) },
-    }));
-  }
+
+  const min1 = (sesion.grupo1 || []).reduce((a, f) => a + minutosBloque(f), 0);
+  const min2 = (sesion.grupo2 || []).reduce((a, f) => a + minutosBloque(f), 0);
+  const gruposConBloques = [sesion.grupo1, sesion.grupo2].filter((g) => g && g.length).length;
+  const vacia = gruposConBloques === 0;
+  const todas = [...(sesion.grupo1 || []), ...(sesion.grupo2 || [])];
+  const tiposUsados = Object.keys(TIPOS_BLOQUE).filter((k) => todas.some((f) => tipoBloque(f) === k));
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Práctica del día</div>
-          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>{sesion.fecha}</div>
+          <div style={{ fontSize: 14, color: "var(--h-sub)", marginTop: 4 }}>
+            {fechaDiaSemana(dia)}
+            {!vacia && ` · ${Math.max(min1, min2)} minutos · ${gruposConBloques} ${gruposConBloques === 1 ? "grupo" : "grupos"}`}
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {editMode ? (
+        {puedeEditar && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {aviso && <span style={{ fontSize: 12.5, color: aviso.startsWith("No") ? "var(--h-error)" : "var(--h-ok)" }}>{aviso}</span>}
+            {editMode ? (
+              <>
+                <button onClick={() => { setSesiones({ ...SESIONES }); setEditMode(false); }} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
+                  Cancelar
+                </button>
+                <button onClick={guardar} disabled={guardando} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
+                  {guardando ? "Guardando…" : "Guardar"}
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => setEditMode(true)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}>
+                  {vacia ? "Armar práctica" : "Editar"}
+                </button>
+                {!vacia && (
+                  <button
+                    onClick={() => crearNotificacion("sesion_planificada", `🏉 Práctica del ${dia.toLowerCase()} lista — revisala.`, null, perfil?.id)}
+                    style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}
+                  >
+                    Avisar al staff
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {puedeEditar && <AsistenciaPanel perfil={perfil} />}
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        {DIAS_SEMANA.map((d) => {
+          const tiene = (sesiones[d]?.grupo1?.length || 0) + (sesiones[d]?.grupo2?.length || 0) > 0;
+          return (
             <button
-              onClick={() => setEditMode(false)}
-              style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}
+              key={d}
+              onClick={() => { setDia(d); setEditMode(false); }}
+              style={{
+                ...pillButton,
+                border: "1px solid " + (dia === d ? "var(--h-acento)" : "var(--h-borde2)"),
+                background: dia === d ? "var(--h-acento-suave)" : "transparent",
+                color: dia === d ? "var(--h-acento)" : tiene ? "var(--h-texto2)" : "var(--h-sub2)",
+                fontWeight: tiene ? 600 : 400,
+              }}
             >
-              Guardar cambios
+              {d.slice(0, 3)}
             </button>
-          ) : (
-            <button
-              onClick={() => setEditMode(true)}
-              style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}
-            >
-              Editar
-            </button>
-          )}
-          <button
-            onClick={() => crearNotificacion("sesion_planificada", `🏉 Sesión del ${dia.toLowerCase()} planificada — revisala.`, null, perfil?.id)}
-            style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}
-          >
-            Avisar al staff
-          </button>
+          );
+        })}
+      </div>
+
+      {tiposUsados.length > 0 && (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14, fontSize: 12, color: "var(--h-sub)" }}>
+          {tiposUsados.map((k) => (
+            <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: TIPOS_BLOQUE[k].color }} />
+              {TIPOS_BLOQUE[k].label}
+            </span>
+          ))}
         </div>
-      </div>
+      )}
 
-      {puedeGestionar(perfil) && <AsistenciaPanel perfil={perfil} />}
-
-      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
-        {DIAS_SEMANA.map((d) => (
-          <button
-            key={d}
-            onClick={() => setDia(d)}
-            style={{
-              ...pillButton,
-              border: "1px solid " + (dia === d ? "var(--h-acento)" : "var(--h-borde2)"),
-              background: dia === d ? "var(--h-acento-suave)" : "transparent",
-              color: dia === d ? "var(--h-acento)" : "var(--h-texto2)",
-            }}
-          >
-            {d}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ fontSize: 11, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 12 }}>{sesion.semana}</div>
-
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-        <GrupoTabla
-          titulo="GRUPO 1"
-          filas={sesion.grupo1}
-          editMode={editMode}
-          onChange={(i, field, value) => updateFila("grupo1", i, field, value)}
-          onDelete={(i) => deleteFila("grupo1", i)}
-          onAdd={() => addFila("grupo1")}
-        />
-        <GrupoTabla
-          titulo="GRUPO 2"
-          filas={sesion.grupo2}
-          editMode={editMode}
-          onChange={(i, field, value) => updateFila("grupo2", i, field, value)}
-          onDelete={(i) => deleteFila("grupo2", i)}
-          onAdd={() => addFila("grupo2")}
-        />
-      </div>
+      {vacia && !editMode ? (
+        <div style={{ ...cardStyle, padding: "22px 20px", fontSize: 14, color: "var(--h-sub)" }}>
+          No hay práctica cargada para el {dia.toLowerCase()}.
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          {["grupo1", "grupo2"].map((g, gi) => (
+            <GrupoTabla
+              key={g}
+              titulo={`Grupo ${gi + 1}`}
+              filas={sesion[g] || []}
+              editMode={editMode}
+              onChange={(i, field, value) => updateFila(g, i, field, value)}
+              onDelete={(i) => deleteFila(g, i)}
+              onAdd={() => addFila(g)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -7205,7 +7316,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const diaHoy = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date().getDay()];
   const gymHoy = PLAN_GYM_INICIAL[diaHoy];
   const proximoGym = DIAS_GYM.find((d) => ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].indexOf(d) > ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].indexOf(diaHoy)) || DIAS_GYM[0];
-  const practicaHoy = SESIONES_INICIALES[diaHoy];
+  const practicaHoy = SESIONES[diaHoy];
   const bloquesPractica = practicaHoy ? Object.keys(practicaHoy).filter((k) => k.startsWith("grupo")).flatMap((k) => practicaHoy[k]) : [];
   const aVigilarNombres = POOL.filter((j) => ["A vigilar", "Lesionado"].includes(disponibilidadReal(j))).map((j) => ({ nombre: j.id, estado: disponibilidadReal(j) }));
   const ultimos = fixture.filter((p) => p.res).slice(-3).reverse();
@@ -7811,7 +7922,7 @@ async function cargarEvaluaciones() {
 }
 
 async function cargarTodo() {
-  await Promise.all([cargarJugadores(), cargarCalendario(), cargarFormaciones(), cargarEscudos(), cargarConfig(), cargarEvaluaciones()]);
+  await Promise.all([cargarJugadores(), cargarCalendario(), cargarFormaciones(), cargarEscudos(), cargarConfig(), cargarEvaluaciones(), cargarSesiones()]);
 }
 
 function PantallaCarga() {
