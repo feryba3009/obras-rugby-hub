@@ -1339,23 +1339,8 @@ function CalendarioPage({ perfil }) {
 
 const DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
+// Plan base de Obras: se entrena en cancha martes y jueves (el gimnasio va aparte, lunes, miércoles y viernes).
 const SESIONES_INICIALES = {
-  Lunes: {
-    fecha: "31/08/2026",
-    semana: "SEMANA 27 · LUNES",
-    grupo1: [
-      { t: "45'", c: "GIMNASIO", e: "", s: "GYM" },
-      { t: "10'", c: "ACTIVACIÓN + FÍSICO", e: "", s: "CANCHA 2" },
-      { t: "25'", c: "UNIDADES SEPARADAS", e: "Scrum · Lanzamientos backs", s: "CANCHA 1" },
-      { t: "7'", c: "RHIE", e: "", s: "CANCHA 1" },
-    ],
-    grupo2: [
-      { t: "45'", c: "GIMNASIO", e: "", s: "GYM" },
-      { t: "10'", c: "ACTIVACIÓN + FÍSICO", e: "", s: "CANCHA 2" },
-      { t: "25'", c: "UNIDADES SEPARADAS", e: "Scrum · Lanzamientos backs", s: "CANCHA 2" },
-      { t: "7'", c: "RHIE", e: "", s: "CANCHA 2" },
-    ],
-  },
   Martes: {
     fecha: "01/09/2026",
     semana: "SEMANA 27 · MARTES",
