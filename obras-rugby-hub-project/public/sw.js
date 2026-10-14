@@ -1,8 +1,8 @@
-// Service worker de Obras Rugby Hub — recibe los push reales y los muestra
+// Service worker de ADN Obras — recibe los push reales y los muestra
 // como notificación del sistema, aunque la app esté cerrada.
 
 self.addEventListener("push", (event) => {
-  let data = { title: "Obras Rugby Hub", body: "Tenés una notificación nueva." };
+  let data = { title: "ADN Obras", body: "Tenés una notificación nueva." };
   try {
     if (event.data) data = event.data.json();
   } catch (e) {
@@ -10,7 +10,7 @@ self.addEventListener("push", (event) => {
   }
 
   event.waitUntil(
-    self.registration.showNotification(data.title || "Obras Rugby Hub", {
+    self.registration.showNotification(data.title || "ADN Obras", {
       body: data.body,
       icon: "/icon-192.png",
       badge: "/icon-192.png",

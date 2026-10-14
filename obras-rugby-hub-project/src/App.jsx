@@ -6392,7 +6392,7 @@ const INVITE_LINK = "https://obrasrugbyhub.app/invitacion";
 function textoInvitacion() {
   return (
     "🏉 ¡Sumate al plantel de Obras Rugby!\n\n" +
-    "Registrate en el Hub del club para cargar tus datos (altura, peso, posición) y quedar disponible para Superior e Intermedia:\n" +
+    "Registrate en ADN Obras, la app del club, para cargar tus datos (altura, peso, posición) y quedar disponible para Superior e Intermedia:\n" +
     INVITE_LINK +
     "\n\n" +
     "Elegí tu nombre en la lista y creá tu usuario y contraseña. ¡Nos vemos en la cancha!"
@@ -6628,7 +6628,7 @@ function PanelStaff({ perfil }) {
 
   return (
     <div>
-      <ConfigTitulo sub="Quién tiene acceso al Hub y con qué rol.">Staff y usuarios</ConfigTitulo>
+      <ConfigTitulo sub="Quién tiene acceso a la app y con qué rol.">Staff y usuarios</ConfigTitulo>
 
       {pendientes.length > 0 && (
         <div style={{ marginBottom: 20 }}>
@@ -6736,7 +6736,7 @@ function PanelStaff({ perfil }) {
             </button>
           </div>
           <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginTop: 12 }}>
-            El link es de ejemplo — cuando el Hub tenga un dominio propio, se reemplaza acá por la URL real.
+            El link es de ejemplo — cuando la app tenga un dominio propio, se reemplaza acá por la URL real.
           </div>
         </div>
       )}
@@ -6758,7 +6758,7 @@ function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantall
   ];
   return (
     <div>
-      <ConfigTitulo sub="Ajustes personales del Hub.">Apariencia y preferencias</ConfigTitulo>
+      <ConfigTitulo sub="Ajustes personales de la app.">Apariencia y preferencias</ConfigTitulo>
 
       <label style={labelStyle}>APARIENCIA</label>
       <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
@@ -6777,7 +6777,7 @@ function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantall
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 18 }}>El tema del Hub. Se aplica en toda la app al instante.</div>
+      <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 18 }}>El tema de la app. Se aplica al instante.</div>
 
       <label style={labelStyle}>PÁGINA DE INICIO</label>
       <select style={inputStyle} value={pantallaInicio} onChange={(e) => setPantallaInicio(e.target.value)}>
@@ -6788,7 +6788,7 @@ function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantall
         ))}
       </select>
       <div style={{ fontSize: 11, color: "var(--h-sub2)", marginTop: 6, marginBottom: 26 }}>
-        La pantalla que se abre al entrar al Hub. Se aplica la próxima vez que inicies sesión.
+        La pantalla que se abre al entrar a la app. Se aplica la próxima vez que inicies sesión.
       </div>
 
       <div style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600, marginBottom: 4 }}>📱 Posición del menú (en el celular)</div>
@@ -6824,13 +6824,13 @@ function PanelInstalar() {
     <div>
       <ConfigTitulo>📲 Instalar la app</ConfigTitulo>
       <div style={{ fontSize: 13, color: "var(--h-texto2)", marginBottom: 20, lineHeight: 1.6 }}>
-        El Hub de Obras se instala en el celular como una app: ícono en la pantalla de inicio y pantalla completa,
+        ADN Obras se instala en el celular como cualquier app: ícono en la pantalla de inicio y pantalla completa,
         sin la barra del navegador. No ocupa casi nada y se actualiza sola.
       </div>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         <div style={{ ...cardStyle, padding: "18px", flex: "1 1 280px" }}>
           <div style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600, marginBottom: 10 }}>🤖 Android</div>
-          <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 10 }}>Con Chrome abierto en el Hub:</div>
+          <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 10 }}>Con Chrome abierto en la app:</div>
           <button style={{ ...buttonStyle, width: "auto", padding: "9px 18px", marginTop: 0, marginBottom: 14 }}>⬇ Instalar ahora</button>
           <ol style={{ fontSize: 12.5, color: "var(--h-texto2)", paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
             <li>Tocá el menú ⋮ (arriba a la derecha).</li>
@@ -6981,7 +6981,7 @@ function PanelNotificaciones({ perfil }) {
     <div>
       <ConfigTitulo>🔔 Notificaciones</ConfigTitulo>
       <div style={{ fontSize: 13, color: "var(--h-texto2)", marginBottom: 18, lineHeight: 1.6 }}>
-        Recibí avisos del Hub en el celular <b>aunque no lo tengas abierto</b> (alertas de carga, wellness pendiente,
+        Recibí avisos de la app en el celular <b>aunque no lo tengas abierto</b> (alertas de carga, wellness pendiente,
         RTP, etc.). Hay que permitirlo una sola vez en este dispositivo.
       </div>
       <div style={{ ...cardStyle, padding: "18px" }}>
@@ -7034,7 +7034,7 @@ function ConfiguracionPage({ menuPref, setMenuPref, temaPref, setTemaPref, panta
     <div>
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Configuración</div>
-        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>Tu cuenta y preferencias en el Hub.</div>
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>Tu cuenta y preferencias en la app.</div>
       </div>
 
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
@@ -7235,9 +7235,12 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
         />
       )}
 
-      <div style={{ marginBottom: 18 }}>
-        <h1 style={{ margin: 0, fontFamily: "var(--h-titulo)", fontSize: 38, lineHeight: 1, fontWeight: 800, color: "var(--h-texto)", textTransform: "capitalize" }}>{hoyStr}</h1>
-        <div style={{ fontSize: 14, color: "var(--h-sub)", marginTop: 6 }}>Hola, {perfil?.nombre?.split(" ")[0] || "de nuevo"}. Esto es lo que importa hoy.</div>
+      <div style={{ marginBottom: 18, display: "flex", alignItems: "center", gap: 14 }}>
+        <Shield size={52} />
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ margin: 0, fontFamily: "var(--h-titulo)", fontSize: 38, lineHeight: 1, fontWeight: 800, color: "var(--h-texto)", textTransform: "capitalize" }}>{hoyStr}</h1>
+          <div style={{ fontSize: 14, color: "var(--h-sub)", marginTop: 6 }}>Hola, {perfil?.nombre?.split(" ")[0] || "de nuevo"}. Esto es lo que importa hoy.</div>
+        </div>
       </div>
 
       <CaminoAlPartido proximo={proximo} onNavigate={onNavigate} />
@@ -7347,9 +7350,11 @@ function CaminoAlPartido({ proximo, onNavigate }) {
         {faltan === 0 ? "Hoy se juega" : faltan === 1 ? "Mañana se juega" : faltan > 1 ? `Faltan ${faltan} días` : "Próximo partido"}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6 }}>
+        <span style={{ background: "#fff", borderRadius: "50%", padding: 3, display: "inline-flex", flexShrink: 0 }}><Shield size={30} /></span>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 16, fontWeight: 700, opacity: 0.8 }}>{proximo.cond === "Local" ? "vs" : "en"}</span>
         <TeamBadge name={proximo.rival} size={34} />
         <div style={{ fontFamily: "var(--h-titulo)", fontSize: 34, fontWeight: 800, lineHeight: 1 }}>
-          {proximo.cond === "Local" ? "vs" : "en"} {proximo.rival}
+          {proximo.rival}
         </div>
       </div>
       <div style={{ fontSize: 14, opacity: 0.85, marginTop: 6 }}>Fecha {proximo.fecha} · {proximo.date} · {proximo.cond}</div>
@@ -7505,7 +7510,7 @@ function LoginPage() {
       <style>{FONTS}</style>
       <div style={{ width: "100%", maxWidth: 400 }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 24 }}>
-          <Shield size={40} />
+          <InsigniaADN size={40} />
           <div
             style={{
               marginTop: 10,
@@ -7516,7 +7521,7 @@ function LoginPage() {
               color: "var(--h-texto)",
             }}
           >
-            Hub de <span style={{ color: "var(--h-acento)" }}>Obras</span>
+            <NombreHub size={22} />
           </div>
           <div style={{ width: 36, height: 2, background: "var(--h-acento)", marginTop: 10 }} />
         </div>
@@ -7644,7 +7649,7 @@ function LoginPage() {
                 </>
               )}
 
-              <label style={labelStyle}>Usuario (para mostrar en el Hub)</label>
+              <label style={labelStyle}>Usuario (para mostrar en la app)</label>
               <input style={inputStyle} value={usuario} onChange={(e) => setUsuario(e.target.value)} placeholder="usuario" />
               <label style={labelStyle}>Email</label>
               <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@email.com" />
@@ -7662,7 +7667,7 @@ function LoginPage() {
         </div>
 
         <div style={{ textAlign: "center", fontSize: 11, color: "var(--h-sub2)", marginTop: 18 }}>
-          Hub de Obras · hecho por ADN Sports
+          Hecho por ADN Sports
         </div>
       </div>
     </div>
@@ -7740,7 +7745,7 @@ function PantallaCarga() {
       }}
     >
       <style>{FONTS}</style>
-      <Shield size={40} />
+      <InsigniaADN size={40} />
       <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Cargando datos del club…</div>
     </div>
   );
@@ -7776,7 +7781,7 @@ class ErrorBoundary extends React.Component {
           <span style={{ fontSize: 28 }}>⚠️</span>
           <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 500 }}>Esta pantalla tuvo un problema.</div>
           <div style={{ fontSize: 12, color: "var(--h-sub)", maxWidth: 420 }}>
-            El resto del Hub sigue funcionando. Si podés, abrí la consola del navegador (F12), copiá el error en
+            El resto de la app sigue funcionando. Si podés, abrí la consola del navegador (F12), copiá el error en
             rojo y pasámelo — así lo corrijo de raíz.
           </div>
           <div
@@ -7946,11 +7951,10 @@ function TituloGrupo({ children }) {
 
 function FirmaADN() {
   return (
-    <a href="https://adn-web-production.up.railway.app" target="_blank" rel="noreferrer"
-      style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 10px 4px", fontSize: 12, color: "var(--h-sub)", textDecoration: "none" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 10px 4px", fontSize: 12, color: "var(--h-sub)" }}>
       <InsigniaADN size={18} />
       Hecho por ADN Sports
-    </a>
+    </div>
   );
 }
 
@@ -7968,7 +7972,7 @@ function MasMenu({ onSelect, onClose, active }) {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <span style={{ fontSize: 22, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Todo el Hub</span>
+          <span style={{ fontSize: 22, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Todas las secciones</span>
           <button onClick={onClose} aria-label="Cerrar" style={{ background: "transparent", border: "none", color: "var(--h-sub)", fontSize: 24, cursor: "pointer", minWidth: 44, minHeight: 44 }}>
             ×
           </button>
@@ -8065,14 +8069,12 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
         <Icono nombre="campana" size={22} />
         {sinLeer > 0 && (
           <span
+            aria-label={`${sinLeer} sin leer`}
             style={{
-              position: "absolute", top: 0, right: 0, background: "var(--h-error)", color: "#fff",
-              borderRadius: "50%", fontSize: 10, minWidth: 15, height: 15, display: "flex",
-              alignItems: "center", justifyContent: "center", fontWeight: 700,
+              position: "absolute", top: 8, right: 8, width: 9, height: 9, borderRadius: "50%",
+              background: "var(--h-club)", boxShadow: "0 0 0 2px var(--h-fondo)",
             }}
-          >
-            {sinLeer}
-          </span>
+          />
         )}
       </button>
       {abierto && (
@@ -8103,16 +8105,16 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
   );
 }
 
-// Nombre que se muestra arriba: "Hub de Obras", "Hub de Berazategui"…
-function NombreHub({ chico }) {
+// Nombre de la app: "ADN Obras", "ADN Berazategui"… ("ADN" en verde ADN, el club en su color).
+function nombreClubCorto(club) {
+  return club?.nombre_corto || club?.nombre || (CLUB_SLUG === "obras" ? "Obras" : "");
+}
+function NombreHub({ chico, size }) {
   const club = useClub();
-  const nombre = club?.nombre_corto || club?.nombre || "";
+  const nombre = nombreClubCorto(club);
   return (
-    <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.05, minWidth: 0 }}>
-      <span style={{ fontFamily: "var(--h-titulo)", fontSize: chico ? 19 : 21, fontWeight: 800, color: "var(--h-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-        Hub de {nombre}
-      </span>
-      {!chico && <span style={{ fontSize: 12, color: "var(--h-sub)" }}>por ADN Sports</span>}
+    <span style={{ fontFamily: "var(--h-titulo)", fontSize: size || (chico ? 19 : 21), fontWeight: 800, lineHeight: 1.05, color: "var(--h-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
+      <span style={{ color: "#1FA37A" }}>ADN</span> <span style={{ color: "var(--h-club-tinta, var(--h-acento))" }}>{nombre}</span>
     </span>
   );
 }
@@ -8139,6 +8141,10 @@ function ObrasHub({ perfil }) {
     if (temaPref === "Oscuro") document.documentElement.dataset.tema = "oscuro";
     else delete document.documentElement.dataset.tema;
   }, [temaPref]);
+  useEffect(() => {
+    const n = nombreClubCorto(club);
+    if (n) document.title = `ADN ${n}`;
+  }, [club?.nombre_corto, club?.nombre]);
   useEffect(() => {
     const c = club?.color_primario;
     if (!c || !/^#[0-9a-f]{6}$/i.test(c)) return;
@@ -8167,7 +8173,7 @@ function ObrasHub({ perfil }) {
         <div style={{ width: 248, borderRight: "1px solid var(--h-borde)", background: "var(--h-panel)", padding: "18px 12px", flexShrink: 0, display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto", boxSizing: "border-box" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "0 6px 18px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <Shield size={34} />
+              <InsigniaADN size={34} />
               <NombreHub />
             </div>
             <CampanaNotificaciones perfil={perfil} align="left" onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
@@ -8194,7 +8200,7 @@ function ObrasHub({ perfil }) {
         {!mostrarSidebar && (
           <div style={{ position: "sticky", top: 0, zIndex: 30, background: "var(--h-fondo)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "12px 0 10px", margin: "0 0 6px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <Shield size={30} />
+              <InsigniaADN size={30} />
               <NombreHub chico />
             </div>
             <CampanaNotificaciones perfil={perfil} onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />

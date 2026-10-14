@@ -75,7 +75,7 @@ export default function FeedbackPage({ perfil }) {
       <div style={card}>
         <div style={{ fontSize: 15, color: C.texto, fontWeight: 600, marginBottom: 4 }}>Enviar feedback a ADN Sports</div>
         <div style={{ fontSize: 12.5, color: C.apagado, marginBottom: 12 }}>
-          Contanos un error, una idea para mejorar el Hub o una consulta.
+          Contanos un error, una idea para mejorar la app o una consulta.
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
           {["Error", "Mejora", "Consulta"].map((t) => (
@@ -97,7 +97,7 @@ export default function FeedbackPage({ perfil }) {
           rows={4}
           value={mensaje}
           onChange={(e) => setMensaje(e.target.value)}
-          placeholder={tipo === "Error" ? "¿Qué pasó y en qué pantalla?" : tipo === "Mejora" ? "¿Qué te gustaría que haga el Hub?" : "¿Qué querés saber?"}
+          placeholder={tipo === "Error" ? "¿Qué pasó y en qué pantalla?" : tipo === "Mejora" ? "¿Qué te gustaría que haga la app?" : "¿Qué querés saber?"}
           style={{ ...input, resize: "vertical" }}
         />
         {aviso && <div style={{ fontSize: 12.5, color: C.alerta, marginTop: 8 }}>{aviso}</div>}
