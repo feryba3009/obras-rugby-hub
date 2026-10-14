@@ -2455,34 +2455,6 @@ const POSICIONES_ALT = {
 
 // Altura y peso salen de datos que cargaría cada jugador al registrarse — acá los derivamos
 // de forma determinística según el puesto para tener valores de prueba realistas.
-const RANGOS_FISICOS = {
-  "Primera línea": { altura: [178, 188], peso: [105, 118] },
-  Hooker: { altura: [176, 184], peso: [98, 108] },
-  "Segunda línea": { altura: [194, 203], peso: [108, 118] },
-  "Tercera línea": { altura: [186, 196], peso: [95, 108] },
-  "Medio scrum": { altura: [170, 178], peso: [78, 86] },
-  Apertura: { altura: [178, 186], peso: [82, 90] },
-  Centro: { altura: [180, 188], peso: [88, 96] },
-  Wing: { altura: [176, 186], peso: [82, 92] },
-  Fullback: { altura: [178, 188], peso: [84, 92] },
-};
-
-function datosFisicos(puesto, nombre) {
-  const seed = [...(nombre || "?")].reduce((a, c) => a + c.charCodeAt(0), 0);
-  const r = RANGOS_FISICOS[puesto] || RANGOS_FISICOS["Centro"];
-  const altura = r.altura[0] + (seed % (r.altura[1] - r.altura[0] + 1));
-  const peso = r.peso[0] + ((seed * 7) % (r.peso[1] - r.peso[0] + 1));
-  return { altura, peso };
-}
-
-// Historial de lesiones (además del estado médico actual) — solo para algunos jugadores, a modo de ejemplo.
-const HISTORIAL_LESIONES = {
-  "Franco Etchegoyen": ["Esguince de tobillo (2025)"],
-  "Bautista Sarmiento": ["Luxación de hombro (2024)", "Esguince de tobillo (2023)"],
-  "Nicolás Peralta": ["Distensión isquiotibial (2025)"],
-  "Iván Salgado": ["Esguince de tobillo (2024)"],
-  "Diego Larrosa": ["Ruptura de LCA (2023)"],
-};
 
 let POOL = [];
 
@@ -2931,24 +2903,11 @@ const METRICAS_RANGOS = {
   Resistencia: { rango: [16, 19.5], unidad: "km/h" },
 };
 
-function metricasJugador(nombre) {
-  const seed = [...(nombre || "?")].reduce((a, c) => a + c.charCodeAt(0), 0);
-  const resultado = {};
-  Object.entries(METRICAS_RANGOS).forEach(([clave, { rango }], i) => {
-    const [a, b] = rango;
-    const mult = 3 + i * 4;
-    const valor = a + ((seed * mult) % Math.round((b - a) * 100)) / 100;
-    resultado[clave] = Math.round(valor * 10) / 10;
-  });
-  return resultado;
-}
-
 // Registro de evaluaciones físicas — lo carga el preparador físico cuando toma los tests.
 // La ficha del jugador y la pantalla de Evaluaciones muestran siempre el último test cargado;
-// si todavía no hay ninguno real para ese jugador, se ve un valor de referencia (a la espera).
+// si todavía no hay ninguno para ese jugador, no se muestra nada inventado.
 function ultimaEvaluacion(jugadorId) {
-  if (EVALUACIONES_REALES[jugadorId]) return EVALUACIONES_REALES[jugadorId];
-  return { fecha: "04/08/2026", ...metricasJugador(jugadorId) };
+  return EVALUACIONES_REALES[jugadorId] || null;
 }
 
 function RadarChart({ valores, etiquetas, size = 210 }) {
@@ -3055,10 +3014,10 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
   }
 
   const evalu = ultimaEvaluacion(jugador.id);
-  const m = evalu || metricasJugador(jugador.id);
+  const m = evalu || {};
   const valoresNorm = Object.entries(METRICAS_RANGOS).map(([clave, { rango }]) => {
     const [a, b] = rango;
-    return Math.min(1, Math.max(0, (m[clave] - a) / (b - a)));
+    return Math.min(1, Math.max(0, ((m[clave] ?? a) - a) / (b - a)));
   });
   const aptoTono = jugador.apto === "Apto" ? "ok" : jugador.apto === "Pendiente" ? "warn" : "danger";
 
@@ -3112,6 +3071,9 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
             <span style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5 }}>RADAR DE PERFIL</span>
             {evalu && <span style={{ fontSize: 11, color: "var(--h-sub2)" }}>Último test: {evalu.fecha}</span>}
           </div>
+          {!evalu ? (
+            <div style={{ fontSize: 13, color: "var(--h-sub)", padding: "30px 10px", textAlign: "center" }}>Todavía no tiene evaluaciones físicas cargadas.</div>
+          ) : (<>
           <RadarChart valores={valoresNorm} etiquetas={Object.keys(METRICAS_RANGOS)} />
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, justifyContent: "center" }}>
             {Object.entries(METRICAS_RANGOS).map(([clave, { unidad }]) => (
@@ -3123,6 +3085,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
           <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginTop: 10, textAlign: "center" }}>
             Valores tomados de la última evaluación física cargada por el preparador físico.
           </div>
+          </>)}
         </div>
 
         <div style={{ ...cardStyle, padding: "18px", flex: "1 1 260px" }}>
@@ -4306,11 +4269,6 @@ function VeoPage({ perfil }) {
   const trysVeo = partido.informe?.triesVeo;
   const trysDelPartido = trysVeo || trysGenerados;
   const analisis = partido.informe?.analisisVideo;
-  const seed = partido.fecha * 11;
-  const posesion = analisis ? analisis.posesionObras : 32 + (seed % 30);
-  const territorio = analisis ? analisis.territorioRival : 30 + ((seed * 3) % 32);
-  const lineBreaks = 2 + (seed % 5);
-  const turnovers = 3 + ((seed * 2) % 6);
 
   const [editandoLink, setEditandoLink] = useState(false);
   const [linkInput, setLinkInput] = useState("");
@@ -4467,22 +4425,19 @@ function VeoPage({ perfil }) {
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 6 }}>
-        <StatCard label="Posesión" value={posesion + "%"} tone={analisis ? "ok" : "warn"} />
-        <StatCard label="Territorio" value={territorio + "%"} tone={analisis ? "ok" : "warn"} />
-        <StatCard label="Line breaks" value={lineBreaks} tone="ok" />
-        <StatCard label="Turnovers ganados" value={turnovers} tone="ok" />
-        {analisis && (
-          <>
-            <StatCard label="Tiempo de juego efectivo" value={formatoRelojMMSS(analisis.ballInPlaySegundos)} tone="ok" />
-            <StatCard label="Secuencias" value={analisis.secuencias} tone="ok" />
-            <StatCard label="Secuencia más larga" value={formatoRelojMMSS(analisis.secuenciaMasLargaSegundos)} tone="ok" />
-          </>
-        )}
-      </div>
-      <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginBottom: 18 }}>
-        {analisis ? "✓ Posesión/territorio/ball-in-play analizados a mano del video real." : "Line breaks y turnovers son de referencia hasta que se analice el video."}
-      </div>
+      {analisis ? (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
+          <StatCard label="Posesión" value={analisis.posesionObras + "%"} tone="ok" />
+          <StatCard label="Territorio rival" value={analisis.territorioRival + "%"} tone="ok" />
+          <StatCard label="Tiempo de juego efectivo" value={formatoRelojMMSS(analisis.ballInPlaySegundos)} tone="ok" />
+          <StatCard label="Secuencias" value={analisis.secuencias} tone="ok" />
+          <StatCard label="Secuencia más larga" value={formatoRelojMMSS(analisis.secuenciaMasLargaSegundos)} tone="ok" />
+        </div>
+      ) : (
+        <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 18, fontSize: 13.5, color: "var(--h-sub)" }}>
+          Todavía no se analizó el video de este partido. Cuando se haga, acá aparecen posesión, territorio y tiempo de juego efectivo.
+        </div>
+      )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500 }}>Trys del partido</div>
@@ -4556,11 +4511,6 @@ function VeoPage({ perfil }) {
 }
 
 // Return to Play — lesiones actuales cruzadas con el historial médico de todo el plantel.
-function severidadLesion(nombre) {
-  const seed = [...(nombre || "?")].reduce((a, c) => a + c.charCodeAt(0), 0);
-  return ["Leve", "Moderada", "Grave", "Severa"][seed % 4];
-}
-
 function tipoLesion(zona) {
   if (!zona) return "—";
   if (["Rodilla", "Tobillo", "Hombro"].some((z) => zona.includes(z))) return "Articular / ligamentaria";
@@ -4587,7 +4537,6 @@ function RtpPage() {
 
   const lesionadosActuales = POOL.filter((j) => j.estado === "Lesionado").map((j) => ({
     ...j,
-    severidad: severidadLesion(j.id),
     tipo: tipoLesion(j.zona),
     lesionReal: lesionesReales[j.id] || null,
   }));
@@ -4632,7 +4581,6 @@ function RtpPage() {
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Puesto</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Zona</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Tipo</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Severidad</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Rehabilitación</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Vuelta estimada</th>
                 <th style={{ fontWeight: 400, padding: "8px 10px" }}>Antecedentes</th>
@@ -4645,17 +4593,6 @@ function RtpPage() {
                   <td style={{ padding: "9px 10px", color: "var(--h-sub)" }}>{j.posicionIdeal}</td>
                   <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.zona}</td>
                   <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.tipo}</td>
-                  <td style={{ padding: "9px 10px" }}>
-                    <span
-                      style={{
-                        ...tagStyle,
-                        background: j.severidad === "Severa" || j.severidad === "Grave" ? "var(--h-error-suave)" : "var(--h-alerta-suave)",
-                        color: j.severidad === "Severa" || j.severidad === "Grave" ? "var(--h-error)" : "var(--h-acento)",
-                      }}
-                    >
-                      {j.severidad}
-                    </span>
-                  </td>
                   <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>
                     {j.lesionReal?.semanas_estimadas ? `${j.lesionReal.semanas_estimadas} semanas` : "—"}
                   </td>
@@ -4693,142 +4630,22 @@ function RtpPage() {
 }
 
 // Informe de partido — estadísticas de equipo y por jugador, inspirado en la planilla real del club.
-function statsPartido(partido) {
-  const seed = partido.fecha * 13 + partido.rival.length;
-  const scrum = {
-    ganados: 3 + (seed % 5),
-    perdidos: 1 + (seed % 3),
-    robados: seed % 2,
-    delRival: 2 + ((seed * 2) % 4),
-  };
-  const line = {
-    ganados: 4 + ((seed * 3) % 6),
-    perdidos: 1 + (seed % 3),
-    robados: seed % 2,
-    torcidas: (seed * 2) % 2,
-    delRival: 2 + ((seed * 5) % 3),
-  };
-  const desfavorables = {
-    penalesEnContra: 5 + (seed % 8),
-    perdidasContacto: 4 + ((seed * 3) % 10),
-    perdidasRucks: 1 + (seed % 4),
-    perdidasInfracciones: seed % 3,
-    perdidasMalPase: 2 + ((seed * 2) % 5),
-  };
-  const favorables = {
-    penalesAFavor: 4 + ((seed * 4) % 8),
-    pelotasRecuperadas: 5 + ((seed * 5) % 8),
-    quiebresAtaque: 3 + (seed % 6),
-    tacklesTotales: 55 + ((seed * 3) % 30),
-    quiebreQueTerminaEnTry: seed % 4,
-  };
-  return { scrum, line, desfavorables, favorables };
-}
 
-const ORIGENES_TRY = ["Scrum", "Line", "Pelota recuperada", "Salida"];
 
 // Puntaje real de rugby: try 5, conversión 2, penal a los palos 3, drop 3.
 // Reconstruye el resultado real del partido en una combinación válida de esos puntajes,
 // priorizando la que tenga más tries (favorece penales/drops solo para lo que sobra).
-function descomponerPuntos(total, seed) {
-  if (total === 0) return { tries: 0, conversiones: 0, penales: 0, drops: 0 };
-  let mejor = null;
-  for (let tries = 0; tries * 5 <= total; tries++) {
-    for (let conversiones = 0; conversiones <= tries && tries * 5 + conversiones * 2 <= total; conversiones++) {
-      const resto = total - tries * 5 - conversiones * 2;
-      if (resto % 3 === 0) {
-        const gruposDe3 = resto / 3;
-        const drops = gruposDe3 === 0 ? 0 : seed % (gruposDe3 + 1);
-        const penales = gruposDe3 - drops;
-        if (!mejor || tries > mejor.tries) mejor = { tries, conversiones, penales, drops };
-      }
-    }
-  }
-  return mejor || { tries: 0, conversiones: 0, penales: Math.floor(total / 3), drops: 0 };
-}
-
-// Genera los eventos de puntaje del partido (tries + conversiones + penales + drops) a partir
-// del resultado real. Para los de Obras, elige quién los anota — el mismo jugador que después
-// figura con el "quiebre que termina en try" en la planilla.
+// Tantos del partido: solo los cargados de verdad (partido en vivo o importados). Nada inventado.
 function generarTries(partido, jugadoresTry, triesReales) {
-  const seed = partido.fecha * 19 + partido.rival.length;
-  const hayJugadores = jugadoresTry.length > 0;
-  const apertura = jugadoresTry.find((j) => j.puesto === "Apertura") || jugadoresTry[0] || { jugadorId: "Apertura" };
-
-  const usaTriesReales = triesReales && triesReales.length > 0;
-  const puntosTriesReales = usaTriesReales
-    ? triesReales.reduce((acc, t) => acc + (t.conConversion ? 7 : 5), 0)
-    : 0;
-  const obras = descomponerPuntos(usaTriesReales ? partido.gf - puntosTriesReales : partido.gf, seed);
-  const rival = descomponerPuntos(partido.gc, seed * 3);
-
-  const tries = [];
-  if (usaTriesReales) {
-    triesReales.forEach((t) => {
-      tries.push({
-        equipo: "Obras",
-        jugadorId: t.jugadorId,
-        origen: "Partido en vivo",
-        pts: t.conConversion ? 7 : 5,
-        obs: `Try de ${t.jugadorId}${t.conConversion ? " + conversión" : ""} a los ${t.minuto} (5${t.conConversion ? " + 2" : ""} pts).`,
-      });
-    });
-  } else {
-    for (let i = 0; i < obras.tries; i++) {
-      const conConv = i < obras.conversiones;
-      const autor = hayJugadores ? jugadoresTry[(seed + i) % jugadoresTry.length] : { jugadorId: "Jugador" };
-      tries.push({
-        equipo: "Obras",
-        jugadorId: autor.jugadorId,
-        origen: ORIGENES_TRY[(seed + i) % ORIGENES_TRY.length],
-        pts: conConv ? 7 : 5,
-        obs: `Try de ${autor.jugadorId}${conConv ? " + conversión" : ""} (5${conConv ? " + 2" : ""} pts).`,
-      });
-    }
-  }
-  for (let i = 0; i < obras.penales; i++) {
-    tries.push({ equipo: "Obras", jugadorId: null, origen: "Penal a los palos", pts: 3, obs: `Penal de ${apertura.jugadorId} (3 pts).` });
-  }
-  for (let i = 0; i < obras.drops; i++) {
-    tries.push({ equipo: "Obras", jugadorId: null, origen: "Drop", pts: 3, obs: `Drop de ${apertura.jugadorId} (3 pts).` });
-  }
-
-  for (let i = 0; i < rival.tries; i++) {
-    const conConv = i < rival.conversiones;
-    tries.push({
-      equipo: partido.rival,
-      jugadorId: null,
-      origen: ORIGENES_TRY[(seed * 3 + i) % ORIGENES_TRY.length],
-      pts: conConv ? 7 : 5,
-      obs: `Try de ${partido.rival}${conConv ? " + conversión" : ""} (5${conConv ? " + 2" : ""} pts).`,
-    });
-  }
-  for (let i = 0; i < rival.penales; i++) {
-    tries.push({ equipo: partido.rival, jugadorId: null, origen: "Penal a los palos", pts: 3, obs: `Penal de ${partido.rival} (3 pts).` });
-  }
-  for (let i = 0; i < rival.drops; i++) {
-    tries.push({ equipo: partido.rival, jugadorId: null, origen: "Drop", pts: 3, obs: `Drop de ${partido.rival} (3 pts).` });
-  }
-
-  return tries;
+  return (triesReales || []).map((t) => ({
+    equipo: "Obras",
+    jugadorId: t.jugadorId,
+    origen: "Partido en vivo",
+    pts: t.conConversion ? 7 : 5,
+    obs: `Try de ${t.jugadorId}${t.conConversion ? " + conversión" : ""}${t.minuto ? ` a los ${t.minuto}` : ""} (5${t.conConversion ? " + 2" : ""} pts).`,
+  }));
 }
 
-// Estadísticas de base por jugador — tackles positivos es siempre un subconjunto de los tackles
-// totales (los que se hacen antes de la línea de ventaja, recuperan pelota o evitan un try),
-// y los quiebres que sí terminan en try se agregan aparte, cruzando la lista de tries.
-function statsJugadorBase(nombre, fecha) {
-  const seed = [...((nombre || "?") + fecha)].reduce((a, c) => a + c.charCodeAt(0), 0);
-  const tackles = 2 + ((seed * 3) % 12);
-  const tacklesPositivos = Math.min(tackles, Math.round(tackles * (0.3 + (seed % 4) / 10)));
-  return {
-    tackles,
-    tacklesPositivos,
-    recuperadas: seed % 4,
-    quiebresSinTry: seed % 3,
-    errados: seed % 3,
-    pk: seed % 5 === 0 ? 1 : 0, // PK = penales en contra cometidos por el jugador
-  };
-}
 
 const STATS_VACIO = () => ({
   scrum: { ganados: 0, perdidos: 0, robados: 0, delRival: 0 },
@@ -5080,7 +4897,7 @@ function InformePartidoPage({ perfil }) {
     setEditando(false);
   }
 
-  const stats = partido.informe || statsPartido(partido);
+  const stats = partido.informe || STATS_VACIO();
   const esReal = !!partido.informe;
   const jugadoresTry = jugadoresTitulares(categoria);
   const tries = generarTries(partido, jugadoresTry, partido.informe?.triesReales);
@@ -5116,12 +4933,8 @@ function InformePartidoPage({ perfil }) {
       const accPos = real.tackle_positivo + quiebres + real.penal_a_favor + (real.es_pateador ? real.drop_convertido + real.cincuenta_22 : 0);
       return { ...s, tackles, tacklesPositivos: real.tackle_positivo, recuperadas: 0, errados: real.tackle_errado, pk, quiebres, qbreXTry, accPos };
     }
-    const base = statsJugadorBase(s.jugadorId, fecha);
-    const qbreXTry = triesPorJugador[s.jugadorId] || 0;
-    const quiebres = base.quiebresSinTry + qbreXTry; // el quiebre que termina en try es un quiebre más
-    const accPos = base.recuperadas + quiebres + base.tacklesPositivos; // ACC++ = recuperadas + quiebres + tackles positivos
-    return { ...s, ...base, quiebres, qbreXTry, accPos };
-  });
+    return null; // sin planilla cargada para este jugador: no se inventa nada
+  }).filter(Boolean);
 
   function empezarEdicion() {
     setBorrador(JSON.parse(JSON.stringify(partido.informe || STATS_VACIO())));
@@ -5210,12 +5023,12 @@ function InformePartidoPage({ perfil }) {
 
       {!esReal && !editando && (
         <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 16 }}>
-          Todavía no se cargó el informe real de este partido — se muestran valores de referencia.
+          Todavía no se cargó el informe de este partido.
         </div>
       )}
       {esReal && !editando && <div style={{ fontSize: 11, color: "var(--h-ok)", marginBottom: 16 }}>✓ Informe cargado por el cuerpo técnico.</div>}
 
-      <SemaforoPartido stats={stats} esReal={esReal} otros={partidos.filter((p) => p.informe && p.fecha !== partido.fecha).map((p) => p.informe)} />
+      {(esReal || editando) && <SemaforoPartido stats={stats} esReal={esReal} otros={partidos.filter((p) => p.informe && p.fecha !== partido.fecha).map((p) => p.informe)} />}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
         {[
@@ -5239,7 +5052,12 @@ function InformePartidoPage({ perfil }) {
         ))}
       </div>
 
-      {tab === "obtencion" && (
+      {!esReal && !editando && (tab === "obtencion" || tab === "situaciones") && (
+        <div style={{ ...cardStyle, padding: "18px", fontSize: 13.5, color: "var(--h-sub)" }}>
+          Sin datos todavía. Se completa con "Cargar informe" o con el análisis de video del partido.
+        </div>
+      )}
+      {(esReal || editando) && tab === "obtencion" && (
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
           <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
             <div style={{ fontSize: 12, color: "var(--h-sub)", marginBottom: 10, letterSpacing: 0.5 }}>SCRUM</div>
@@ -5282,7 +5100,7 @@ function InformePartidoPage({ perfil }) {
         </div>
       )}
 
-      {tab === "situaciones" && (
+      {(esReal || editando) && tab === "situaciones" && (
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
           <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
             <div style={{ fontSize: 12, color: "var(--h-ok)", marginBottom: 10, letterSpacing: 0.5 }}>FAVORABLES</div>
@@ -5333,6 +5151,7 @@ function InformePartidoPage({ perfil }) {
       {tab === "puntos" && (
         <div>
           <div style={{ ...cardStyle, padding: "8px 16px", marginBottom: partido.informe?.incidencias?.length ? 20 : 0 }}>
+            {tries.length === 0 && <div style={{ padding: "12px 0", fontSize: 13, color: "var(--h-sub)" }}>Todavía no se cargaron los tries de este partido.</div>}
             {tries.map((t, i) => (
               <div key={i} style={{ padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid var(--h-borde)" }}>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 3 }}>
@@ -5365,29 +5184,15 @@ function InformePartidoPage({ perfil }) {
         </div>
       )}
 
-      {tab === "planilla" && <PlanillaPartido jugadores={jugadores} />}
+      {tab === "planilla" && (jugadores.length ? <PlanillaPartido jugadores={jugadores} /> : (
+        <div style={{ ...cardStyle, padding: "18px", fontSize: 13.5, color: "var(--h-sub)" }}>Todavía no se cargó la planilla de este partido (se hace desde Análisis de video → análisis individual).</div>
+      ))}
     </div>
   );
 }
 
 // Reporte individual — cualidades físicas + estadísticas de juego de la temporada + historial médico.
 // Los puntos siempre se arman con el puntaje real: try 5, conversión 2, penal a los palos 3, drop 3.
-function statsJugadorTemporada(nombre) {
-  const seed = [...(nombre || "?")].reduce((a, c) => a + c.charCodeAt(0), 0);
-  const tries = (seed * 3) % 6;
-  const conversiones = Math.min(tries, (seed * 5) % 4);
-  const penalesPalos = (seed * 7) % 5;
-  const drops = seed % 3 === 0 ? 1 : 0;
-  return {
-    tackles: 40 + ((seed * 3) % 140),
-    tacklesPositivos: 30 + ((seed * 5) % 100),
-    accPositivas: 10 + ((seed * 7) % 60),
-    penales: (seed * 2) % 6, // penales cometidos (disciplina), no confundir con penales a los palos
-    tries,
-    puntos: tries * 5 + conversiones * 2 + penalesPalos * 3 + drops * 3,
-  };
-}
-
 function ReporteIndividualPage({ perfil }) {
   const [jugadorId, setJugadorId] = useState(POOL[0]?.id || "");
   const [busca, setBusca] = useState("");
@@ -5726,11 +5531,6 @@ function EvaluacionesPage({ perfil }) {
 
 // Wellness — encuesta diaria que completa cada jugador (estrés, sueño, DOMS y fatiga, 1 a 7).
 // El readiness es la suma de los cuatro valores, sobre 28.
-function wellnessDeterministico(nombre) {
-  const seed = [...(nombre || "?")].reduce((a, c) => a + c.charCodeAt(0), 0);
-  const val = (mult) => 3 + ((seed * mult) % 5); // rango 3 a 7
-  return { estres: val(3), sueno: val(5), doms: val(7), fatiga: val(11) };
-}
 
 // Fecha de hoy en Argentina (no en UTC: a la noche UTC ya es "mañana").
 function hoyISO() {
