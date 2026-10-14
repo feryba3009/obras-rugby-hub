@@ -7209,7 +7209,25 @@ function Placeholder({ label }) {
 }
 
 function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista, perfil }) {
-  const [showBanner, setShowBanner] = useState(true);
+  // El aviso de "Activá las notificaciones" solo aparece si este celular/compu todavía no las tiene
+  // activadas y no se cerró antes. Una vez activadas (o cerrado el aviso), no vuelve a salir.
+  const [showBanner, setShowBanner] = useState(false);
+  useEffect(() => {
+    let cerrado = false;
+    try { cerrado = localStorage.getItem("hub-aviso-notis-cerrado") === "1"; } catch (e) {}
+    if (cerrado || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    if (typeof Notification !== "undefined" && Notification.permission === "denied") return;
+    let vivo = true;
+    navigator.serviceWorker.ready
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((sub) => { if (vivo && !sub) setShowBanner(true); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, []);
+  function cerrarAvisoNotis() {
+    setShowBanner(false);
+    try { localStorage.setItem("hub-aviso-notis-cerrado", "1"); } catch (e) {}
+  }
   const [novedad, setNovedad] = useState(null);
   const [alertasHoy, setAlertasHoy] = useState({ cargando: true, respuestas: [] });
   const [categoriaEnVivo, setCategoriaEnVivo] = useState(null); // null | "Superior" | "Intermedia"
@@ -7399,7 +7417,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
           body="Recibí los avisos del club aunque no tengas la app abierta."
           cta="Activar"
           onCta={() => onIrAConfiguracion("notificaciones")}
-          onClose={() => setShowBanner(false)}
+          onClose={cerrarAvisoNotis}
         />
       )}
 
