@@ -6368,98 +6368,392 @@ function WellnessPage({ perfil }) {
   );
 }
 
+// ── Equipo del partido ───────────────────────────────────────────────────
+// Cancha con camisetas, disponibilidad a la vista, aviso a los convocados e imagen para WhatsApp.
+// Obligatorio: camisetas 1 a 15. Del 16 en adelante (suplentes) es opcional.
+const COLOR_ESTADO = { Disponible: "#2FA36B", "A vigilar": "#E2B93B", Lesionado: "#D64545", "No habilitado": "#8A94A0" };
+const POS_CANCHA = {
+  1: [28, 9], 2: [50, 9], 3: [72, 9],
+  4: [39, 22], 5: [61, 22],
+  6: [20, 35], 8: [50, 37], 7: [80, 35],
+  9: [36, 52], 10: [56, 60],
+  12: [66, 70], 13: [78, 79],
+  11: [13, 80], 14: [90, 88],
+  15: [48, 90],
+};
+
+function Camiseta({ numero, color, txt, size = 44, vacia }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true" style={{ display: "block" }}>
+      <path
+        d="M16 4 L8 8 L2 18 L9 22 L12 18 L12 44 L36 44 L36 18 L39 22 L46 18 L40 8 L32 4 C30 8 18 8 16 4 Z"
+        fill={vacia ? "rgba(255,255,255,0.18)" : color}
+        stroke={vacia ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.25)"}
+        strokeWidth="1.5"
+        strokeDasharray={vacia ? "3 3" : undefined}
+      />
+      <text x="24" y="33" textAnchor="middle" fontSize="15" fontWeight="800" fill={vacia ? "#fff" : txt} fontFamily="Barlow Condensed, Arial, sans-serif">
+        {numero}
+      </text>
+    </svg>
+  );
+}
+
+function apellido(nombre) {
+  const partes = String(nombre || "").trim().split(/\s+/);
+  return partes.length > 1 ? partes.slice(1).join(" ") : partes[0] || "";
+}
+
+function colorClub() {
+  const club = (typeof document !== "undefined" && getComputedStyle(document.documentElement).getPropertyValue("--h-club").trim()) || "#1FA37A";
+  const txt = (typeof document !== "undefined" && getComputedStyle(document.documentElement).getPropertyValue("--h-club-txt").trim()) || "#fff";
+  return { club, txt };
+}
+
+function JugadorEnCancha({ slot, info, editMode, onClick, colores }) {
+  const j = slot.jugadorId ? POOL.find((p) => p.id === slot.jugadorId) : null;
+  const estado = j ? disponibilidadReal(j) : null;
+  const w = j ? info.wellness[j.dbId] : undefined;
+  return (
+    <button
+      onClick={onClick}
+      disabled={!editMode}
+      title={j ? `${j.id} · ${estado}${w !== undefined ? ` · wellness ${w}%` : ""}` : `Camiseta ${slot.numero} vacante`}
+      style={{ background: "none", border: "none", padding: 0, cursor: editMode ? "pointer" : "default", display: "flex", flexDirection: "column", alignItems: "center", width: 78 }}
+    >
+      <span style={{ position: "relative" }}>
+        <Camiseta numero={slot.numero} color={colores.club} txt={colores.txt} vacia={!j} />
+        {j && <span style={{ position: "absolute", top: 0, right: -2, width: 11, height: 11, borderRadius: "50%", background: COLOR_ESTADO[estado], border: "2px solid #fff" }} />}
+      </span>
+      <span style={{ marginTop: 2, fontSize: 11.5, fontWeight: 700, color: "#fff", textShadow: "0 1px 2px rgba(0,0,0,0.6)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 78 }}>
+        {j ? apellido(j.id) : editMode ? "Elegir" : "Vacante"}
+      </span>
+      {j && w !== undefined && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.85)" }}>{w}%</span>}
+    </button>
+  );
+}
+
+function Cancha({ lineup, info, editMode, onElegir }) {
+  const colores = colorClub();
+  const bySlot = (n) => lineup.find((s) => s.numero === n) || { numero: n };
+  return (
+    <div
+      style={{
+        position: "relative", width: "100%", maxWidth: 560, aspectRatio: "3 / 4", borderRadius: 16, overflow: "hidden",
+        background: "repeating-linear-gradient(180deg, #2E8B4E 0 10%, #2A814A 10% 20%)", boxShadow: "inset 0 0 0 3px rgba(255,255,255,0.6)",
+      }}
+    >
+      {/* líneas: mitad, 22 y 10 metros */}
+      {[50, 22, 78].map((t) => <span key={t} style={{ position: "absolute", left: 0, right: 0, top: `${t}%`, borderTop: `2px solid rgba(255,255,255,${t === 50 ? 0.7 : 0.45})` }} />)}
+      {[40, 60].map((t) => <span key={t} style={{ position: "absolute", left: 0, right: 0, top: `${t}%`, borderTop: "2px dashed rgba(255,255,255,0.3)" }} />)}
+      {Object.entries(POS_CANCHA).map(([n, [x, y]]) => (
+        <div key={n} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, transform: "translate(-50%, -20%)" }}>
+          <JugadorEnCancha slot={bySlot(+n)} info={info} editMode={editMode} onClick={() => onElegir(+n)} colores={colores} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FilaCamiseta({ slot, info, editMode, onClick }) {
+  const colores = colorClub();
+  const j = slot.jugadorId ? POOL.find((p) => p.id === slot.jugadorId) : null;
+  const estado = j ? disponibilidadReal(j) : null;
+  const w = j ? info.wellness[j.dbId] : undefined;
+  return (
+    <button
+      onClick={onClick}
+      disabled={!editMode}
+      style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "transparent", border: "none", borderTop: "1px solid var(--h-borde)", padding: "7px 2px", cursor: editMode ? "pointer" : "default", fontFamily: "var(--h-texto-fuente)" }}
+    >
+      <span style={{ background: j ? "transparent" : "var(--h-borde)", borderRadius: 8 }}>
+        <Camiseta numero={slot.numero} color={colores.club} txt={colores.txt} size={34} vacia={!j} />
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: j ? "var(--h-texto)" : "var(--h-sub2)", fontStyle: j ? "normal" : "italic" }}>{j ? j.id : editMode ? "Elegir jugador" : "Vacante"}</span>
+        <span style={{ display: "block", fontSize: 11.5, color: "var(--h-sub)" }}>{slot.puesto}</span>
+      </span>
+      {j && (
+        <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, fontSize: 12, color: "var(--h-sub)" }}>
+          {w !== undefined && <span>{w}%</span>}
+          <span style={{ width: 10, height: 10, borderRadius: "50%", background: COLOR_ESTADO[estado] }} title={estado} />
+        </span>
+      )}
+    </button>
+  );
+}
+
+function SelectorCamiseta({ slot, cat, lineups, info, onElegir, onCerrar }) {
+  const [busca, setBusca] = useState("");
+  const otraCat = cat === "Superior" ? "Intermedia" : "Superior";
+  const dondeEsta = (nombre) => {
+    const mismo = lineups[cat].find((s) => s.jugadorId === nombre && s.numero !== slot.numero);
+    if (mismo) return `Ya está en la ${mismo.numero}`;
+    const otro = (lineups[otraCat] || []).find((s) => s.jugadorId === nombre);
+    if (otro) return `Está en ${otraCat} (${otro.numero})`;
+    return null;
+  };
+  const lista = POOL.filter((p) => !busca || p.id.toLowerCase().includes(busca.toLowerCase()));
+  const orden = { Disponible: 0, "A vigilar": 1, "No habilitado": 2, Lesionado: 3 };
+  const grupos = [
+    ["Del puesto y disponibles", lista.filter((p) => coincidePosicion(p, slot.puesto) && disponibilidadReal(p) === "Disponible")],
+    ["Otros disponibles", lista.filter((p) => !coincidePosicion(p, slot.puesto) && disponibilidadReal(p) === "Disponible")],
+    ["No disponibles", lista.filter((p) => disponibilidadReal(p) !== "Disponible").sort((a, b) => orden[disponibilidadReal(a)] - orden[disponibilidadReal(b)])],
+  ];
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(14,22,32,0.5)", zIndex: 120, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onCerrar}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--h-panel)", width: "100%", maxWidth: 520, maxHeight: "84vh", overflowY: "auto", borderRadius: "18px 18px 0 0", padding: "16px 16px 24px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <span style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>Camiseta {slot.numero}{slot.puesto ? ` · ${slot.puesto}` : ""}</span>
+          <button onClick={onCerrar} aria-label="Cerrar" style={{ background: "none", border: "none", fontSize: 24, color: "var(--h-sub)", cursor: "pointer", minWidth: 40, minHeight: 40 }}>×</button>
+        </div>
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar jugador…" style={{ ...inputStyle, marginBottom: 10 }} />
+        {slot.jugadorId && (
+          <button onClick={() => onElegir("")} style={{ ...pillButton, marginBottom: 10, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>Dejar vacante</button>
+        )}
+        {grupos.map(([titulo, js]) => js.length > 0 && (
+          <div key={titulo} style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-sub)", textTransform: "uppercase", letterSpacing: "0.08em", margin: "8px 0 4px" }}>{titulo}</div>
+            {js.map((p) => {
+              const estado = disponibilidadReal(p);
+              const nota = dondeEsta(p.id);
+              const w = info.wellness[p.dbId];
+              const gris = estado !== "Disponible";
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => onElegir(p.id)}
+                  style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: slot.jugadorId === p.id ? "var(--h-acento-suave)" : "transparent", border: "none", borderTop: "1px solid var(--h-borde)", padding: "9px 4px", cursor: "pointer", opacity: gris ? 0.55 : 1, fontFamily: "var(--h-texto-fuente)" }}
+                >
+                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: COLOR_ESTADO[estado], flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: "var(--h-texto)" }}>{p.id}</span>
+                    <span style={{ display: "block", fontSize: 11.5, color: "var(--h-sub)" }}>
+                      {p.posicionIdeal || "—"}{gris ? ` · ${estado}` : ""}{w !== undefined ? ` · wellness ${w}%` : ""}
+                    </span>
+                  </span>
+                  {nota && <span style={{ ...tagStyle, borderRadius: 999, background: "var(--h-alerta-suave)", color: "var(--h-alerta)", fontWeight: 600, flexShrink: 0 }}>{nota}</span>}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Imagen de la formación (PNG) para mandar por WhatsApp.
+async function imagenFormacion({ cat, lineup, partido, clubNombre, colores }) {
+  const W = 1080, H = 1350;
+  const esc = (t) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const camiseta = (x, y, n, nombre) => `
+    <g transform="translate(${x - 40},${y - 40}) scale(1.67)">
+      <path d="M16 4 L8 8 L2 18 L9 22 L12 18 L12 44 L36 44 L36 18 L39 22 L46 18 L40 8 L32 4 C30 8 18 8 16 4 Z" fill="${colores.club}" stroke="rgba(0,0,0,0.3)" stroke-width="1.5"/>
+      <text x="24" y="33" text-anchor="middle" font-size="15" font-weight="800" fill="${colores.txt}" font-family="Arial, sans-serif">${n}</text>
+    </g>
+    <text x="${x}" y="${y + 58}" text-anchor="middle" font-size="26" font-weight="700" fill="#fff" font-family="Arial, sans-serif">${esc(apellido(nombre))}</text>`;
+  const top = 190, alto = 900, izq = 60, ancho = W - 120;
+  let cuerpo = "";
+  Object.entries(POS_CANCHA).forEach(([n, [x, y]]) => {
+    const s = lineup.find((sl) => sl.numero === +n);
+    cuerpo += camiseta(izq + (x / 100) * ancho, top + (y / 100) * alto, n, s?.jugadorId || "");
+  });
+  const suplentes = lineup.filter((s) => s.numero > 15 && s.jugadorId).sort((a, b) => a.numero - b.numero);
+  const suplTxt = suplentes.map((s) => `${s.numero}. ${esc(apellido(s.jugadorId))}`).join("   ");
+  const titulo = partido ? `${esc(cat)} vs ${esc(partido.rival)}` : esc(cat);
+  const sub = partido ? `${esc(partido.date)} · ${esc(partido.cond)}` : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <rect width="${W}" height="${H}" fill="#0E1620"/>
+    <text x="60" y="90" font-size="54" font-weight="800" fill="#fff" font-family="Arial, sans-serif">${titulo}</text>
+    <text x="60" y="140" font-size="30" fill="#B8C2CC" font-family="Arial, sans-serif">${sub}</text>
+    <rect x="${izq}" y="${top - 30}" width="${ancho}" height="${alto + 70}" rx="24" fill="#2E8B4E"/>
+    <line x1="${izq}" x2="${izq + ancho}" y1="${top + alto * 0.5}" y2="${top + alto * 0.5}" stroke="rgba(255,255,255,0.6)" stroke-width="3"/>
+    ${cuerpo}
+    ${suplTxt ? `<text x="60" y="${H - 110}" font-size="26" fill="#B8C2CC" font-family="Arial, sans-serif">Suplentes</text>
+    <text x="60" y="${H - 70}" font-size="26" fill="#fff" font-family="Arial, sans-serif">${suplTxt}</text>` : ""}
+    <text x="${W - 60}" y="${H - 24}" text-anchor="end" font-size="22" fill="#6B7785" font-family="Arial, sans-serif">ADN ${esc(clubNombre)}</text>
+  </svg>`;
+  const img = new Image();
+  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+  await new Promise((ok, mal) => { img.onload = ok; img.onerror = mal; img.src = url; });
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  canvas.getContext("2d").drawImage(img, 0, 0);
+  URL.revokeObjectURL(url);
+  return await new Promise((ok) => canvas.toBlob(ok, "image/png"));
+}
+
 function EquiposPage({ perfil }) {
-  const [cat, setCat] = useState(null);
+  const club = useClub();
+  const [cat, setCat] = useState("Superior");
   const [lineups, setLineups] = useState(LINEUPS_INICIALES);
   const [editMode, setEditMode] = useState(false);
+  const [eligiendo, setEligiendo] = useState(null);
+  const [wellness, setWellness] = useState({});
+  const [aviso, setAviso] = useState("");
   const isMobile = useIsMobile();
+  const staff = puedeGestionar(perfil);
 
-  function changeJugador(numero, jugadorId) {
-    setLineups((prev) => ({
-      ...prev,
-      [cat]: prev[cat].map((s) => (s.numero === numero ? { ...s, jugadorId } : s)),
-    }));
-    guardarSlotFormacion(cat, numero, jugadorId);
-  }
-  function changePuesto(numero, puesto) {
-    setLineups((prev) => ({
-      ...prev,
-      [cat]: prev[cat].map((s) => (s.numero === numero ? { ...s, puesto } : s)),
-    }));
-    guardarPuestoFormacion(cat, numero, puesto);
+  useEffect(() => {
+    cargarWellnessHistorial(1).then((d) => setWellness(Object.fromEntries(d.hoy.map((x) => [x.jugadorId, x.pct]))));
+  }, []);
+
+  const info = { wellness };
+  const lineup = lineups[cat] || [];
+  const partido = (PROXIMOS[cat.toLowerCase()] || [])[0] || null;
+  const bySlot = (n) => lineup.find((s) => s.numero === n);
+  const faltan = Array.from({ length: 15 }, (_, i) => i + 1).filter((n) => !bySlot(n)?.jugadorId);
+  const otraCat = cat === "Superior" ? "Intermedia" : "Superior";
+  const enLosDos = lineup.filter((s) => s.jugadorId && (lineups[otraCat] || []).some((o) => o.jugadorId === s.jugadorId)).map((s) => s.jugadorId);
+  const suplentes = lineup.filter((s) => s.numero > 15).sort((a, b) => a.numero - b.numero);
+  const suplentesVisibles = editMode ? suplentes : suplentes.filter((s) => s.jugadorId);
+
+  function elegir(numero, nombre) {
+    // Un jugador no puede estar en dos camisetas del mismo equipo: si ya tenía otra, se libera.
+    const previo = nombre ? lineup.find((s) => s.jugadorId === nombre && s.numero !== numero) : null;
+    const actual = lineup.map((s) => {
+      if (s.numero === numero) return { ...s, jugadorId: nombre || undefined };
+      if (previo && s.numero === previo.numero) return { ...s, jugadorId: undefined };
+      return s;
+    });
+    LINEUPS_INICIALES[cat] = actual;
+    setLineups((prev) => ({ ...prev, [cat]: actual }));
+    if (previo) guardarSlotFormacion(cat, previo.numero, "");
+    guardarSlotFormacion(cat, numero, nombre);
+    setEligiendo(null);
   }
 
-  if (cat) {
-    return (
-      <div>
-        <button
-          onClick={() => {
-            setCat(null);
-            setEditMode(false);
-          }}
-          style={{ background: "transparent", border: "none", color: "var(--h-acento)", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}
-        >
-          ← Equipos
-        </button>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <span style={{ fontSize: 22, color: "var(--h-texto)", fontWeight: 600, fontFamily: "var(--h-titulo)" }}>{cat}</span>
-            <span style={{ fontSize: 13, color: "var(--h-sub)" }}>{lineups[cat].length} activos</span>
-          </div>
-          {editMode ? (
-            <button
-              onClick={() => {
-                setEditMode(false);
-                crearNotificacion("formacion_confirmada", `🛡️ Formación de ${cat} confirmada.`, null, perfil?.id);
-              }}
-              style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}
-            >
-              Guardar cambios
-            </button>
-          ) : (
-            puedeGestionar(perfil) && (
-              <button onClick={() => setEditMode(true)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}>
-                Editar equipo
-              </button>
-            )
-          )}
-        </div>
-        {isMobile ? (
-          <ListaFormacion lineup={lineups[cat]} editMode={editMode} onChangeJugador={changeJugador} onChangePuesto={changePuesto} />
-        ) : (
-          <CanchaFormacion lineup={lineups[cat]} editMode={editMode} onChangeJugador={changeJugador} onChangePuesto={changePuesto} />
-        )}
-      </div>
-    );
+  async function publicar() {
+    const rival = partido ? ` vs ${partido.rival}` : "";
+    const cuando = partido ? ` (${partido.date})` : "";
+    const convocados = lineup.filter((s) => s.jugadorId).map((s) => ({ s, j: POOL.find((p) => p.id === s.jugadorId) })).filter((x) => x.j?.dbId);
+    await Promise.all(convocados.map(({ s, j }) =>
+      crearNotificacion("convocatoria", `🏉 Estás convocado a ${cat}${rival}${cuando}, camiseta ${s.numero}.`, ["Jugador"], perfil?.id, [j.dbId])
+    ));
+    crearNotificacion("formacion_confirmada", `🛡️ Equipo de ${cat}${rival} publicado.`, ["Cuerpo técnico", "Manager", "Cuerpo médico"], perfil?.id);
+    setEditMode(false);
+    setAviso(`Publicado. Les llegó el aviso a ${convocados.length} convocados.`);
+    setTimeout(() => setAviso(""), 4000);
+  }
+
+  async function compartir() {
+    try {
+      const blob = await imagenFormacion({ cat, lineup, partido, clubNombre: club?.nombre_corto || club?.nombre || "", colores: colorClub() });
+      const archivo = new File([blob], `equipo-${cat.toLowerCase()}.png`, { type: "image/png" });
+      if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
+        await navigator.share({ files: [archivo], title: `Equipo de ${cat}` });
+      } else {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = archivo.name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      }
+    } catch (e) {
+      if (e?.name !== "AbortError") { console.error("Error generando la imagen:", e); setAviso("No se pudo generar la imagen."); }
+    }
   }
 
   return (
     <div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Equipo del partido</div>
-        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>Elegí una categoría para ver su formación</div>
-      </div>
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+      <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 12 }}>Equipo del partido</div>
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
         {["Superior", "Intermedia"].map((c) => (
           <button
             key={c}
-            onClick={() => setCat(c)}
-            style={{ ...cardStyle, padding: "20px 24px", flex: "1 1 220px", textAlign: "left", cursor: "pointer", border: "1px solid var(--h-borde)" }}
+            onClick={() => { setCat(c); setEditMode(false); }}
+            style={{
+              ...pillButton, fontWeight: 700,
+              border: "1px solid " + (cat === c ? "var(--h-acento)" : "var(--h-borde2)"),
+              background: cat === c ? "var(--h-acento-suave)" : "transparent",
+              color: cat === c ? "var(--h-acento)" : "var(--h-texto2)",
+            }}
           >
-            <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 500 }}>{c}</div>
-            <div style={{ fontSize: 26, color: "var(--h-acento)", fontWeight: 600, fontFamily: "var(--h-titulo)", marginTop: 8 }}>
-              {LINEUPS_INICIALES[c].length}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 2 }}>jugadores citados</div>
+            {c}
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 11, color: "var(--h-sub2)", marginTop: 16, lineHeight: 1.6 }}>
-        Datos reales, guardados en la base del club — los cambios que hagas acá quedan persistidos. Es un solo
-        plantel del club — el mismo jugador puede figurar en la formación de Intermedia un fin de semana y en la
-        de Superior al siguiente, por eso el selector de "Editar equipo" deja elegir a cualquier jugador del
-        plantel para cada camiseta, en cualquiera de las dos categorías.
+
+      <div style={{ ...cardStyle, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <Shield size={34} />
+        <span style={{ fontFamily: "var(--h-titulo)", fontWeight: 700, color: "var(--h-sub)" }}>{partido ? (partido.cond === "Local" ? "vs" : "en") : ""}</span>
+        {partido && <TeamBadge name={partido.rival} size={34} />}
+        <div style={{ flex: 1, minWidth: 160 }}>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1.1 }}>{partido ? partido.rival : "Sin próximo partido cargado"}</div>
+          {partido && <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Fecha {partido.fecha} · {partido.date} · {partido.cond}</div>}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {faltan.length === 0 && <button onClick={compartir} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}>Compartir imagen</button>}
+          {staff && !editMode && <button onClick={() => setEditMode(true)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}>Editar</button>}
+          {staff && editMode && (
+            <>
+              <button onClick={() => setEditMode(false)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>Listo</button>
+              <button
+                onClick={publicar}
+                disabled={faltan.length > 0}
+                title={faltan.length ? "Primero completá de la 1 a la 15" : "Avisar a los convocados"}
+                style={{ ...pillButton, border: "none", background: faltan.length ? "var(--h-borde2)" : "var(--h-acento)", color: faltan.length ? "var(--h-sub2)" : "var(--h-panel)", cursor: faltan.length ? "not-allowed" : "pointer" }}
+              >
+                Publicar equipo
+              </button>
+            </>
+          )}
+        </div>
       </div>
+
+      {aviso && <div style={{ fontSize: 13, color: aviso.startsWith("No") ? "var(--h-error)" : "var(--h-ok)", marginBottom: 10 }}>{aviso}</div>}
+      {faltan.length > 0 && (
+        <div style={{ ...cardStyle, padding: "10px 14px", marginBottom: 12, borderLeft: "4px solid var(--h-alerta)", fontSize: 13.5, color: "var(--h-texto)" }}>
+          Falta cubrir {faltan.length === 1 ? "la camiseta" : "las camisetas"} <b>{faltan.join(", ")}</b>. Del 1 al 15 es obligatorio; los suplentes son opcionales.
+        </div>
+      )}
+      {enLosDos.length > 0 && (
+        <div style={{ ...cardStyle, padding: "10px 14px", marginBottom: 12, borderLeft: "4px solid var(--h-error)", fontSize: 13.5, color: "var(--h-texto)" }}>
+          También {enLosDos.length === 1 ? "está" : "están"} en {otraCat}: <b>{enLosDos.join(", ")}</b>.
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div style={{ flex: "1 1 340px", maxWidth: 560 }}>
+          {isMobile ? (
+            <div style={{ ...cardStyle, padding: "8px 14px" }}>
+              {Array.from({ length: 15 }, (_, i) => i + 1).map((n) => (
+                <FilaCamiseta key={n} slot={bySlot(n) || { numero: n }} info={info} editMode={editMode} onClick={() => setEligiendo(n)} />
+              ))}
+            </div>
+          ) : (
+            <Cancha lineup={lineup} info={info} editMode={editMode} onElegir={setEligiendo} />
+          )}
+        </div>
+        {(suplentesVisibles.length > 0 || editMode) && (
+          <div style={{ ...cardStyle, padding: "12px 14px", flex: "1 1 240px" }}>
+            <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)", marginBottom: 4 }}>Banco</div>
+            <div style={{ fontSize: 12, color: "var(--h-sub)", marginBottom: 6 }}>Opcional.</div>
+            {suplentesVisibles.map((s) => <FilaCamiseta key={s.numero} slot={s} info={info} editMode={editMode} onClick={() => setEligiendo(s.numero)} />)}
+            {suplentesVisibles.length === 0 && <div style={{ fontSize: 13, color: "var(--h-sub2)" }}>Sin suplentes.</div>}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 12, fontSize: 12, color: "var(--h-sub)" }}>
+        {Object.entries(COLOR_ESTADO).map(([k, c]) => (
+          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: c }} />{k}</span>
+        ))}
+        <span>· El % es el wellness de hoy.</span>
+      </div>
+
+      {eligiendo && (
+        <SelectorCamiseta
+          slot={bySlot(eligiendo) || { numero: eligiendo, puesto: "" }}
+          cat={cat}
+          lineups={lineups}
+          info={info}
+          onElegir={(nombre) => elegir(eligiendo, nombre)}
+          onCerrar={() => setEligiendo(null)}
+        />
+      )}
     </div>
   );
 }
@@ -7511,6 +7805,13 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const [novedad, setNovedad] = useState(null);
   const [alertasHoy, setAlertasHoy] = useState({ cargando: true, respuestas: [] });
   const [categoriaEnVivo, setCategoriaEnVivo] = useState(null); // null | "Superior" | "Intermedia"
+  const [convocatoria, setConvocatoria] = useState(null);
+  useEffect(() => {
+    if (perfil?.rol !== "Jugador" || !perfil?.jugador_id) return;
+    const desde = new Date(Date.now() - 7 * 86400000).toISOString();
+    supabase.from("notificaciones").select("*").eq("tipo", "convocatoria").gte("created_at", desde).order("created_at", { ascending: false }).limit(20)
+      .then(({ data }) => setConvocatoria((data || []).find((n) => esParaMi(n, perfil)) || null));
+  }, [perfil?.jugador_id]);
 
   const intermediaHoy = partidoDeHoyCategoria("Intermedia");
   const superiorHoy = partidoDeHoyCategoria("Superior");
@@ -7701,6 +8002,17 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
           <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2, textTransform: "capitalize" }}>{fechaCorta}</div>
         </div>
       </div>
+
+      {convocatoria && (
+        <button
+          onClick={() => onNavigate("equipos")}
+          style={{ ...cardStyle, width: "100%", textAlign: "left", cursor: "pointer", padding: "14px 16px", marginBottom: 12, background: "var(--h-club)", color: "var(--h-club-txt)", border: "none", fontFamily: "var(--h-texto-fuente)" }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85, textTransform: "uppercase", letterSpacing: "0.1em" }}>Tu convocatoria</div>
+          <div style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{convocatoria.mensaje.replace(/^🏉\s*/, "")}</div>
+          <div style={{ fontSize: 12.5, opacity: 0.85, marginTop: 4 }}>Ver el equipo →</div>
+        </button>
+      )}
 
       {/* Lo de todos los días: wellness y gimnasio, a un toque */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10, marginBottom: 14 }}>
