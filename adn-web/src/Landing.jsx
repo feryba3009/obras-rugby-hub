@@ -45,6 +45,13 @@ function useDolar() {
   return dolar;
 }
 
+// Logo oficial de Mercado Pago (archivo en public/). Si todavía no está, se muestra el nombre.
+function LogoMP({ alto = 28 }) {
+  const [falla, setFalla] = useState(false);
+  if (falla) return <span className="mp-nombre">Mercado Pago</span>;
+  return <img className="mp-img" src="/mercadopago.png" alt="Mercado Pago" height={alto} onError={() => setFalla(true)} />;
+}
+
 const pesos = (n) => "$ " + Math.round(n).toLocaleString("es-AR");
 
 const ANTES = [
@@ -246,6 +253,7 @@ export default function Landing() {
                 >
                   {p.mercadoPago ? `Pagar el plan ${p.nombre.toLowerCase()}` : `Quiero el plan ${p.nombre.toLowerCase()}`}
                 </a>
+                <p className="plan-mp">Pagás con <LogoMP alto={20} /></p>
               </article>
             ))}
           </div>
@@ -268,7 +276,7 @@ export default function Landing() {
               ))}
             </ol>
             <div className="mp">
-              <span className="mp-logo" aria-hidden="true">MP</span>
+              <span className="mp-logo"><LogoMP alto={34} /></span>
               <p>
                 Cobramos con <b>Mercado Pago</b>: suscripción automática en el plan mensual o un solo pago en el anual. Podés usar
                 tarjeta de crédito, débito o dinero en cuenta.

@@ -161,7 +161,10 @@ p { margin: 0; }
 .pasos h3 { font-size: 30px; }
 .pasos p { color: var(--gris); }
 .mp { display: flex; align-items: center; gap: 18px; background: var(--crema); border-radius: 20px; padding: 20px 24px; max-width: 820px; }
-.mp-logo { flex-shrink: 0; width: 56px; height: 56px; border-radius: 50%; background: #00A6E2; color: #fff; display: flex; align-items: center; justify-content: center; font: 800 22px var(--titulo); }
+.mp-logo { flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #fff; border-radius: 14px; padding: 10px 14px; min-height: 56px; }
+.mp-img { display: block; width: auto; }
+.mp-nombre { font: 700 16px var(--texto); color: #0E1620; white-space: nowrap; }
+.plan-mp { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--gris); }
 @media (max-width: 860px) { .pasos { grid-template-columns: 1fr; } }
 
 /* ----- Preguntas ----- */
