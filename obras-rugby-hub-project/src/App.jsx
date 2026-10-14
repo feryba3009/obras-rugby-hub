@@ -1620,6 +1620,149 @@ function AsistenciaPanel({ perfil }) {
   );
 }
 
+// Grupo 1 / Grupo 2 de la práctica: se arman solos según el criterio que elija el club,
+// y el staff puede mover a mano a cualquier jugador (eso pisa el criterio).
+let GRUPOS_CONFIG = { criterio: "equipos", ajustes: {} };
+
+const CRITERIOS_GRUPOS = {
+  equipos: { label: "Primeros 2 equipos", desc: "Grupo 1: los de las formaciones de Superior e Intermedia. Grupo 2: el resto." },
+  mitades: { label: "Mitades del plantel", desc: "El plantel partido en dos mitades parejas, mezclando puestos." },
+};
+
+async function cargarGruposPractica() {
+  const { data, error } = await supabase.from("grupos_practica").select("criterio, ajustes").maybeSingle();
+  if (error) {
+    console.error("Error cargando los grupos de práctica:", error);
+    return;
+  }
+  if (data) GRUPOS_CONFIG = { criterio: data.criterio || "equipos", ajustes: data.ajustes || {} };
+}
+
+async function guardarGruposPractica(config) {
+  GRUPOS_CONFIG = config;
+  const { error } = await supabase
+    .from("grupos_practica")
+    .upsert({ criterio: config.criterio, ajustes: config.ajustes, updated_at: new Date().toISOString() }, { onConflict: "club_id" });
+  if (error) console.error("Error guardando los grupos de práctica:", error);
+  return !error;
+}
+
+// Devuelve { [dbId]: 1 | 2 } y si cada uno fue puesto a mano.
+function calcularGrupos(config = GRUPOS_CONFIG) {
+  const jugadores = [...POOL].filter((j) => j.dbId);
+  const grupo = {};
+  const enEquipos = new Set(
+    ["Superior", "Intermedia"].flatMap((c) => (LINEUPS_INICIALES[c] || []).map((sl) => sl.jugadorId).filter(Boolean))
+  );
+  if (config.criterio === "equipos" && enEquipos.size > 0) {
+    jugadores.forEach((j) => { grupo[j.dbId] = enEquipos.has(j.id) ? 1 : 2; });
+  } else {
+    // Mitades parejas: ordenados por puesto y alternando, así cada grupo tiene de todos los puestos.
+    jugadores
+      .sort((a, b) => String(a.posicionIdeal || "").localeCompare(String(b.posicionIdeal || "")) || a.id.localeCompare(b.id))
+      .forEach((j, i) => { grupo[j.dbId] = (i % 2) + 1; });
+  }
+  const aMano = {};
+  Object.entries(config.ajustes || {}).forEach(([id, g]) => {
+    if (grupo[id] !== undefined && (g === 1 || g === 2)) { grupo[id] = g; aMano[id] = true; }
+  });
+  return { grupo, aMano };
+}
+
+function PanelGrupos({ onCambio }) {
+  const [config, setConfig] = useState(GRUPOS_CONFIG);
+  const [abierto, setAbierto] = useState(false);
+  const [aviso, setAviso] = useState("");
+  const { grupo, aMano } = calcularGrupos(config);
+  const lista = (g) => POOL.filter((j) => grupo[j.dbId] === g).sort((a, b) => a.id.localeCompare(b.id));
+  const sinFormaciones = config.criterio === "equipos" && !["Superior", "Intermedia"].some((c) => (LINEUPS_INICIALES[c] || []).some((sl) => sl.jugadorId));
+
+  async function aplicar(nueva) {
+    setConfig(nueva);
+    onCambio?.(nueva);
+    const ok = await guardarGruposPractica(nueva);
+    setAviso(ok ? "Guardado." : "No se pudo guardar.");
+    setTimeout(() => setAviso(""), 2000);
+  }
+  function mover(j) {
+    const destino = grupo[j.dbId] === 1 ? 2 : 1;
+    const base = calcularGrupos({ ...config, ajustes: {} }).grupo[j.dbId];
+    const ajustes = { ...config.ajustes };
+    if (destino === base) delete ajustes[j.dbId];
+    else ajustes[j.dbId] = destino;
+    aplicar({ ...config, ajustes });
+  }
+
+  if (!abierto) {
+    return (
+      <button onClick={() => setAbierto(true)} style={{ ...pillButton, marginBottom: 16, marginLeft: 8, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}>
+        👥 Quién está en cada grupo
+      </button>
+    );
+  }
+  return (
+    <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)" }}>Grupos de práctica</span>
+        <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          {aviso && <span style={{ fontSize: 12, color: aviso.startsWith("No") ? "var(--h-error)" : "var(--h-ok)" }}>{aviso}</span>}
+          <button onClick={() => setAbierto(false)} style={{ background: "transparent", border: "none", color: "var(--h-sub2)", fontSize: 12.5, cursor: "pointer" }}>Cerrar</button>
+        </span>
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 8 }}>Cómo se arman solos:</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+        {Object.entries(CRITERIOS_GRUPOS).map(([k, v]) => (
+          <button
+            key={k}
+            onClick={() => k !== config.criterio && aplicar({ ...config, criterio: k })}
+            style={{
+              ...pillButton,
+              border: "1px solid " + (config.criterio === k ? "var(--h-acento)" : "var(--h-borde2)"),
+              background: config.criterio === k ? "var(--h-acento-suave)" : "transparent",
+              color: config.criterio === k ? "var(--h-acento)" : "var(--h-texto2)",
+            }}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: "var(--h-sub2)", marginBottom: 12 }}>
+        {CRITERIOS_GRUPOS[config.criterio].desc}
+        {sinFormaciones && " Todavía no hay formaciones cargadas, así que por ahora se parte el plantel en mitades."}
+        {" "}Tocá un jugador para pasarlo al otro grupo.
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+        {[1, 2].map((g) => (
+          <div key={g}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--h-texto)", marginBottom: 6 }}>Grupo {g} · {lista(g).length}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {lista(g).map((j) => (
+                <button
+                  key={j.dbId}
+                  onClick={() => mover(j)}
+                  title={`Pasar al Grupo ${g === 1 ? 2 : 1}`}
+                  style={{
+                    ...tagStyle, borderRadius: 999, cursor: "pointer", fontFamily: "var(--h-texto-fuente)",
+                    border: "1px solid " + (aMano[j.dbId] ? "var(--h-acento)" : "var(--h-borde)"),
+                    background: aMano[j.dbId] ? "var(--h-acento-suave)" : "transparent", color: "var(--h-texto2)",
+                  }}
+                >
+                  {j.id}{aMano[j.dbId] ? " ✋" : ""}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {Object.keys(config.ajustes || {}).length > 0 && (
+        <button onClick={() => aplicar({ ...config, ajustes: {} })} style={{ ...pillButton, marginTop: 12, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
+          Volver a armarlos solos (sacar los ✋)
+        </button>
+      )}
+    </div>
+  );
+}
+
 // Fecha (de esta semana) del día elegido: "Martes 14".
 function fechaDiaSemana(dia) {
   const orden = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
@@ -1643,9 +1786,14 @@ function SesionPage({ perfil }) {
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState("");
   const sesion = sesiones[dia] || { grupo1: [], grupo2: [] };
+  const [gruposConfig, setGruposConfig] = useState(GRUPOS_CONFIG);
+  const { grupo: grupoDe } = calcularGrupos(gruposConfig);
+  const miGrupo = perfil?.rol === "Jugador" && perfil?.jugador_id ? grupoDe[perfil.jugador_id] || null : null;
+  const cantidad = (g) => Object.values(grupoDe).filter((x) => x === g).length;
 
   useEffect(() => {
     cargarSesiones().then(() => setSesiones({ ...SESIONES }));
+    cargarGruposPractica().then(() => setGruposConfig(GRUPOS_CONFIG));
   }, []);
 
   function cambiarDia(grupo, fn) {
@@ -1726,7 +1874,18 @@ function SesionPage({ perfil }) {
         )}
       </div>
 
-      {puedeEditar && <AsistenciaPanel perfil={perfil} />}
+      {puedeEditar && (
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start" }}>
+          <AsistenciaPanel perfil={perfil} />
+          <PanelGrupos onCambio={setGruposConfig} />
+        </div>
+      )}
+
+      {miGrupo && (
+        <div style={{ ...cardStyle, padding: "12px 16px", marginBottom: 14, borderLeft: "4px solid var(--h-club)", fontSize: 14, color: "var(--h-texto)" }}>
+          Esta semana estás en el <b>Grupo {miGrupo}</b>. Abajo tenés tu práctica.
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
         {DIAS_SEMANA.map((d) => {
@@ -1766,10 +1925,10 @@ function SesionPage({ perfil }) {
         </div>
       ) : (
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-          {["grupo1", "grupo2"].map((g, gi) => (
+          {["grupo1", "grupo2"].filter((g, gi) => !miGrupo || miGrupo === gi + 1).map((g) => (
             <GrupoTabla
               key={g}
-              titulo={`Grupo ${gi + 1}`}
+              titulo={`Grupo ${g.slice(-1)}${cantidad(+g.slice(-1)) ? ` · ${cantidad(+g.slice(-1))} jugadores` : ""}`}
               filas={sesion[g] || []}
               editMode={editMode}
               onChange={(i, field, value) => updateFila(g, i, field, value)}
@@ -7335,7 +7494,8 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const gymHoy = PLAN_GYM_INICIAL[diaHoy];
   const proximoGym = DIAS_GYM.find((d) => ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].indexOf(d) > ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].indexOf(diaHoy)) || DIAS_GYM[0];
   const practicaHoy = SESIONES[diaHoy];
-  const bloquesPractica = practicaHoy ? Object.keys(practicaHoy).filter((k) => k.startsWith("grupo")).flatMap((k) => practicaHoy[k]) : [];
+  const miGrupoPractica = esJugador && perfil?.jugador_id ? calcularGrupos().grupo[perfil.jugador_id] || 1 : 1;
+  const bloquesPractica = practicaHoy ? practicaHoy[`grupo${miGrupoPractica}`] || [] : [];
   const aVigilarNombres = POOL.filter((j) => ["A vigilar", "Lesionado"].includes(disponibilidadReal(j))).map((j) => ({ nombre: j.id, estado: disponibilidadReal(j) }));
   const ultimos = fixture.filter((p) => p.res).slice(-3).reverse();
   const fechaCorta = new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
@@ -7486,7 +7646,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
         )}
 
         <div style={tarjeta}>
-          <EncabezadoTarjeta titulo="Práctica de hoy" accion={staff ? (practicaHoy ? "Ver" : "Cargar") : practicaHoy ? "Ver" : undefined} onAccion={() => onNavigate("sesion")} />
+          <EncabezadoTarjeta titulo={esJugador ? `Tu práctica · Grupo ${miGrupoPractica}` : "Práctica de hoy · Grupo 1"} accion={staff ? (practicaHoy ? "Ver" : "Cargar") : practicaHoy ? "Ver" : undefined} onAccion={() => onNavigate("sesion")} />
           {bloquesPractica.length ? (
             bloquesPractica.slice(0, 5).map((f, i) => (
               <div key={i} style={{ display: "flex", gap: 10, padding: "7px 0", borderTop: i ? "1px solid var(--h-borde)" : "none", fontSize: 13.5 }}>
@@ -7940,7 +8100,7 @@ async function cargarEvaluaciones() {
 }
 
 async function cargarTodo() {
-  await Promise.all([cargarJugadores(), cargarCalendario(), cargarFormaciones(), cargarEscudos(), cargarConfig(), cargarEvaluaciones(), cargarSesiones()]);
+  await Promise.all([cargarJugadores(), cargarCalendario(), cargarFormaciones(), cargarEscudos(), cargarConfig(), cargarEvaluaciones(), cargarSesiones(), cargarGruposPractica()]);
 }
 
 function PantallaCarga() {
