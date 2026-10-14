@@ -3616,7 +3616,38 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
 
   const [guardando, setGuardando] = useState(false);
   const [msg, setMsg] = useState("");
+  const [verAtajos, setVerAtajos] = useState(false);
+  const [registro, setRegistro] = useState([]); // [{ t, texto, tono, antes }]
+  const [reloj, setReloj] = useState(0); // segundos desde que se arrancó a analizar (en juego o no)
+  const [arrancado, setArrancado] = useState(false);
   const intervaloRef = React.useRef(null);
+  const estadoRef = React.useRef({});
+  estadoRef.current = { scrum, line, pelotasRecuperadas, perdidasPelota, penalesAFavor, penalesEnContra, posesion, reloj };
+
+  useEffect(() => {
+    if (!arrancado) return;
+    const id = setInterval(() => setReloj((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [arrancado]);
+
+  // Cada acción queda en el registro con una foto del estado anterior, para poder deshacerla.
+  function anotar(texto, tono, accion) {
+    const e = estadoRef.current;
+    const antes = { scrum: e.scrum, line: e.line, pelotasRecuperadas: e.pelotasRecuperadas, perdidasPelota: e.perdidasPelota, penalesAFavor: e.penalesAFavor, penalesEnContra: e.penalesEnContra, posesion: e.posesion };
+    accion();
+    setRegistro((prev) => [{ t: e.reloj, texto, tono, antes }, ...prev].slice(0, 200));
+  }
+  function deshacer() {
+    setRegistro((prev) => {
+      if (!prev.length) return prev;
+      const { antes } = prev[0];
+      setScrum(antes.scrum); setLine(antes.line);
+      setPelotasRecuperadas(antes.pelotasRecuperadas); setPerdidasPelota(antes.perdidasPelota);
+      setPenalesAFavor(antes.penalesAFavor); setPenalesEnContra(antes.penalesEnContra);
+      setPosesion(antes.posesion);
+      return prev.slice(1);
+    });
+  }
 
   useEffect(() => {
     if (enJuego) {
@@ -3634,6 +3665,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
   }, [enJuego, posesion, territorio]);
 
   function toggleEnJuego() {
+    setArrancado(true);
     if (enJuego) {
       setSecuencias((prev) => [...prev, tiempoSecuenciaActual]);
       setTiempoSecuenciaActual(0);
@@ -3651,6 +3683,23 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
     setPosesion(nuevaPosesion);
   }
 
+  const ACCIONES = {
+    scrumGanado: ["Scrum ganado", "ok", () => sumar(setScrum, "ganados")],
+    scrumPerdido: ["Scrum perdido", "mal", () => sumarConPosesion(setScrum, "perdidos", "Rival")],
+    scrumRobado: ["Scrum robado", "ok", () => sumarConPosesion(setScrum, "robados", "Obras")],
+    scrumRival: ["Scrum del rival ganado", "ok", () => sumar(setScrum, "delRival")],
+    lineGanado: ["Line ganado", "ok", () => sumar(setLine, "ganados")],
+    linePerdido: ["Line perdido", "mal", () => sumarConPosesion(setLine, "perdidos", "Rival")],
+    lineRobado: ["Line robado", "ok", () => sumarConPosesion(setLine, "robados", "Obras")],
+    lineTorcida: ["Line torcido", "mal", () => sumarConPosesion(setLine, "torcidas", "Rival")],
+    lineRival: ["Line del rival ganado", "ok", () => sumar(setLine, "delRival")],
+    recuperada: ["Pelota recuperada", "ok", () => { setPelotasRecuperadas((v) => v + 1); setPosesion("Obras"); }],
+    perdida: ["Pelota perdida", "mal", () => { setPerdidasPelota((v) => v + 1); setPosesion("Rival"); }],
+    penalFavor: ["Penal a favor", "ok", () => setPenalesAFavor((v) => v + 1)],
+    penalContra: ["Penal en contra", "mal", () => setPenalesEnContra((v) => v + 1)],
+  };
+  const hacer = (k) => anotar(ACCIONES[k][0], ACCIONES[k][1], ACCIONES[k][2]);
+
   // Atajos de teclado — solo en escritorio, para anotar sin soltar el mouse del video.
   useEffect(() => {
     if (isMobile) return;
@@ -3667,25 +3716,20 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
         "2": () => setPosesion("Rival"),
         "3": () => setTerritorio("Propio"),
         "4": () => setTerritorio("Rival"),
-        q: () => sumar(setScrum, "ganados"),
-        w: () => sumarConPosesion(setScrum, "perdidos", "Rival"),
-        e: () => sumarConPosesion(setScrum, "robados", "Obras"),
-        r: () => sumar(setScrum, "delRival"),
-        a: () => sumar(setLine, "ganados"),
-        s: () => sumarConPosesion(setLine, "perdidos", "Rival"),
-        d: () => sumarConPosesion(setLine, "robados", "Obras"),
-        f: () => sumarConPosesion(setLine, "torcidas", "Rival"),
-        g: () => sumar(setLine, "delRival"),
-        z: () => {
-          setPelotasRecuperadas((v) => v + 1);
-          setPosesion("Obras");
-        },
-        x: () => {
-          setPerdidasPelota((v) => v + 1);
-          setPosesion("Rival");
-        },
-        c: () => setPenalesAFavor((v) => v + 1),
-        v: () => setPenalesEnContra((v) => v + 1),
+        q: () => hacer("scrumGanado"),
+        w: () => hacer("scrumPerdido"),
+        e: () => hacer("scrumRobado"),
+        r: () => hacer("scrumRival"),
+        a: () => hacer("lineGanado"),
+        s: () => hacer("linePerdido"),
+        d: () => hacer("lineRobado"),
+        f: () => hacer("lineTorcida"),
+        g: () => hacer("lineRival"),
+        z: () => hacer("recuperada"),
+        x: () => hacer("perdida"),
+        c: () => hacer("penalFavor"),
+        v: () => hacer("penalContra"),
+        backspace: () => deshacer(),
       };
       if (acciones[k]) {
         e.preventDefault();
@@ -3729,7 +3773,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
     if (!error) {
       partido.informe = informe;
       crearNotificacion("informe_partido", `🔍 Análisis de video listo: ${categoria} vs ${partido.rival}.`, null, perfil?.id);
-      setMsg("✓ Guardado — ya se ve en VEO Cam y en el Informe de partido.");
+      setMsg("✓ Guardado. Ya se ve en Análisis de video y en Estadísticas.");
     } else {
       setMsg("No se pudo guardar. Probá de nuevo.");
     }
@@ -3791,7 +3835,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
         <div style={{ fontSize: 20, color: "var(--h-acento)", fontWeight: 700, fontFamily: "var(--h-titulo)" }}>{pctTerritorioRival}%</div>
       </div>
       <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
-        <div style={{ fontSize: 10, color: "var(--h-sub)" }}>Ball in play</div>
+        <div style={{ fontSize: 10, color: "var(--h-sub)" }}>Tiempo de juego efectivo</div>
         <div style={{ fontSize: 20, color: "var(--h-acento)", fontWeight: 700, fontFamily: "var(--h-titulo)" }}>{formatoRelojMMSS(ballInPlay)}</div>
       </div>
       <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
@@ -3803,121 +3847,137 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
     </div>
   );
 
+  const BotonJugada = ({ k, label, valor }) => {
+    const tono = ACCIONES[k][1];
+    return (
+      <button
+        onClick={() => hacer(k)}
+        style={{
+          minHeight: 58, borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "var(--h-texto-fuente)",
+          background: tono === "ok" ? "var(--h-ok-suave)" : "var(--h-error-suave)", color: tono === "ok" ? "var(--h-ok)" : "var(--h-error)",
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, fontWeight: 700, fontSize: 13,
+        }}
+      >
+        <span>{label}</span>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800 }}>{valor}</span>
+      </button>
+    );
+  };
+  const Fase = ({ titulo, columnas = 4, children }) => (
+    <div style={panelStyle}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 18, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>{titulo}</div>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${columnas}, 1fr)`, gap: 6 }}>{children}</div>
+    </div>
+  );
+
   const panelAnotador = (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {!isMobile && (
-        <div style={{ ...panelStyle, padding: "10px 14px", fontSize: 10.5, color: "var(--h-sub)", lineHeight: 1.7 }}>
-          <b style={{ color: "var(--h-texto2)" }}>⌨️ Atajos:</b> <b style={{ color: "var(--h-acento)" }}>Espacio</b> en/fuera de juego ·{" "}
-          <b style={{ color: "var(--h-acento)" }}>1</b>/<b style={{ color: "var(--h-acento)" }}>2</b> posesión Obras/Rival ·{" "}
-          <b style={{ color: "var(--h-acento)" }}>3</b>/<b style={{ color: "var(--h-acento)" }}>4</b> territorio propio/rival
-          <br />
-          <b style={{ color: "var(--h-acento)" }}>Q W E R</b> scrum (ganado/perdido/robado/del rival) ·{" "}
-          <b style={{ color: "var(--h-acento)" }}>A S D F G</b> line (ganado/perdido/robado/torcida/del rival)
-          <br />
-          <b style={{ color: "var(--h-acento)" }}>Z X C V</b> recuperada/pérdida/penal a favor/penal en contra
-        </div>
-      )}
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <button
         onClick={toggleEnJuego}
         style={{
-          padding: "18px", borderRadius: 14, border: "none", fontSize: 15, fontWeight: 700, cursor: "pointer",
-          background: enJuego ? "linear-gradient(135deg, var(--h-ok-suave), var(--h-ok-suave))" : "linear-gradient(135deg, var(--h-error-suave), var(--h-error-suave))",
-          color: enJuego ? "var(--h-ok)" : "var(--h-error)",
-          boxShadow: enJuego ? "0 0 0 1px var(--h-ok-suave) inset" : "0 0 0 1px var(--h-error-suave) inset",
-          letterSpacing: 0.3,
+          minHeight: 64, borderRadius: 14, border: "none", fontSize: 16, fontWeight: 800, cursor: "pointer",
+          background: enJuego ? "var(--h-ok)" : "var(--h-error)", color: "#fff", letterSpacing: 0.3,
         }}
       >
-        {enJuego ? `▶  EN JUEGO  ·  ${formatoRelojMMSS(tiempoSecuenciaActual)}` : "⏸  FUERA DE JUEGO"}
+        {enJuego ? `▶  EN JUEGO · ${formatoRelojMMSS(tiempoSecuenciaActual)} — tocá al cortarse` : "⏸  PELOTA PARADA — tocá cuando se reanude"}
       </button>
 
-      <div style={panelStyle}>
-        <div style={tituloPanel}>POSESIÓN</div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <ToggleBoton activo={posesion === "Obras"} onClick={() => setPosesion("Obras")}>
-            🟡 Obras
-          </ToggleBoton>
-          <ToggleBoton activo={posesion === "Rival"} onClick={() => setPosesion("Rival")}>
-            ⚫ {partido.rival}
-          </ToggleBoton>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div style={panelStyle}>
+          <div style={tituloPanel}>LA PELOTA ES DE</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <ToggleBoton activo={posesion === "Obras"} onClick={() => setPosesion("Obras")}>Obras</ToggleBoton>
+            <ToggleBoton activo={posesion === "Rival"} onClick={() => setPosesion("Rival")}>{partido.rival}</ToggleBoton>
+          </div>
+        </div>
+        <div style={panelStyle}>
+          <div style={tituloPanel}>SE JUEGA EN</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <ToggleBoton activo={territorio === "Propio"} onClick={() => setTerritorio("Propio")}>Campo propio</ToggleBoton>
+            <ToggleBoton activo={territorio === "Rival"} onClick={() => setTerritorio("Rival")}>Campo rival</ToggleBoton>
+          </div>
         </div>
       </div>
 
-      <div style={panelStyle}>
-        <div style={tituloPanel}>TERRITORIO</div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <ToggleBoton activo={territorio === "Propio"} onClick={() => setTerritorio("Propio")}>
-            Campo propio
-          </ToggleBoton>
-          <ToggleBoton activo={territorio === "Rival"} onClick={() => setTerritorio("Rival")}>
-            Campo rival
-          </ToggleBoton>
-        </div>
+      <Fase titulo="Obtención · Scrum">
+        <BotonJugada k="scrumGanado" label="Ganado" valor={scrum.ganados} />
+        <BotonJugada k="scrumPerdido" label="Perdido" valor={scrum.perdidos} />
+        <BotonJugada k="scrumRobado" label="Robado" valor={scrum.robados} />
+        <BotonJugada k="scrumRival" label="Del rival" valor={scrum.delRival} />
+      </Fase>
+      <Fase titulo="Obtención · Line" columnas={5}>
+        <BotonJugada k="lineGanado" label="Ganado" valor={line.ganados} />
+        <BotonJugada k="linePerdido" label="Perdido" valor={line.perdidos} />
+        <BotonJugada k="lineRobado" label="Robado" valor={line.robados} />
+        <BotonJugada k="lineTorcida" label="Torcido" valor={line.torcidas} />
+        <BotonJugada k="lineRival" label="Del rival" valor={line.delRival} />
+      </Fase>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Fase titulo="Ataque" columnas={1}>
+          <BotonJugada k="perdida" label="Pelota perdida" valor={perdidasPelota} />
+        </Fase>
+        <Fase titulo="Defensa" columnas={1}>
+          <BotonJugada k="recuperada" label="Recuperada" valor={pelotasRecuperadas} />
+        </Fase>
       </div>
+      <Fase titulo="Penales" columnas={2}>
+        <BotonJugada k="penalFavor" label="A favor" valor={penalesAFavor} />
+        <BotonJugada k="penalContra" label="En contra" valor={penalesEnContra} />
+      </Fase>
 
       <div style={panelStyle}>
-        <div style={tituloPanel}>SCRUM · OBRAS</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
-          <BotonObtencion label="Ganado" valor={scrum.ganados} tono="ok" onClick={() => sumar(setScrum, "ganados")} />
-          <BotonObtencion label="Perdido" valor={scrum.perdidos} tono="mal" onClick={() => sumarConPosesion(setScrum, "perdidos", "Rival")} />
-          <BotonObtencion label="Robado" valor={scrum.robados} tono="ok" onClick={() => sumarConPosesion(setScrum, "robados", "Obras")} />
-          <BotonObtencion label="Del rival" valor={scrum.delRival} tono="ok" onClick={() => sumar(setScrum, "delRival")} />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <span style={{ fontFamily: "var(--h-titulo)", fontSize: 18, fontWeight: 800, color: "var(--h-texto)" }}>Lo que vas marcando</span>
+          <button onClick={deshacer} disabled={!registro.length} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: registro.length ? "var(--h-texto2)" : "var(--h-sub2)" }}>
+            ↶ Deshacer
+          </button>
         </div>
+        {registro.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: "var(--h-sub2)" }}>Todavía nada. Cada toque queda acá con su minuto.</div>
+        ) : (
+          <div style={{ maxHeight: 220, overflowY: "auto" }}>
+            {registro.map((ev, i) => (
+              <div key={registro.length - i} style={{ display: "flex", gap: 10, padding: "6px 0", borderTop: i ? "1px solid var(--h-borde)" : "none", fontSize: 13 }}>
+                <span style={{ fontFamily: "var(--h-titulo)", fontWeight: 700, color: "var(--h-sub)", width: 46, flexShrink: 0 }}>{formatoRelojMMSS(ev.t)}</span>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: ev.tono === "ok" ? "var(--h-ok)" : "var(--h-error)", marginTop: 5, flexShrink: 0 }} />
+                <span style={{ color: "var(--h-texto)" }}>{ev.texto}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      <div style={panelStyle}>
-        <div style={tituloPanel}>LINE-OUT · OBRAS</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 6 }}>
-          <BotonObtencion label="Ganado" valor={line.ganados} tono="ok" onClick={() => sumar(setLine, "ganados")} />
-          <BotonObtencion label="Perdido" valor={line.perdidos} tono="mal" onClick={() => sumarConPosesion(setLine, "perdidos", "Rival")} />
-          <BotonObtencion label="Robado" valor={line.robados} tono="ok" onClick={() => sumarConPosesion(setLine, "robados", "Obras")} />
+      {!isMobile && (
+        <div>
+          <button onClick={() => setVerAtajos((v) => !v)} style={{ background: "none", border: "none", color: "var(--h-sub)", fontSize: 12.5, cursor: "pointer", padding: 0 }}>
+            ⌨️ {verAtajos ? "Ocultar atajos de teclado" : "Ver atajos de teclado"}
+          </button>
+          {verAtajos && (
+            <div style={{ ...panelStyle, padding: "10px 14px", fontSize: 12, color: "var(--h-sub)", lineHeight: 1.8, marginTop: 6 }}>
+              <b>Espacio</b> en juego / pelota parada · <b>1</b>/<b>2</b> pelota de Obras / del rival · <b>3</b>/<b>4</b> campo propio / rival<br />
+              <b>Q W E R</b> scrum ganado / perdido / robado / del rival<br />
+              <b>A S D F G</b> line ganado / perdido / robado / torcido / del rival<br />
+              <b>Z X C V</b> recuperada / perdida / penal a favor / penal en contra · <b>Borrar</b> deshacer
+            </div>
+          )}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-          <BotonObtencion label="Torcida" valor={line.torcidas} tono="neutro" onClick={() => sumarConPosesion(setLine, "torcidas", "Rival")} />
-          <BotonObtencion label="Del rival" valor={line.delRival} tono="ok" onClick={() => sumar(setLine, "delRival")} />
-        </div>
-      </div>
-
-      <div style={panelStyle}>
-        <div style={tituloPanel}>SITUACIONES</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-          <BotonObtencion
-            label="Recuperada"
-            valor={pelotasRecuperadas}
-            tono="ok"
-            onClick={() => {
-              setPelotasRecuperadas((v) => v + 1);
-              setPosesion("Obras"); // al recuperar, la pelota pasa a ser de Obras
-            }}
-          />
-          <BotonObtencion
-            label="Pérdida"
-            valor={perdidasPelota}
-            tono="mal"
-            onClick={() => {
-              setPerdidasPelota((v) => v + 1);
-              setPosesion("Rival"); // al perderla, pasa a ser del rival
-            }}
-          />
-          <BotonObtencion label="Penal a favor" valor={penalesAFavor} tono="ok" onClick={() => setPenalesAFavor((v) => v + 1)} />
-          <BotonObtencion label="Penal en contra" valor={penalesEnContra} tono="mal" onClick={() => setPenalesEnContra((v) => v + 1)} />
-        </div>
-      </div>
+      )}
 
       <button
         onClick={guardarAnalisis}
         disabled={guardando}
-        style={{ ...buttonStyle, background: "var(--h-acento)", color: "var(--h-panel)", fontWeight: 700, letterSpacing: 0.3 }}
+        style={{ ...buttonStyle, background: "var(--h-acento)", color: "var(--h-panel)", fontWeight: 700, letterSpacing: 0.3, minHeight: 50 }}
       >
-        {guardando ? "Guardando…" : "💾 Guardar análisis"}
+        {guardando ? "Guardando…" : "Guardar análisis"}
       </button>
-      {msg && <div style={{ fontSize: 11.5, color: msg.startsWith("✓") ? "var(--h-ok)" : "var(--h-error)", textAlign: "center" }}>{msg}</div>}
+      {msg && <div style={{ fontSize: 12, color: msg.startsWith("✓") ? "var(--h-ok)" : "var(--h-error)", textAlign: "center" }}>{msg}</div>}
     </div>
   );
 
   return (
     <div>
       <button onClick={onSalir} style={{ background: "transparent", border: "none", color: "var(--h-acento)", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}>
-        ← Volver a VEO Cam
+        ← Volver a Análisis de video
       </button>
       <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 16 }}>
         {categoria} vs {partido.rival} · Analizando video
@@ -4185,7 +4245,7 @@ function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
   return (
     <div>
       <button onClick={onSalir} style={{ background: "transparent", border: "none", color: "var(--h-acento)", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}>
-        ← Volver a VEO Cam
+        ← Volver a Análisis de video
       </button>
       <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 4 }}>
         {categoria} vs {partido.rival} · Análisis individual
@@ -4414,7 +4474,7 @@ function VeoPage({ perfil }) {
         <StatCard label="Turnovers ganados" value={turnovers} tone="ok" />
         {analisis && (
           <>
-            <StatCard label="Ball in play" value={formatoRelojMMSS(analisis.ballInPlaySegundos)} tone="ok" />
+            <StatCard label="Tiempo de juego efectivo" value={formatoRelojMMSS(analisis.ballInPlaySegundos)} tone="ok" />
             <StatCard label="Secuencias" value={analisis.secuencias} tone="ok" />
             <StatCard label="Secuencia más larga" value={formatoRelojMMSS(analisis.secuenciaMasLargaSegundos)} tone="ok" />
           </>
@@ -4777,6 +4837,233 @@ const STATS_VACIO = () => ({
   favorables: { penalesAFavor: 0, pelotasRecuperadas: 0, quiebresAtaque: 0, tacklesTotales: 0, quiebreQueTerminaEnTry: 0 },
 });
 
+// Indicadores clave de un informe de partido (para el semáforo y la temporada).
+function indicadoresInforme(st) {
+  const scrumProp = st.scrum.ganados + st.scrum.perdidos;
+  const lineProp = st.line.ganados + st.line.perdidos + st.line.torcidas;
+  const propias = scrumProp + lineProp;
+  const perdidas = Object.entries(st.desfavorables).filter(([k]) => k !== "penalesEnContra").reduce((a, [, v]) => a + v, 0);
+  return {
+    obtencion: propias ? Math.round(((st.scrum.ganados + st.line.ganados) / propias) * 100) : null,
+    scrum: scrumProp ? Math.round((st.scrum.ganados / scrumProp) * 100) : null,
+    line: lineProp ? Math.round((st.line.ganados / lineProp) * 100) : null,
+    quiebres: st.favorables.quiebresAtaque,
+    tackles: st.favorables.tacklesTotales,
+    penales: st.desfavorables.penalesEnContra,
+    perdidas,
+  };
+}
+
+function SemaforoPartido({ stats, esReal, otros }) {
+  const hoy = indicadoresInforme(stats);
+  const base = otros.map(indicadoresInforme);
+  const prom = (k) => {
+    const vals = base.map((b) => b[k]).filter((v) => v !== null && v !== undefined);
+    return vals.length >= 2 ? vals.reduce((a, v) => a + v, 0) / vals.length : null;
+  };
+  const items = [
+    { k: "obtencion", label: "Obtención propia", fmt: (v) => (v === null ? "—" : `${v}%`), mejorAlto: true },
+    { k: "quiebres", label: "Quiebres", fmt: (v) => v, mejorAlto: true },
+    { k: "tackles", label: "Tackles", fmt: (v) => v, mejorAlto: true },
+    { k: "penales", label: "Penales en contra", fmt: (v) => v, mejorAlto: false },
+    { k: "perdidas", label: "Pérdidas", fmt: (v) => v, mejorAlto: false },
+  ];
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+        {items.map((it) => {
+          const v = hoy[it.k];
+          const p = esReal ? prom(it.k) : null;
+          let flecha = null, color = "var(--h-texto)";
+          if (p !== null && v !== null) {
+            const dif = v - p;
+            const umbral = Math.max(1, Math.abs(p) * 0.1);
+            if (Math.abs(dif) >= umbral) {
+              const bueno = it.mejorAlto ? dif > 0 : dif < 0;
+              flecha = dif > 0 ? "↑" : "↓";
+              color = bueno ? "var(--h-ok)" : "var(--h-error)";
+            }
+          }
+          return (
+            <div key={it.k} style={{ ...cardStyle, padding: "12px 14px" }}>
+              <div style={{ fontSize: 12, color: "var(--h-sub)" }}>{it.label}</div>
+              <div style={{ fontFamily: "var(--h-titulo)", fontSize: 28, fontWeight: 800, color, lineHeight: 1.1 }}>
+                {it.fmt(v)} {flecha && <span style={{ fontSize: 20 }}>{flecha}</span>}
+              </div>
+              {p !== null && <div style={{ fontSize: 11.5, color: "var(--h-sub2)" }}>Promedio: {it.k === "obtencion" ? `${Math.round(p)}%` : Math.round(p * 10) / 10}</div>}
+            </div>
+          );
+        })}
+      </div>
+      {esReal && base.length < 2 && (
+        <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginTop: 6 }}>La comparación contra el promedio aparece cuando haya al menos 2 informes más cargados.</div>
+      )}
+    </div>
+  );
+}
+
+const COLUMNAS_PLANILLA = [
+  { k: "tackles", label: "Tackles" },
+  { k: "tacklesPositivos", label: "Tackles positivos" },
+  { k: "errados", label: "Tackles errados", bajoEsMejor: true },
+  { k: "quiebres", label: "Quiebres" },
+  { k: "qbreXTry", label: "Quiebres que terminan en try" },
+  { k: "recuperadas", label: "Recuperadas" },
+  { k: "accPos", label: "Acciones positivas" },
+  { k: "pk", label: "Penales", bajoEsMejor: true },
+];
+
+function PlanillaPartido({ jugadores }) {
+  const [orden, setOrden] = useState({ k: "accPos", desc: true });
+  const filas = [...jugadores].sort((a, b) => ((a[orden.k] || 0) - (b[orden.k] || 0)) * (orden.desc ? -1 : 1) || a.numero - b.numero);
+  const destacado = (k, label) => {
+    const max = Math.max(0, ...jugadores.map((j) => j[k] || 0));
+    if (!max) return null;
+    const quienes = jugadores.filter((j) => (j[k] || 0) === max).map((j) => j.jugadorId);
+    return { label, max, quienes };
+  };
+  const destacados = [destacado("tackles", "Más tackles"), destacado("quiebres", "Más quiebres"), destacado("recuperadas", "Más recuperadas")].filter(Boolean);
+  return (
+    <div>
+      {destacados.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 14 }}>
+          {destacados.map((d) => (
+            <div key={d.label} style={{ ...cardStyle, padding: "12px 14px", borderLeft: "4px solid var(--h-club)" }}>
+              <div style={{ fontSize: 12, color: "var(--h-sub)" }}>{d.label}</div>
+              <div style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 14.5, marginTop: 2 }}>{d.quienes.join(", ")}</div>
+              <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-club-tinta)" }}>{d.max}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ fontSize: 12, color: "var(--h-sub)", marginBottom: 8 }}>
+        Tocá una columna para ordenar. Acciones positivas = recuperadas + quiebres + tackles positivos.
+      </div>
+      <div style={{ ...cardStyle, padding: "6px 4px", overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 760 }}>
+          <thead>
+            <tr style={{ textAlign: "left" }}>
+              <th style={{ padding: "8px 10px", color: "var(--h-sub)", fontWeight: 500 }}>Jugador</th>
+              {COLUMNAS_PLANILLA.map((c) => (
+                <th key={c.k} style={{ padding: "8px 8px" }}>
+                  <button
+                    onClick={() => setOrden((o) => ({ k: c.k, desc: o.k === c.k ? !o.desc : true }))}
+                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 12, fontWeight: orden.k === c.k ? 700 : 500, color: orden.k === c.k ? "var(--h-acento)" : "var(--h-sub)", textAlign: "left", fontFamily: "var(--h-texto-fuente)" }}
+                  >
+                    {c.label}{orden.k === c.k ? (orden.desc ? " ↓" : " ↑") : ""}
+                  </button>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((j) => (
+              <tr key={j.numero} style={{ borderTop: "1px solid var(--h-borde)" }}>
+                <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
+                  <span style={{ color: "var(--h-sub)", marginRight: 8, fontFamily: "var(--h-titulo)", fontWeight: 700 }}>{j.numero}</span>
+                  <span style={{ color: "var(--h-texto)", fontWeight: 600 }}>{j.jugadorId}</span>
+                </td>
+                {COLUMNAS_PLANILLA.map((c) => (
+                  <td key={c.k} style={{ padding: "8px 8px", fontWeight: orden.k === c.k ? 700 : 400, color: c.bajoEsMejor && j[c.k] ? "var(--h-error)" : orden.k === c.k ? "var(--h-texto)" : "var(--h-texto2)" }}>
+                    {j[c.k] ?? 0}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginTop: 8 }}>Planilla de seguimiento que carga el staff, solo para los titulares.</div>
+    </div>
+  );
+}
+
+// ---------- La temporada ----------
+function GraficoResultados({ partidos }) {
+  if (!partidos.length) return <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay partidos jugados.</div>;
+  const max = Math.max(10, ...partidos.flatMap((p) => [p.gf || 0, p.gc || 0]));
+  const W = Math.max(320, partidos.length * 46), H = 170, base = 140;
+  const esc = (v) => ((v || 0) / max) * 120;
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <svg width={W} height={H} role="img" aria-label="Puntos a favor y en contra por partido">
+        <line x1="0" x2={W} y1={base} y2={base} stroke="var(--h-borde)" />
+        {partidos.map((p, i) => {
+          const x = i * 46 + 8;
+          const color = p.res === "Ganado" ? "var(--h-ok)" : p.res === "Perdido" ? "var(--h-error)" : "var(--h-sub)";
+          return (
+            <g key={i}>
+              <title>{`F${p.fecha} vs ${p.rival}: ${p.gf}-${p.gc}`}</title>
+              <rect x={x} y={base - esc(p.gf)} width="14" height={esc(p.gf)} rx="3" fill="var(--h-club)" />
+              <rect x={x + 16} y={base - esc(p.gc)} width="14" height={esc(p.gc)} rx="3" fill="var(--h-borde2)" />
+              <text x={x + 15} y={base - Math.max(esc(p.gf), esc(p.gc)) - 4} textAnchor="middle" fontSize="10" fill="var(--h-sub)">{p.gf}-{p.gc}</text>
+              <circle cx={x + 15} cy={base + 12} r="4" fill={color} />
+              <text x={x + 15} y={base + 27} textAnchor="middle" fontSize="10" fill="var(--h-sub)">F{p.fecha}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ display: "flex", gap: 14, fontSize: 12, color: "var(--h-sub)", marginTop: 4 }}>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "var(--h-club)", marginRight: 5 }} />A favor</span>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "var(--h-borde2)", marginRight: 5 }} />En contra</span>
+      </div>
+    </div>
+  );
+}
+
+function TemporadaPage() {
+  const [categoria, setCategoria] = useState("Superior");
+  const partidos = (FIXTURE[categoria.toLowerCase()] || []).filter((p) => p.res);
+  const g = partidos.filter((p) => p.res === "Ganado").length;
+  const e = partidos.filter((p) => p.res === "Empate").length;
+  const pe = partidos.filter((p) => p.res === "Perdido").length;
+  const pf = partidos.reduce((a, p) => a + (p.gf || 0), 0);
+  const pc = partidos.reduce((a, p) => a + (p.gc || 0), 0);
+  const conInforme = partidos.filter((p) => p.informe).map((p) => ({ p, ind: indicadoresInforme(p.informe) }));
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {["Superior", "Intermedia"].map((c) => (
+          <button key={c} onClick={() => setCategoria(c)} style={{ ...pillButton, fontWeight: 700, border: "1px solid " + (categoria === c ? "var(--h-acento)" : "var(--h-borde2)"), background: categoria === c ? "var(--h-acento-suave)" : "transparent", color: categoria === c ? "var(--h-acento)" : "var(--h-texto2)" }}>{c}</button>
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 14 }}>
+        {[["Ganados", g, "var(--h-ok)"], ["Empatados", e, "var(--h-sub)"], ["Perdidos", pe, "var(--h-error)"], ["Puntos a favor", pf, "var(--h-texto)"], ["Puntos en contra", pc, "var(--h-texto)"], ["Diferencia", (pf - pc > 0 ? "+" : "") + (pf - pc), pf >= pc ? "var(--h-ok)" : "var(--h-error)"]].map(([l, v, c]) => (
+          <div key={l} style={{ ...cardStyle, padding: "12px 14px" }}>
+            <div style={{ fontFamily: "var(--h-titulo)", fontSize: 28, fontWeight: 800, color: c, lineHeight: 1 }}>{v}</div>
+            <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 4 }}>{l}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Partido a partido</div>
+        <GraficoResultados partidos={partidos} />
+      </div>
+      <div style={{ ...cardStyle, padding: "14px 16px" }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Obtención por fecha</div>
+        {conInforme.length === 0 ? (
+          <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Cuando se carguen los informes de partido (o el análisis de video), acá se ve cómo viene el scrum y el line fecha a fecha.</div>
+        ) : (
+          conInforme.map(({ p, ind }) => (
+            <div key={p.fecha} style={{ display: "grid", gridTemplateColumns: "54px 1fr 1fr", gap: 10, alignItems: "center", padding: "6px 0", borderTop: "1px solid var(--h-borde)", fontSize: 12.5 }}>
+              <span style={{ color: "var(--h-sub)", fontWeight: 700 }}>F{p.fecha}</span>
+              {[["Scrum", ind.scrum], ["Line", ind.line]].map(([l, v]) => (
+                <span key={l} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 38, color: "var(--h-sub)" }}>{l}</span>
+                  <span style={{ flex: 1, height: 8, borderRadius: 4, background: "var(--h-borde)", overflow: "hidden" }}>
+                    <span style={{ display: "block", height: "100%", width: `${v ?? 0}%`, background: v === null ? "transparent" : v >= 80 ? "var(--h-ok)" : v >= 60 ? "var(--h-alerta)" : "var(--h-error)" }} />
+                  </span>
+                  <span style={{ width: 36, textAlign: "right", color: "var(--h-texto)", fontWeight: 600 }}>{v === null ? "—" : `${v}%`}</span>
+                </span>
+              ))}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function InformePartidoPage({ perfil }) {
   const [categoria, setCategoria] = useState("Superior");
   const partidos = FIXTURE[categoria.toLowerCase()];
@@ -4879,7 +5166,7 @@ function InformePartidoPage({ perfil }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
         <div>
-          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Informe de partido</div>
+          <div style={{ fontSize: 24, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Informe de partido</div>
           <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
             {categoria} vs {partido.rival} ({partido.cond === "Local" ? "L" : "V"}) · {partido.gf}-{partido.gc} ·{" "}
             {partido.date}
@@ -4928,12 +5215,7 @@ function InformePartidoPage({ perfil }) {
       )}
       {esReal && !editando && <div style={{ fontSize: 11, color: "var(--h-ok)", marginBottom: 16 }}>✓ Informe cargado por el cuerpo técnico.</div>}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
-        <StatCard label="Pelotas propias ganadas" value={pelotasPropias} tone="ok" />
-        <StatCard label="Tackles totales" value={stats.favorables.tacklesTotales} tone="ok" />
-        <StatCard label="Total pérdidas" value={totalPerdidas} tone="danger" />
-        <StatCard label="Quiebres en ataque" value={stats.favorables.quiebresAtaque} tone="ok" />
-      </div>
+      <SemaforoPartido stats={stats} esReal={esReal} otros={partidos.filter((p) => p.informe && p.fecha !== partido.fecha).map((p) => p.informe)} />
 
       <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
         {[
@@ -5083,52 +5365,7 @@ function InformePartidoPage({ perfil }) {
         </div>
       )}
 
-      {tab === "planilla" && (
-        <div>
-          <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginBottom: 12 }}>
-            ACC++ = recuperadas + quiebres + tackles positivos · PK = penales en contra cometidos
-          </div>
-          <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 820 }}>
-              <thead>
-                <tr style={{ color: "var(--h-sub)", textAlign: "left" }}>
-                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>N°</th>
-                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
-                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Recuperadas</th>
-                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Tackles positivos</th>
-                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>ACC++</th>
-                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>PK</th>
-                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Quiebres</th>
-                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Qbre x try</th>
-                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Tackles</th>
-                  <th style={{ fontWeight: 400, padding: "8px 10px" }}>Errados</th>
-                </tr>
-              </thead>
-              <tbody>
-                {jugadores.map((j) => (
-                  <tr key={j.numero} style={{ borderTop: "1px solid var(--h-borde)" }}>
-                    <td style={{ padding: "8px 10px", color: "var(--h-sub)" }}>{j.numero}</td>
-                    <td style={{ padding: "8px 10px", color: "var(--h-texto)", fontWeight: 500, whiteSpace: "nowrap" }}>{j.jugadorId}</td>
-                    <td style={{ padding: "8px 10px", color: "var(--h-texto2)" }}>{j.recuperadas}</td>
-                    <td style={{ padding: "8px 10px", color: "var(--h-texto2)" }}>{j.tacklesPositivos}</td>
-                    <td style={{ padding: "8px 10px", color: "var(--h-acento)", fontWeight: 600 }}>{j.accPos}</td>
-                    <td style={{ padding: "8px 10px", color: j.pk ? "var(--h-error)" : "var(--h-texto2)" }}>{j.pk}</td>
-                    <td style={{ padding: "8px 10px", color: "var(--h-texto2)" }}>{j.quiebres}</td>
-                    <td style={{ padding: "8px 10px", color: j.qbreXTry ? "var(--h-ok)" : "var(--h-texto2)", fontWeight: j.qbreXTry ? 600 : 400 }}>
-                      {j.qbreXTry}
-                    </td>
-                    <td style={{ padding: "8px 10px", color: "var(--h-texto2)" }}>{j.tackles}</td>
-                    <td style={{ padding: "8px 10px", color: "var(--h-texto2)" }}>{j.errados}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginTop: 10 }}>
-            Datos de la planilla de seguimiento cargados por el staff durante el partido — solo para los titulares.
-          </div>
-        </div>
-      )}
+      {tab === "planilla" && <PlanillaPartido jugadores={jugadores} />}
     </div>
   );
 }
@@ -5153,45 +5390,77 @@ function statsJugadorTemporada(nombre) {
 
 function ReporteIndividualPage({ perfil }) {
   const [jugadorId, setJugadorId] = useState(POOL[0]?.id || "");
+  const [busca, setBusca] = useState("");
+  const [planillas, setPlanillas] = useState(null);
+  const [wellness, setWellness] = useState([]);
   const jugador = POOL.find((j) => j.id === jugadorId);
 
   useEffect(() => {
-    // Si el jugador seleccionado ya no existe (por ejemplo, lo borraron del plantel), elegimos otro.
     if (!jugador && POOL.length > 0) setJugadorId(POOL[0].id);
   }, [jugador]);
+  useEffect(() => {
+    if (!jugador?.dbId) return;
+    setPlanillas(null);
+    supabase.from("analisis_individual_partido").select("*").eq("jugador_id", jugador.dbId).then(({ data }) => setPlanillas(data || []));
+    cargarWellnessHistorial(30).then((d) => setWellness((d.porJugador[jugador.dbId] || []).map((x) => ({ fecha: x.fecha, pct: pctWellness(x) }))));
+  }, [jugador?.dbId]);
 
-  if (!jugador) {
-    return <div style={{ color: "var(--h-sub)", fontSize: 13 }}>No hay jugadores en el plantel todavía.</div>;
-  }
+  if (!jugador) return <div style={{ color: "var(--h-sub)", fontSize: 13 }}>No hay jugadores en el plantel todavía.</div>;
 
-  const stJuego = statsJugadorTemporada(jugadorId);
+  const suma = (k) => (planillas || []).reduce((a, r) => a + (r[k] || 0), 0);
+  const tot = planillas && {
+    partidos: planillas.length,
+    tackles: suma("tackle_hecho") + suma("tackle_positivo") + suma("tackle_errado"),
+    positivos: suma("tackle_positivo"),
+    quiebres: suma("quiebre_con_try") + suma("quiebre_sin_try"),
+    penales: suma("penal_en_contra_ruck") + suma("penal_en_contra_maul") + suma("penal_en_contra_juego") + suma("penal_en_contra_inconducta"),
+  };
+  const lista = POOL.filter((j) => !busca || j.id.toLowerCase().includes(busca.toLowerCase())).sort((a, b) => a.id.localeCompare(b.id));
+  const estado = disponibilidadReal(jugador);
 
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
-        <label style={{ fontSize: 12, color: "var(--h-sub)", marginRight: 10 }}>Jugador:</label>
-        <select
-          value={jugadorId}
-          onChange={(e) => setJugadorId(e.target.value)}
-          style={{ ...editInputStyle, borderBottom: "1px solid var(--h-borde2)", width: 220 }}
-        >
-          {POOL.map((j) => (
-            <option key={j.id} value={j.id} style={{ background: "var(--h-panel)" }}>
-              {j.id}
-            </option>
-          ))}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar jugador…" style={{ ...inputStyle, width: 200, margin: 0 }} />
+        <select value={jugadorId} onChange={(e) => setJugadorId(e.target.value)} style={{ ...inputStyle, width: 240, margin: 0 }}>
+          {lista.map((j) => <option key={j.id} value={j.id}>{j.id}</option>)}
         </select>
       </div>
 
-      <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500, marginBottom: 12 }}>
-        Estadísticas de juego · temporada 2026
+      <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 14, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <AvatarPlaceholder size={56} foto={jugador.foto} />
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 28, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1.05 }}>{jugador.id}</div>
+          <div style={{ fontSize: 13, color: "var(--h-sub)" }}>{jugador.posicionIdeal || "Sin puesto"}{jugador.altura ? ` · ${jugador.altura} cm` : ""}{jugador.peso ? ` · ${jugador.peso} kg` : ""}</div>
+        </div>
+        <span style={{ ...tagStyle, borderRadius: 999, fontWeight: 700, background: "var(--h-acento-suave)", color: COLOR_ESTADO[estado] || "var(--h-texto)" }}>● {estado}</span>
       </div>
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
-        <StatCard label="Tackles" value={stJuego.tackles} tone="ok" />
-        <StatCard label="Tackles positivos" value={stJuego.tacklesPositivos} tone="ok" />
-        <StatCard label="Acciones positivas" value={stJuego.accPositivas} tone="ok" />
-        <StatCard label="Penales cometidos" value={stJuego.penales} tone={stJuego.penales > 2 ? "danger" : "warn"} />
-        <StatCard label="Puntos" value={stJuego.puntos} tone="ok" />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, marginBottom: 14 }}>
+        <div style={{ ...cardStyle, padding: "14px 16px" }}>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>En la temporada</div>
+          {planillas === null ? (
+            <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Cargando…</div>
+          ) : planillas.length === 0 ? (
+            <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay planillas de partido cargadas para él.</div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+              {[["Partidos", tot.partidos], ["Tackles", tot.tackles], ["Tackles positivos", tot.positivos], ["Quiebres", tot.quiebres], ["Penales", tot.penales]].map(([l, v]) => (
+                <div key={l}>
+                  <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1 }}>{v}</div>
+                  <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 3 }}>{l}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ ...cardStyle, padding: "14px 16px" }}>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Wellness · últimas semanas</div>
+          <MiniBarras puntos={wellness} alto={56} />
+          {wellness.length > 0 && (
+            <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 6 }}>Promedio: {Math.round(wellness.reduce((a, x) => a + x.pct, 0) / wellness.length)}% · {wellness.length} respuestas</div>
+          )}
+        </div>
       </div>
 
       <FichaJugador
@@ -5208,50 +5477,33 @@ function ReporteIndividualPage({ perfil }) {
 }
 
 function ReportesPage({ perfil }) {
-  const [vista, setVista] = useState(null);
-
-  if (vista) {
-    const Componente = { rtp: RtpPage, individual: ReporteIndividualPage, partido: InformePartidoPage }[vista];
-    return (
-      <div>
-        <button
-          onClick={() => setVista(null)}
-          style={{ background: "transparent", border: "none", color: "var(--h-acento)", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}
-        >
-          ← Informes
-        </button>
-        <Componente perfil={perfil} />
-      </div>
-    );
-  }
-
-  const tiles = [
-    { key: "partido", titulo: "El partido, en números", desc: "Obtención, situaciones de juego, tries y la planilla de cada jugador.", icono: "reportes" },
-    { key: "individual", titulo: "Ficha de un jugador", desc: "Físico, estadísticas de la temporada y lesiones, en una sola página.", icono: "plantel" },
-    { key: "rtp", titulo: "Lesionados y vuelta al juego", desc: "Quién está lesionado hoy y cómo viene, cruzado con su historial.", icono: "rtp" },
+  const [vista, setVista] = useState("temporada");
+  const tabs = [
+    { key: "temporada", label: "Temporada" },
+    { key: "partido", label: "Partido" },
+    { key: "individual", label: "Jugador" },
+    { key: "rtp", label: "Lesiones" },
   ];
-
+  const Componente = { temporada: TemporadaPage, rtp: RtpPage, individual: ReporteIndividualPage, partido: InformePartidoPage }[vista];
   return (
     <div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Estadísticas</div>
-        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
-          Lo que dejó el partido, listo para compartir con el staff.
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-        {tiles.map((t) => (
+      <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 12 }}>Estadísticas</div>
+      <div style={{ display: "flex", gap: 4, marginBottom: 18, borderBottom: "1px solid var(--h-borde)", overflowX: "auto" }}>
+        {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setVista(t.key)}
-            style={{ ...cardStyle, padding: "20px 22px", flex: "1 1 260px", textAlign: "left", cursor: "pointer", border: "1px solid var(--h-borde)" }}
+            style={{
+              background: "none", border: "none", borderBottom: `3px solid ${vista === t.key ? "var(--h-club)" : "transparent"}`,
+              padding: "10px 14px", fontSize: 15, fontWeight: vista === t.key ? 800 : 500, cursor: "pointer",
+              color: vista === t.key ? "var(--h-texto)" : "var(--h-sub)", fontFamily: "var(--h-texto-fuente)", whiteSpace: "nowrap",
+            }}
           >
-            <span style={{ color: "var(--h-acento)", display: "block", marginBottom: 12 }}><Icono nombre={t.icono} size={26} /></span>
-            <div style={{ fontSize: 22, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 6 }}>{t.titulo}</div>
-            <div style={{ fontSize: 13, color: "var(--h-sub)", lineHeight: 1.5 }}>{t.desc}</div>
+            {t.label}
           </button>
         ))}
       </div>
+      <Componente perfil={perfil} />
     </div>
   );
 }
