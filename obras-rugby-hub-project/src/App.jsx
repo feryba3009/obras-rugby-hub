@@ -9578,11 +9578,24 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
   }
 
   const sinLeer = notis.length;
+  const botonRef = React.useRef(null);
+  const [pos, setPos] = useState(null);
+  function alternar() {
+    if (!abierto && botonRef.current) {
+      // El panel se ubica fijo en la pantalla, así no lo corta el menú lateral.
+      const r = botonRef.current.getBoundingClientRect();
+      const ancho = Math.min(360, window.innerWidth - 24);
+      const left = align === "left" ? Math.max(12, Math.min(r.left, window.innerWidth - ancho - 12)) : Math.max(12, r.right - ancho);
+      setPos({ top: r.bottom + 8, left, ancho, alto: Math.max(240, window.innerHeight - r.bottom - 24) });
+    }
+    setAbierto((v) => !v);
+  }
 
   return (
     <div style={{ position: "relative" }}>
       <button
-        onClick={() => setAbierto((v) => !v)}
+        ref={botonRef}
+        onClick={alternar}
         aria-label="Notificaciones"
         style={{ background: "transparent", border: "none", cursor: "pointer", position: "relative", padding: 8, color: "var(--h-texto2)", display: "flex", minWidth: 40, minHeight: 40, alignItems: "center", justifyContent: "center" }}
       >
@@ -9597,29 +9610,41 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
           />
         )}
       </button>
-      {abierto && (
-        <div
-          style={{
-            position: "absolute", top: "100%", [align]: 0, marginTop: 8, width: 300, maxWidth: "calc(100vw - 32px)", maxHeight: 360, overflowY: "auto",
-            background: "var(--h-panel)", border: "1px solid var(--h-borde)", borderRadius: 10, zIndex: 60, padding: 8,
-          }}
-        >
-          <div style={{ fontSize: 12, color: "var(--h-sub)", padding: "6px 8px" }}>Notificaciones</div>
-          {notis.length === 0 && <div style={{ fontSize: 12, color: "var(--h-sub2)", padding: "10px 8px" }}>Nada por ahora.</div>}
-          {notis.map((n) => (
-            <div
-              key={n.id}
-              onClick={() => abrirNotificacion(n)}
-              style={{
-                padding: "10px 8px", borderTop: "1px solid var(--h-borde)", cursor: "pointer",
-                background: "var(--h-acento-suave)",
-              }}
-            >
-              <div style={{ fontSize: 12.5, color: "var(--h-texto)" }}>{sinEmojis(n.mensaje)}</div>
-              <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginTop: 2 }}>{tiempoRelativo(n.created_at)}</div>
+      {abierto && pos && (
+        <>
+          <div onClick={() => setAbierto(false)} style={{ position: "fixed", inset: 0, zIndex: 90 }} />
+          <div
+            role="dialog"
+            aria-label="Notificaciones"
+            style={{
+              position: "fixed", top: pos.top, left: pos.left, width: pos.ancho, maxHeight: Math.min(480, pos.alto), overflowY: "auto",
+              background: "var(--h-panel)", border: "1px solid var(--h-borde)", borderRadius: 14, zIndex: 91,
+              boxShadow: "0 12px 32px rgba(14,22,32,0.18)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px 8px", position: "sticky", top: 0, background: "var(--h-panel)" }}>
+              <span style={{ fontFamily: "var(--h-titulo)", fontSize: 18, fontWeight: 800, color: "var(--h-texto)" }}>Avisos</span>
+              <button onClick={() => setAbierto(false)} aria-label="Cerrar" style={{ background: "none", border: "none", fontSize: 22, color: "var(--h-sub)", cursor: "pointer", minWidth: 36, minHeight: 36 }}>×</button>
             </div>
-          ))}
-        </div>
+            {notis.length === 0 && <div style={{ fontSize: 13.5, color: "var(--h-sub)", padding: "8px 14px 16px" }}>No tenés avisos nuevos.</div>}
+            {notis.map((n) => (
+              <button
+                key={n.id}
+                onClick={() => abrirNotificacion(n)}
+                style={{
+                  display: "flex", gap: 10, width: "100%", textAlign: "left", padding: "12px 14px", border: "none", borderTop: "1px solid var(--h-borde)",
+                  background: "transparent", cursor: "pointer", fontFamily: "var(--h-texto-fuente)",
+                }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--h-club)", marginTop: 6, flexShrink: 0 }} />
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: 14, color: "var(--h-texto)", lineHeight: 1.4 }}>{sinEmojis(n.mensaje)}</span>
+                  <span style={{ display: "block", fontSize: 12, color: "var(--h-sub)", marginTop: 3 }}>{tiempoRelativo(n.created_at)}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
