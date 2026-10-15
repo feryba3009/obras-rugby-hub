@@ -2637,7 +2637,7 @@ let POOL = [];
 async function cargarJugadores() {
   const { data, error } = await supabase
     .from("jugadores")
-    .select("id, nombre, posicion_ideal, posicion_alternativa, posicion_emergencia, altura_cm, peso_kg, apto, estado, zona_lesion, foto_url, historial_medico(descripcion)")
+    .select("id, nombre, posicion_ideal, posicion_alternativa, posicion_emergencia, altura_cm, peso_kg, apto, estado, zona_lesion, foto_url, fecha_nacimiento, historial_medico(descripcion)")
     .order("nombre");
   if (error) {
     console.error("Error cargando jugadores:", error);
@@ -2651,6 +2651,7 @@ async function cargarJugadores() {
     posicionAlternativa: row.posicion_alternativa,
     posicionEmergencia: row.posicion_emergencia,
     altura: row.altura_cm,
+    nacimiento: row.fecha_nacimiento,
     peso: row.peso_kg,
     apto: row.apto,
     estado: row.estado,
@@ -3251,7 +3252,13 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
   const m = evalu || {};
   const [tab, setTab] = useState("puestos");
   const aptoColor = jugador.apto === "Apto" ? "var(--h-ok)" : jugador.apto === "Pendiente" ? "var(--h-alerta)" : "var(--h-error)";
+  const edad = (() => {
+    if (!jugador.nacimiento) return null;
+    const n = new Date(jugador.nacimiento + "T00:00:00"), h = new Date();
+    return h.getFullYear() - n.getFullYear() - (h < new Date(h.getFullYear(), n.getMonth(), n.getDate()) ? 1 : 0);
+  })();
   const datos = [
+    edad !== null ? `${edad} años` : null,
     jugador.altura ? `${(jugador.altura / 100).toFixed(2).replace(".", ",")} m` : null,
     jugador.peso ? `${jugador.peso} kg` : null,
   ].filter(Boolean);
@@ -8858,6 +8865,7 @@ function LoginPage() {
   const [nombreCompleto, setNombreCompleto] = useState("");
   const [usuario, setUsuario] = useState("");
   const [altura, setAltura] = useState("");
+  const [nacimiento, setNacimiento] = useState("");
   const [peso, setPeso] = useState("");
   const [soyNuevo, setSoyNuevo] = useState(false);
   const [nombreNuevoJugador, setNombreNuevoJugador] = useState("");
@@ -8894,6 +8902,10 @@ function LoginPage() {
       setMensaje("Las contraseñas no coinciden.");
       return;
     }
+    if (rol === "Jugador" && !nacimiento) {
+      setMensaje("Completá tu fecha de nacimiento.");
+      return;
+    }
     if (rol === "Jugador" && !soyNuevo && !jugadorId) {
       setMensaje("Elegí tu nombre en la lista (o tocá \"Soy nuevo\" si no estás).");
       return;
@@ -8920,6 +8932,7 @@ function LoginPage() {
           nombre_nuevo_jugador: rol === "Jugador" && soyNuevo ? nombreNuevoJugador : "",
           posicion_nueva: rol === "Jugador" && soyNuevo ? posicionNueva : "",
           altura: rol === "Jugador" ? altura : "",
+          fecha_nacimiento: rol === "Jugador" ? nacimiento : "",
           peso: rol === "Jugador" ? peso : "",
         },
       },
@@ -9079,6 +9092,8 @@ function LoginPage() {
                       </select>
                     </>
                   )}
+                  <label style={labelStyle}>Fecha de nacimiento</label>
+                  <input type="date" style={inputStyle} value={nacimiento} onChange={(e) => setNacimiento(e.target.value)} max={new Date().toLocaleDateString("sv-SE")} min="1940-01-01" />
                   <label style={labelStyle}>Altura (cm)</label>
                   <input style={inputStyle} value={altura} onChange={(e) => setAltura(e.target.value)} placeholder="ej: 182" />
                   <label style={labelStyle}>Peso (kg)</label>
@@ -9470,6 +9485,7 @@ const NOTI_DESTINO = {
   resumen_semanal: "resumenes",
   practica_confirmar: "hoy",
   practica_baja: "sesion",
+  cumpleanos: "hoy",
   resumen_mensual: "resumenes",
   sesion_planificada: "sesion",
   video_partido: "veo",
