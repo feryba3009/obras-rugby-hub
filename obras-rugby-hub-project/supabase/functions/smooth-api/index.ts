@@ -119,6 +119,9 @@ Deno.serve(async () => {
       resumen.push(info);
     }
 
+    // Resultados de Obras también al fixture de la videoteca ("Videos del rival")
+    await supabase.rpc("sync_partidos_liga");
+
     await supabase.from("notificaciones").insert({
       tipo: "sync_urba",
       mensaje: "Tabla, resultados y partidos de la fase final actualizados desde URBA.",

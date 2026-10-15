@@ -226,7 +226,7 @@ async function cargarCalendario() {
 
   const { data: partidoRows, error: errPart } = await supabase
     .from("partidos")
-    .select("id, categoria_id, fecha_numero, fecha, condicion, goles_favor, goles_contra, resultado, veo_link, informe, partido_liga_id, equipos_rivales(nombre)")
+    .select("id, categoria_id, fecha_numero, fecha, condicion, goles_favor, goles_contra, resultado, veo_link, informe, partido_liga_id, convocatoria_publicada_at, equipos_rivales(nombre)")
     .order("fecha_numero");
   if (errPart) console.error("Error cargando partidos:", errPart);
 
@@ -265,6 +265,7 @@ async function cargarCalendario() {
       .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)))
       .map((r) => ({
         id: r.id,
+        publicada: r.convocatoria_publicada_at,
         fecha: r.fecha_numero,
         date: dbDateToDisplay(r.fecha),
         rival: r.equipos_rivales?.nombre,
@@ -7148,6 +7149,11 @@ function EquiposPage({ perfil }) {
       crearNotificacion("convocatoria", `Estás convocado a ${cat}${rival}${cuando}, camiseta ${s.numero}. Entrá y confirmá si vas.`, ["Jugador"], perfil?.id, [j.dbId])
     ));
     crearNotificacion("formacion_confirmada", `Equipo de ${cat}${rival} publicado.`, ["Cuerpo técnico", "Manager", "Cuerpo médico"], perfil?.id);
+    if (partido?.id) {
+      const ahora = new Date().toISOString();
+      await supabase.from("partidos").update({ convocatoria_publicada_at: ahora }).eq("id", partido.id);
+      partido.publicada = ahora;
+    }
     setEditMode(false);
     setAviso(`Listo: ${convocados.length} jugadores recibieron su camiseta en el celular.`);
     setTimeout(() => setAviso(""), 4000);
@@ -7220,7 +7226,12 @@ function EquiposPage({ perfil }) {
       </div>
 
       {aviso && <div style={{ fontSize: 13, color: aviso.startsWith("No") ? "var(--h-error)" : "var(--h-ok)", marginBottom: 10 }}>{aviso}</div>}
-      {partido?.id && convocadosJ.length > 0 && (vanJ.length + noPuedenJ.length > 0 || staff) && (
+      {partido?.id && staff && convocadosJ.length > 0 && !partido.publicada && !editMode && (
+        <div style={{ ...cardStyle, padding: "10px 14px", marginBottom: 12, fontSize: 13.5, color: "var(--h-sub)" }}>
+          Cuando el equipo esté listo, tocá Editar › <b>Avisar a los convocados</b>: a cada uno le llega su camiseta y puede confirmar si va.
+        </div>
+      )}
+      {partido?.id && partido.publicada && convocadosJ.length > 0 && (
         <div style={{ ...cardStyle, padding: "12px 16px", marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ flex: 1, fontSize: 14.5, color: "var(--h-texto)" }}>
