@@ -202,7 +202,7 @@ async function cargarCalendario() {
 
   const { data: partidoRows, error: errPart } = await supabase
     .from("partidos")
-    .select("id, categoria_id, fecha_numero, fecha, condicion, goles_favor, goles_contra, resultado, veo_link, informe, equipos_rivales(nombre)")
+    .select("id, categoria_id, fecha_numero, fecha, condicion, goles_favor, goles_contra, resultado, veo_link, informe, partido_liga_id, equipos_rivales(nombre)")
     .order("fecha_numero");
   if (errPart) console.error("Error cargando partidos:", errPart);
 
@@ -231,6 +231,7 @@ async function cargarCalendario() {
         res: r.resultado,
         veoLink: r.veo_link,
         informe: r.informe,
+        partidoLigaId: r.partido_liga_id,
       }));
 
     PROXIMOS[claveCat] = partidosCat
@@ -3553,22 +3554,28 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
   const [tTerritorioPropio, setTTerritorioPropio] = useState(0);
   const [tTerritorioRival, setTTerritorioRival] = useState(0);
 
-  const [scrum, setScrum] = useState({ ganados: 0, perdidos: 0, robados: 0, delRival: 0 });
-  const [line, setLine] = useState({ ganados: 0, perdidos: 0, robados: 0, torcidas: 0, delRival: 0 });
-  const [pelotasRecuperadas, setPelotasRecuperadas] = useState(0);
-  const [perdidasPelota, setPerdidasPelota] = useState(0);
-  const [penalesAFavor, setPenalesAFavor] = useState(0);
-  const [penalesEnContra, setPenalesEnContra] = useState(0);
+  // Si ya se había analizado este partido, se sigue desde donde quedó.
+  const previo = partido.informe?.analisisVideo ? partido.informe : null;
+  const [scrum, setScrum] = useState(() => ({ ganados: 0, perdidos: 0, robados: 0, delRival: 0, ...(previo?.scrum || {}) }));
+  const [line, setLine] = useState(() => ({ ganados: 0, perdidos: 0, robados: 0, torcidas: 0, delRival: 0, ...(previo?.line || {}) }));
+  const [pelotasRecuperadas, setPelotasRecuperadas] = useState(previo?.favorables?.pelotasRecuperadas || 0);
+  const [perdidasPelota, setPerdidasPelota] = useState(previo?.desfavorables?.perdidasContacto || 0);
+  const [penalesAFavor, setPenalesAFavor] = useState(previo?.favorables?.penalesAFavor || 0);
+  const [penalesEnContra, setPenalesEnContra] = useState(previo?.desfavorables?.penalesEnContra || 0);
+  const [extras, setExtras] = useState(() => ({ ...(previo?.analisisVideo?.extras || {}) })); // salidas, tries, patadas a los palos
+  const videoRef = React.useRef(null);
 
   const [guardando, setGuardando] = useState(false);
   const [msg, setMsg] = useState("");
   const [verAtajos, setVerAtajos] = useState(false);
-  const [registro, setRegistro] = useState([]); // [{ t, texto, tono, antes }]
+  const [registro, setRegistro] = useState(() =>
+    [...(partido.informe?.cronologia || [])].sort((a, b) => b.seg - a.seg).map((c) => ({ t: c.seg, seg: c.seg, texto: c.texto, tono: c.tono, tipo: c.tipo, antes: null }))
+  ); // [{ t, seg, texto, tono, tipo, antes }]
   const [reloj, setReloj] = useState(0); // segundos desde que se arrancó a analizar (en juego o no)
   const [arrancado, setArrancado] = useState(false);
   const intervaloRef = React.useRef(null);
   const estadoRef = React.useRef({});
-  estadoRef.current = { scrum, line, pelotasRecuperadas, perdidasPelota, penalesAFavor, penalesEnContra, posesion, reloj };
+  estadoRef.current = { scrum, line, pelotasRecuperadas, perdidasPelota, penalesAFavor, penalesEnContra, posesion, reloj, extras };
 
   useEffect(() => {
     if (!arrancado) return;
@@ -3577,16 +3584,20 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
   }, [arrancado]);
 
   // Cada acción queda en el registro con una foto del estado anterior, para poder deshacerla.
-  function anotar(texto, tono, accion) {
+  // Cada jugada se guarda con el segundo del video en que pasó (si el video está acá adentro),
+  // o con el reloj del análisis si no.
+  function anotar(texto, tono, accion, tipo) {
     const e = estadoRef.current;
-    const antes = { scrum: e.scrum, line: e.line, pelotasRecuperadas: e.pelotasRecuperadas, perdidasPelota: e.perdidasPelota, penalesAFavor: e.penalesAFavor, penalesEnContra: e.penalesEnContra, posesion: e.posesion };
+    const antes = { scrum: e.scrum, line: e.line, pelotasRecuperadas: e.pelotasRecuperadas, perdidasPelota: e.perdidasPelota, penalesAFavor: e.penalesAFavor, penalesEnContra: e.penalesEnContra, posesion: e.posesion, extras: e.extras };
+    const seg = videoRef.current?.segundo?.();
     accion();
-    setRegistro((prev) => [{ t: e.reloj, texto, tono, antes }, ...prev].slice(0, 200));
+    setRegistro((prev) => [{ t: seg ?? e.reloj, seg: seg ?? null, texto, tono, tipo, antes }, ...prev].slice(0, 500));
   }
   function deshacer() {
     setRegistro((prev) => {
-      if (!prev.length) return prev;
+      if (!prev.length || !prev[0].antes) return prev;
       const { antes } = prev[0];
+      setExtras(antes.extras || {});
       setScrum(antes.scrum); setLine(antes.line);
       setPelotasRecuperadas(antes.pelotasRecuperadas); setPerdidasPelota(antes.perdidasPelota);
       setPenalesAFavor(antes.penalesAFavor); setPenalesEnContra(antes.penalesEnContra);
@@ -3629,22 +3640,31 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
     setPosesion(nuevaPosesion);
   }
 
+  const sumarExtra = (k) => setExtras((prev) => ({ ...prev, [k]: (prev[k] || 0) + 1 }));
   const ACCIONES = {
-    scrumGanado: ["Scrum ganado", "ok", () => sumar(setScrum, "ganados")],
-    scrumPerdido: ["Scrum perdido", "mal", () => sumarConPosesion(setScrum, "perdidos", "Rival")],
-    scrumRobado: ["Scrum robado", "ok", () => sumarConPosesion(setScrum, "robados", "Obras")],
-    scrumRival: ["Scrum del rival ganado", "ok", () => sumar(setScrum, "delRival")],
-    lineGanado: ["Line ganado", "ok", () => sumar(setLine, "ganados")],
-    linePerdido: ["Line perdido", "mal", () => sumarConPosesion(setLine, "perdidos", "Rival")],
-    lineRobado: ["Line robado", "ok", () => sumarConPosesion(setLine, "robados", "Obras")],
-    lineTorcida: ["Line torcido", "mal", () => sumarConPosesion(setLine, "torcidas", "Rival")],
-    lineRival: ["Line del rival ganado", "ok", () => sumar(setLine, "delRival")],
-    recuperada: ["Pelota recuperada", "ok", () => { setPelotasRecuperadas((v) => v + 1); setPosesion("Obras"); }],
-    perdida: ["Pelota perdida", "mal", () => { setPerdidasPelota((v) => v + 1); setPosesion("Rival"); }],
-    penalFavor: ["Penal a favor", "ok", () => setPenalesAFavor((v) => v + 1)],
-    penalContra: ["Penal en contra", "mal", () => setPenalesEnContra((v) => v + 1)],
+    scrumGanado: ["Scrum ganado", "ok", () => sumar(setScrum, "ganados"), "scrum"],
+    scrumPerdido: ["Scrum perdido", "mal", () => sumarConPosesion(setScrum, "perdidos", "Rival"), "scrum"],
+    scrumRobado: ["Scrum robado", "ok", () => sumarConPosesion(setScrum, "robados", "Obras"), "scrum"],
+    scrumRival: ["Scrum del rival ganado", "ok", () => sumar(setScrum, "delRival"), "scrum"],
+    lineGanado: ["Line ganado", "ok", () => sumar(setLine, "ganados"), "line"],
+    linePerdido: ["Line perdido", "mal", () => sumarConPosesion(setLine, "perdidos", "Rival"), "line"],
+    lineRobado: ["Line robado", "ok", () => sumarConPosesion(setLine, "robados", "Obras"), "line"],
+    lineTorcida: ["Line torcido", "mal", () => sumarConPosesion(setLine, "torcidas", "Rival"), "line"],
+    lineRival: ["Line del rival ganado", "ok", () => sumar(setLine, "delRival"), "line"],
+    salidaNuestra: ["Salida nuestra", "ok", () => { sumarExtra("salidaNuestra"); setPosesion("Rival"); }, "salida"],
+    salidaRival: ["Salida del rival", "ok", () => { sumarExtra("salidaRival"); setPosesion("Obras"); }, "salida"],
+    tryNuestro: ["Try nuestro", "ok", () => sumarExtra("tryNuestro"), "try"],
+    tryRival: ["Try del rival", "mal", () => sumarExtra("tryRival"), "try"],
+    conversionAdentro: ["Conversión adentro", "ok", () => sumarExtra("conversionAdentro"), "palos"],
+    conversionAfuera: ["Conversión errada", "mal", () => sumarExtra("conversionAfuera"), "palos"],
+    penalPalosAdentro: ["Penal a los palos adentro", "ok", () => sumarExtra("penalPalosAdentro"), "palos"],
+    penalPalosAfuera: ["Penal a los palos errado", "mal", () => sumarExtra("penalPalosAfuera"), "palos"],
+    recuperada: ["Pelota recuperada", "ok", () => { setPelotasRecuperadas((v) => v + 1); setPosesion("Obras"); }, "pelota"],
+    perdida: ["Pelota perdida", "mal", () => { setPerdidasPelota((v) => v + 1); setPosesion("Rival"); }, "pelota"],
+    penalFavor: ["Penal a favor", "ok", () => setPenalesAFavor((v) => v + 1), "penal"],
+    penalContra: ["Penal en contra", "mal", () => setPenalesEnContra((v) => v + 1), "penal"],
   };
-  const hacer = (k) => anotar(ACCIONES[k][0], ACCIONES[k][1], ACCIONES[k][2]);
+  const hacer = (k) => anotar(ACCIONES[k][0], ACCIONES[k][1], ACCIONES[k][2], ACCIONES[k][3]);
 
   // Atajos de teclado — solo en escritorio, para anotar sin soltar el mouse del video.
   useEffect(() => {
@@ -3713,7 +3733,13 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
       ballInPlaySegundos: ballInPlayFinal,
       secuencias: secuenciasFinal.length,
       secuenciaMasLargaSegundos: secuenciasFinal.length ? Math.max(...secuenciasFinal) : 0,
+      extras,
     };
+    // Cronología: cada jugada con su segundo del video, para después filtrar y verlas.
+    informe.cronologia = [...registro]
+      .reverse()
+      .map((ev) => ({ seg: ev.seg ?? ev.t, enVideo: ev.seg !== null && ev.seg !== undefined, tipo: ev.tipo || "otro", texto: ev.texto, tono: ev.tono }))
+      .sort((a, b) => a.seg - b.seg);
 
     const { error } = await supabase.from("partidos").update({ informe }).eq("id", partido.id);
     if (!error) {
@@ -3870,6 +3896,22 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
         <BotonJugada k="penalFavor" label="A favor" valor={penalesAFavor} />
         <BotonJugada k="penalContra" label="En contra" valor={penalesEnContra} />
       </Fase>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Fase titulo="Salidas" columnas={1}>
+          <BotonJugada k="salidaNuestra" label="Nuestra" valor={extras.salidaNuestra || 0} />
+          <BotonJugada k="salidaRival" label="Del rival" valor={extras.salidaRival || 0} />
+        </Fase>
+        <Fase titulo="Tries" columnas={1}>
+          <BotonJugada k="tryNuestro" label="Nuestro" valor={extras.tryNuestro || 0} />
+          <BotonJugada k="tryRival" label="Del rival" valor={extras.tryRival || 0} />
+        </Fase>
+      </div>
+      <Fase titulo="Patadas a los palos" columnas={2}>
+        <BotonJugada k="conversionAdentro" label="Conversión adentro" valor={extras.conversionAdentro || 0} />
+        <BotonJugada k="conversionAfuera" label="Conversión errada" valor={extras.conversionAfuera || 0} />
+        <BotonJugada k="penalPalosAdentro" label="Penal adentro" valor={extras.penalPalosAdentro || 0} />
+        <BotonJugada k="penalPalosAfuera" label="Penal errado" valor={extras.penalPalosAfuera || 0} />
+      </Fase>
 
       <div style={panelStyle}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -3879,11 +3921,11 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
           </button>
         </div>
         {registro.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: "var(--h-sub2)" }}>Todavía nada. Cada toque queda acá con su minuto.</div>
+          <div style={{ fontSize: 12.5, color: "var(--h-sub2)" }}>Todavía nada. Cada toque queda acá con el minuto del video, y al guardar arma la cronología del partido.</div>
         ) : (
           <div style={{ maxHeight: 220, overflowY: "auto" }}>
             {registro.map((ev, i) => (
-              <div key={registro.length - i} style={{ display: "flex", gap: 10, padding: "6px 0", borderTop: i ? "1px solid var(--h-borde)" : "none", fontSize: 13 }}>
+              <div key={registro.length - i} onClick={() => ev.seg != null && videoRef.current?.irA(ev.seg - 3)} style={{ display: "flex", gap: 10, padding: "6px 0", borderTop: i ? "1px solid var(--h-borde)" : "none", fontSize: 13, cursor: ev.seg != null ? "pointer" : "default" }}>
                 <span style={{ fontFamily: "var(--h-titulo)", fontWeight: 700, color: "var(--h-sub)", width: 46, flexShrink: 0 }}>{formatoRelojMMSS(ev.t)}</span>
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: ev.tono === "ok" ? "var(--h-ok)" : "var(--h-error)", marginTop: 5, flexShrink: 0 }} />
                 <span style={{ color: "var(--h-texto)" }}>{ev.texto}</span>
@@ -3931,7 +3973,9 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
 
       {isMobile ? (
         <div>
-          {partido.veoLink && (
+          {extraerYoutubeId(partido.veoLink) ? (
+            <div style={{ position: "sticky", top: 0, zIndex: 5, marginBottom: 12 }}><ReproductorYoutube ref={videoRef} link={partido.veoLink} /></div>
+          ) : partido.veoLink ? (
             <a
               href={urlVideoVer(partido.veoLink)}
               target="_blank"
@@ -3941,16 +3985,18 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
                 background: "var(--h-acento-suave)", border: "1px solid var(--h-acento-suave)", borderRadius: 10, padding: "10px 14px", marginBottom: 16,
               }}
             >
-              ▶ Abrir el video en YouTube
+              ▶ Abrir el video
             </a>
-          )}
+          ) : null}
           {statsResumen}
           {panelAnotador}
         </div>
       ) : (
         <div style={{ display: "flex", gap: 16 }}>
           <div style={{ flex: "1 1 55%", minWidth: 0 }}>
-            {partido.veoLink ? (
+            {extraerYoutubeId(partido.veoLink) ? (
+              <ReproductorYoutube ref={videoRef} link={partido.veoLink} />
+            ) : partido.veoLink ? (
               <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "var(--h-panel)", border: "1px solid var(--h-borde)" }}>
                 <iframe
                   src={urlVideoEmbebido(partido.veoLink)}
@@ -4242,6 +4288,61 @@ function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
   );
 }
 
+// Reproductor de YouTube con la API oficial: permite saber en qué segundo está el video
+// (para anotar cada jugada con su minuto) y saltar a un momento (para ver la cronología).
+let promesaApiYoutube = null;
+function cargarApiYoutube() {
+  if (window.YT && window.YT.Player) return Promise.resolve(window.YT);
+  if (!promesaApiYoutube) {
+    promesaApiYoutube = new Promise((ok) => {
+      const anterior = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => { if (anterior) anterior(); ok(window.YT); };
+      const s = document.createElement("script");
+      s.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(s);
+    });
+  }
+  return promesaApiYoutube;
+}
+
+const ReproductorYoutube = React.forwardRef(function ReproductorYoutube({ link }, ref) {
+  const contenedor = React.useRef(null);
+  const player = React.useRef(null);
+  const videoId = extraerYoutubeId(link || "");
+  React.useImperativeHandle(ref, () => ({
+    segundo: () => { try { const t = player.current?.getCurrentTime?.(); return typeof t === "number" ? Math.floor(t) : null; } catch (e) { return null; } },
+    irA: (seg) => { try { player.current?.seekTo?.(Math.max(0, seg), true); player.current?.playVideo?.(); } catch (e) {} },
+  }));
+  useEffect(() => {
+    if (!videoId) return;
+    let vivo = true;
+    cargarApiYoutube().then((YT) => {
+      if (!vivo || !contenedor.current) return;
+      const div = document.createElement("div");
+      contenedor.current.innerHTML = "";
+      contenedor.current.appendChild(div);
+      player.current = new YT.Player(div, {
+        videoId, width: "100%", height: "100%", host: "https://www.youtube-nocookie.com",
+        playerVars: { rel: 0, playsinline: 1, modestbranding: 1 },
+      });
+    });
+    return () => { vivo = false; try { player.current?.destroy?.(); } catch (e) {} player.current = null; };
+  }, [videoId]);
+  if (!videoId) return null;
+  return <div ref={contenedor} style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "#000" }} />;
+});
+
+// Tipos de jugada de la cronología, para filtrar ("ver todos los lines", etc.).
+const TIPOS_CRONOLOGIA = [
+  { k: "line", label: "Lines" },
+  { k: "scrum", label: "Scrums" },
+  { k: "salida", label: "Salidas" },
+  { k: "try", label: "Tries" },
+  { k: "palos", label: "Patadas a los palos" },
+  { k: "penal", label: "Penales" },
+  { k: "pelota", label: "Recuperadas y pérdidas" },
+];
+
 // Los videos de los partidos están en YouTube (igual que la videoteca).
 // Links viejos que no sean de YouTube se siguen abriendo tal cual.
 function urlVideoEmbebido(link) {
@@ -4266,6 +4367,11 @@ function VeoPage({ perfil }) {
 
   const [editandoLink, setEditandoLink] = useState(false);
   const [linkInput, setLinkInput] = useState("");
+  const [subirVideoteca, setSubirVideoteca] = useState(true);
+  const [filtroCrono, setFiltroCrono] = useState("todos");
+  const [actualCrono, setActualCrono] = useState(-1);
+  const videoVeoRef = React.useRef(null);
+  useEffect(() => { setActualCrono(-1); setFiltroCrono("todos"); }, [partido.id]);
   const [modoAnalisis, setModoAnalisis] = useState(null); // null | "general" | "individual"
   const [importandoTrys, setImportandoTrys] = useState(false);
   const [textoTrys, setTextoTrys] = useState("");
@@ -4290,6 +4396,13 @@ function VeoPage({ perfil }) {
     if (!error) {
       setMsgImport("");
       partido.veoLink = link;
+      if (subirVideoteca && partido.partidoLigaId) {
+        const { error: errV } = await supabase.from("videos_partido").upsert(
+          { partido_liga_id: partido.partidoLigaId, youtube_id: id, sin_video: false, motivo_sin_video: null, cargado_por: perfil?.id },
+          { onConflict: "partido_liga_id,club_id" }
+        );
+        if (errV) console.error("Error subiendo a la Videoteca:", errV);
+      }
       setEditandoLink(false);
       forzar((n) => n + 1);
       crearNotificacion("video_partido", `Video de ${categoria} vs ${partido.rival} ya está disponible.`, null, perfil?.id);
@@ -4376,14 +4489,19 @@ function VeoPage({ perfil }) {
             <button onClick={() => { setEditandoLink(false); setMsgImport(""); }} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
               Cancelar
             </button>
+            <label style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontSize: 13, color: partido.partidoLigaId ? "var(--h-texto2)" : "var(--h-sub2)", marginTop: 4 }}>
+              <input type="checkbox" checked={subirVideoteca && !!partido.partidoLigaId} disabled={!partido.partidoLigaId} onChange={(e) => setSubirVideoteca(e.target.checked)} />
+              Subirlo también a la Videoteca
+            </label>
+            {!partido.partidoLigaId && (
+              <div style={{ width: "100%", fontSize: 12, color: "var(--h-sub2)" }}>Este partido todavía no está en la Videoteca de la división, así que se guarda solo acá.</div>
+            )}
             {msgImport && <div style={{ width: "100%", fontSize: 12.5, color: "var(--h-error)" }}>{msgImport}</div>}
           </div>
         ) : partido.veoLink ? (
           <div>
             {extraerYoutubeId(partido.veoLink) ? (
-              <div style={{ position: "relative", width: "100%", maxWidth: 720, margin: "0 auto 8px", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "#000" }}>
-                <iframe src={urlVideoEmbebido(partido.veoLink)} title="Video del partido" allow="fullscreen; picture-in-picture" allowFullScreen style={{ width: "100%", height: "100%", border: "none" }} />
-              </div>
+              <div style={{ maxWidth: 720, margin: "0 auto 8px" }}><ReproductorYoutube ref={videoVeoRef} link={partido.veoLink} /></div>
             ) : null}
             <a href={urlVideoVer(partido.veoLink)} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: "var(--h-acento)" }}>
               Abrir en YouTube ↗
@@ -4445,6 +4563,58 @@ function VeoPage({ perfil }) {
           Todavía no se analizó el video de este partido. Cuando se haga, acá aparecen posesión, territorio y tiempo de juego efectivo.
         </div>
       )}
+
+      {(partido.informe?.cronologia || []).length > 0 && (() => {
+        const crono = partido.informe.cronologia;
+        const lista = filtroCrono === "todos" ? crono : crono.filter((c) => c.tipo === filtroCrono);
+        const ir = (i) => {
+          if (!lista[i]) return;
+          setActualCrono(i);
+          videoVeoRef.current?.irA(lista[i].seg - 5);
+        };
+        return (
+          <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+              <span style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>Cronología</span>
+              {lista.length > 0 && extraerYoutubeId(partido.veoLink) && (
+                <span style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => ir(Math.max(0, actualCrono - 1))} disabled={actualCrono <= 0} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}>← Anterior</button>
+                  <button onClick={() => ir(actualCrono + 1)} disabled={actualCrono >= lista.length - 1} style={{ ...pillButton, background: "var(--h-acento)", border: "none", color: "var(--h-panel)" }}>
+                    {actualCrono < 0 ? "Ver seguidas" : "Siguiente →"}
+                  </button>
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+              {[{ k: "todos", label: "Todo" }, ...TIPOS_CRONOLOGIA].map((t) => {
+                const n = t.k === "todos" ? crono.length : crono.filter((c) => c.tipo === t.k).length;
+                if (!n) return null;
+                return (
+                  <button key={t.k} onClick={() => { setFiltroCrono(t.k); setActualCrono(-1); }} style={{ ...pillButton, fontSize: 12.5, border: "1px solid " + (filtroCrono === t.k ? "var(--h-acento)" : "var(--h-borde2)"), background: filtroCrono === t.k ? "var(--h-acento-suave)" : "transparent", color: filtroCrono === t.k ? "var(--h-acento)" : "var(--h-texto2)" }}>
+                    {t.label} · {n}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ maxHeight: 320, overflowY: "auto" }}>
+              {lista.map((c, i) => (
+                <button
+                  key={i}
+                  onClick={() => ir(i)}
+                  disabled={!extraerYoutubeId(partido.veoLink)}
+                  style={{ display: "flex", gap: 10, alignItems: "center", width: "100%", textAlign: "left", padding: "8px 4px", border: "none", borderTop: i ? "1px solid var(--h-borde)" : "none", background: i === actualCrono ? "var(--h-acento-suave)" : "transparent", cursor: "pointer", fontFamily: "var(--h-texto-fuente)", fontSize: 13.5 }}
+                >
+                  <span style={{ fontFamily: "var(--h-titulo)", fontWeight: 700, color: "var(--h-sub)", width: 52, flexShrink: 0 }}>{formatoRelojMMSS(c.seg)}</span>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: c.tono === "ok" ? "var(--h-ok)" : "var(--h-error)", flexShrink: 0 }} />
+                  <span style={{ color: "var(--h-texto)", flex: 1 }}>{c.texto}</span>
+                  {extraerYoutubeId(partido.veoLink) && <span style={{ fontSize: 12, color: "var(--h-acento)" }}>Ver ▶</span>}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginTop: 6 }}>Cada jugada arranca 5 segundos antes, para ver cómo se armó.</div>
+          </div>
+        );
+      })()}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500 }}>Trys del partido</div>
