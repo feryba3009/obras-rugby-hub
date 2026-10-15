@@ -2294,7 +2294,7 @@ function BloqueGymVista({ bloque, inicio, hechos, onAbrir }) {
                     {[prescripcion(e), e.detalle].filter(Boolean).join(" · ")}
                   </span>
                 </span>
-                {e.video && <span aria-label="Tiene video" style={{ fontSize: 12, fontWeight: 700, color: "var(--h-club)", border: "1.5px solid var(--h-club)", borderRadius: 999, padding: "2px 8px" }}>▶ Video</span>}
+                {e.video && <span aria-label="Tiene video" style={{ fontSize: 12, fontWeight: 700, color: "var(--h-acento)", border: "1.5px solid var(--h-acento)", borderRadius: 999, padding: "2px 8px" }}>▶ Video</span>}
                 <span aria-hidden style={{ color: "var(--h-sub2)", fontSize: 18 }}>›</span>
               </button>
             );
@@ -2397,7 +2397,7 @@ function EjercicioGym({ lista, idx, setIdx, onCerrar, jugadorId, dia, puedeEdita
             </div>
           ) : (
             <a href={e.video || busquedaVideo(e.nombre)} target="_blank" rel="noopener noreferrer"
-              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, minHeight: 120, borderRadius: 14, marginBottom: 16, textDecoration: "none", background: "var(--h-panel)", border: "1px dashed var(--h-borde2)", color: "var(--h-club)", fontWeight: 700, fontSize: 15, textAlign: "center", padding: 16 }}>
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, minHeight: 120, borderRadius: 14, marginBottom: 16, textDecoration: "none", background: "var(--h-panel)", border: "1px dashed var(--h-borde2)", color: "var(--h-acento)", fontWeight: 700, fontSize: 15, textAlign: "center", padding: 16 }}>
               ▶ {e.video ? "Ver el video del ejercicio" : "Buscar un video del ejercicio"}
             </a>
           )}
