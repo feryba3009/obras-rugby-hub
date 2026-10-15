@@ -2918,7 +2918,7 @@ function ultimaEvaluacion(jugadorId) {
 }
 
 
-function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemoveHistorial, ocultarVolver, perfil }) {
+function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemoveHistorial, ocultarVolver, perfil, textoVolver = "Volver al plantel" }) {
   const [editPos, setEditPos] = useState(false);
   const [nuevaLesion, setNuevaLesion] = useState("");
   const [asistencia, setAsistencia] = useState(null);
@@ -3009,7 +3009,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
           onClick={onVolver}
           style={{ background: "transparent", border: "none", color: "var(--h-acento)", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}
         >
-          ← Volver al plantel
+          ← {textoVolver}
         </button>
       )}
 
@@ -3262,10 +3262,10 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
   );
 }
 
-function PlantelCompletoPage({ perfil }) {
+function PlantelCompletoPage({ perfil, inicialId = null, onSalir, textoVolver }) {
   const [jugadores, setJugadores] = useState(POOL);
   const [editMode, setEditMode] = useState(false);
-  const [seleccionadoId, setSeleccionadoId] = useState(null);
+  const [seleccionadoId, setSeleccionadoId] = useState(inicialId);
   const [agregando, setAgregando] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevaPosicion, setNuevaPosicion] = useState("Centro");
@@ -3353,7 +3353,8 @@ function PlantelCompletoPage({ perfil }) {
     return (
       <FichaJugador
         jugador={seleccionado}
-        onVolver={() => setSeleccionadoId(null)}
+        onVolver={onSalir || (() => setSeleccionadoId(null))}
+        textoVolver={textoVolver}
         onUpdateCampo={(campo, valor) => updateCampo(seleccionadoId, campo, valor)}
         onAddHistorial={(texto) => addHistorial(seleccionadoId, texto)}
         onRemoveHistorial={(index) => removeHistorial(seleccionadoId, index)}
@@ -6546,8 +6547,9 @@ function EquiposPage({ perfil }) {
 
 // Estado del plantel: quién está para jugar, quién vuelve de una lesión y cuánto le falta,
 // quién está en recuperación y quién no está habilitado. Todo en una sola vista.
-function EstadoPlantelPage() {
+function EstadoPlantelPage({ perfil }) {
   const [filtro, setFiltro] = useState("Todos");
+  const [verId, setVerId] = useState(null);
   const [lesiones, setLesiones] = useState({});
   useEffect(() => {
     supabase.from("lesiones").select("*, jugadores(nombre)").eq("activa", true).then(({ data }) => {
@@ -6557,6 +6559,10 @@ function EstadoPlantelPage() {
     });
   }, []);
 
+  useEffect(() => { window.scrollTo(0, 0); }, [verId]);
+  if (verId && POOL.some((j) => j.id === verId)) {
+    return <PlantelCompletoPage perfil={perfil} inicialId={verId} onSalir={() => setVerId(null)} textoVolver="Volver al estado del plantel" />;
+  }
   const enCat = (cat) => new Set((LINEUPS_INICIALES[cat] || []).map((s) => s.jugadorId));
   const jugadores = filtro === "Todos" ? POOL : POOL.filter((j) => enCat(filtro).has(j.id));
   const por = (e) => jugadores.filter((j) => disponibilidadReal(j) === e);
@@ -6609,8 +6615,8 @@ function EstadoPlantelPage() {
             const pct = ini && fin && fin > ini ? Math.max(0, Math.min(100, Math.round(((hoy - ini) / (fin - ini)) * 100))) : null;
             const semanas = fin ? Math.max(0, Math.ceil((fin - hoy) / (7 * 86400000))) : null;
             return (
-              <div key={j.id} style={{ ...cardStyle, padding: "12px 14px" }}>
-                <div style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 14.5 }}>{j.id}</div>
+              <button key={j.id} onClick={() => setVerId(j.id)} style={{ ...cardStyle, padding: "12px 14px", textAlign: "left", cursor: "pointer", font: "inherit", width: "100%" }}>
+                <div style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 14.5 }}>{j.id} <span style={{ color: "var(--h-sub2)", fontWeight: 400 }}>›</span></div>
                 <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 2 }}>{[j.posicionIdeal, j.zona, tipoLesion(j.zona) !== "—" ? tipoLesion(j.zona) : null].filter(Boolean).join(" · ")}</div>
                 {pct !== null ? (
                   <>
@@ -6625,7 +6631,7 @@ function EstadoPlantelPage() {
                   <div style={{ fontSize: 12.5, color: "var(--h-sub2)", marginTop: 8 }}>Sin fecha estimada de vuelta.</div>
                 )}
                 {j.historial?.length > 0 && <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginTop: 6 }}>Antes: {j.historial.join(" · ")}</div>}
-              </div>
+              </button>
             );
           })}
         </div>
@@ -6633,13 +6639,13 @@ function EstadoPlantelPage() {
 
       <Seccion titulo="En recuperación" color="var(--h-alerta)" cantidad={vig.length}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {vig.map((j) => <span key={j.id} style={{ ...tagStyle, borderRadius: 999, padding: "6px 12px", fontSize: 13, background: "var(--h-alerta-suave)", color: "var(--h-texto)" }}>{j.id}{j.zona ? ` · ${j.zona}` : ""}</span>)}
+          {vig.map((j) => <button key={j.id} onClick={() => setVerId(j.id)} style={{ ...tagStyle, border: "none", cursor: "pointer", font: "inherit", borderRadius: 999, padding: "6px 12px", fontSize: 13, background: "var(--h-alerta-suave)", color: "var(--h-texto)" }}>{j.id}{j.zona ? ` · ${j.zona}` : ""}</button>)}
         </div>
       </Seccion>
 
       <Seccion titulo="Sin habilitar" color="var(--h-sub)" cantidad={sinHab.length}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {sinHab.map((j) => <span key={j.id} style={{ ...tagStyle, borderRadius: 999, padding: "6px 12px", fontSize: 13, background: "var(--h-panel2)", color: "var(--h-texto)" }}>{j.id} · apto {j.apto?.toLowerCase() || "pendiente"}</span>)}
+          {sinHab.map((j) => <button key={j.id} onClick={() => setVerId(j.id)} style={{ ...tagStyle, border: "none", cursor: "pointer", font: "inherit", borderRadius: 999, padding: "6px 12px", fontSize: 13, background: "var(--h-panel2)", color: "var(--h-texto)" }}>{j.id} · apto {j.apto?.toLowerCase() || "pendiente"}</button>)}
         </div>
       </Seccion>
 
@@ -6649,7 +6655,14 @@ function EstadoPlantelPage() {
           .map(([puesto, js]) => (
             <div key={puesto} style={{ display: "flex", gap: 10, padding: "8px 0", borderTop: "1px solid var(--h-borde)", flexWrap: "wrap", alignItems: "baseline" }}>
               <span style={{ width: 130, flexShrink: 0, fontSize: 12.5, color: "var(--h-sub)", fontWeight: 700 }}>{puesto} · {js.length}</span>
-              <span style={{ flex: 1, fontSize: 13.5, color: "var(--h-texto)", lineHeight: 1.6 }}>{js.map((j) => j.id).join(" · ")}</span>
+              <span style={{ flex: 1, fontSize: 13.5, color: "var(--h-texto)", lineHeight: 1.6 }}>
+                {js.map((j, i) => (
+                  <React.Fragment key={j.id}>
+                    {i > 0 && <span style={{ color: "var(--h-sub2)" }}> · </span>}
+                    <button onClick={() => setVerId(j.id)} style={{ background: "transparent", border: "none", padding: 0, font: "inherit", color: "var(--h-texto)", cursor: "pointer", textDecoration: "underline", textDecorationColor: "var(--h-borde2)", textUnderlineOffset: 3 }}>{j.id}</button>
+                  </React.Fragment>
+                ))}
+              </span>
             </div>
           ))}
       </Seccion>
@@ -8812,7 +8825,7 @@ function ObrasHub({ perfil }) {
         ) : active === "equipos" ? (
           <EquiposPage perfil={perfil} />
         ) : active === "disponibilidad" ? (
-          <EstadoPlantelPage />
+          <EstadoPlantelPage perfil={perfil} />
         ) : active === "evaluaciones" ? (
           <EvaluacionesPage perfil={perfil} />
         ) : active === "veo" ? (
@@ -8820,7 +8833,7 @@ function ObrasHub({ perfil }) {
         ) : active === "wellness" ? (
           <WellnessPage perfil={perfil} />
         ) : active === "rtp" ? (
-          <EstadoPlantelPage />
+          <EstadoPlantelPage perfil={perfil} />
         ) : active === "reportes" ? (
           <ReportesPage perfil={perfil} />
         ) : active === "videoteca" ? (
