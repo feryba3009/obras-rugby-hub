@@ -2925,6 +2925,21 @@ const METRICAS_RANGOS = {
 };
 const nombreMetrica = (clave) => METRICAS_RANGOS[clave]?.nombre || clave;
 
+// Flecha de test a test: verde para arriba si mejoró, roja para abajo si empeoró (en todos los tests, más es mejor).
+function Tendencia({ actual, previo, unidad, conTexto }) {
+  if (typeof actual !== "number" || typeof previo !== "number") return null;
+  const dif = Math.round((actual - previo) * 100) / 100;
+  const igual = Math.abs(dif) < 1e-9;
+  const color = igual ? "var(--h-sub)" : dif > 0 ? "var(--h-ok)" : "var(--h-error)";
+  const flecha = igual ? "=" : dif > 0 ? "▲" : "▼";
+  const txt = igual ? "igual" : `${dif > 0 ? "+" : ""}${String(dif).replace(".", ",")}${unidad ? " " + unidad : ""}`;
+  return (
+    <span title={`Test anterior: ${previo}${unidad ? " " + unidad : ""}`} style={{ color, fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}>
+      {flecha}{conTexto ? ` ${txt}` : ""}
+    </span>
+  );
+}
+
 // Registro de evaluaciones físicas — lo carga el preparador físico cuando toma los tests.
 // La ficha del jugador y la pantalla de Evaluaciones muestran siempre el último test cargado;
 // si todavía no hay ninguno para ese jugador, no se muestra nada inventado.
@@ -3083,12 +3098,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
     jugador.altura ? `${(jugador.altura / 100).toFixed(2).replace(".", ",")} m` : null,
     jugador.peso ? `${jugador.peso} kg` : null,
   ].filter(Boolean);
-  // Lugar del jugador en el plantel para cada test (1 = el mejor).
-  function lugarEnPlantel(clave) {
-    const vals = Object.values(EVALUACIONES_REALES).map((e) => e?.[clave]).filter((v) => typeof v === "number").sort((a, b) => b - a);
-    if (m[clave] == null || !vals.length) return null;
-    return { lugar: vals.indexOf(m[clave]) + 1, de: vals.length };
-  }
+  const previoTest = EVALUACIONES_ANTERIORES[jugador.id] || null;
   const TABS_FICHA = [["puestos", "Puestos"], ["rendimiento", "Rendimiento"], ["salud", "Salud"], ["fisico", "Tests físicos"]];
 
   return (
@@ -3330,17 +3340,19 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
             <div style={{ fontSize: 13.5, color: "var(--h-sub)", padding: "20px 4px" }}>Todavía no tiene tests físicos cargados.</div>
           ) : (
             <>
-              <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 12 }}>Medido el {evalu.fecha}. El número de la derecha es su lugar dentro del plantel.</div>
+              <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 12 }}>
+                Medido el {evalu.fecha}.{" "}
+                {previoTest ? <>Comparado con el test del {previoTest.fecha}.</> : "Es su primer test: la comparación aparece desde el próximo."}
+              </div>
               {Object.entries(METRICAS_RANGOS).map(([clave, { unidad, nombre }]) => {
-                const l = lugarEnPlantel(clave);
                 return (
                   <div key={clave} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: "1px solid var(--h-borde)" }}>
                     <span style={{ flex: 1, fontSize: 14, color: "var(--h-texto)" }}>{nombre}</span>
                     <span style={{ fontSize: 14, color: "var(--h-texto)", minWidth: 90, textAlign: "right" }}>
                       {m[clave] ?? "—"} <span style={{ color: "var(--h-sub)", fontSize: 12 }}>{m[clave] != null ? unidad : ""}</span>
                     </span>
-                    <span style={{ minWidth: 64, textAlign: "right", fontSize: 13, fontWeight: 700, color: l && l.lugar <= Math.ceil(l.de / 3) ? "var(--h-ok)" : "var(--h-texto2)" }}>
-                      {l ? `${l.lugar}.º de ${l.de}` : ""}
+                    <span style={{ minWidth: 92, textAlign: "right" }}>
+                      <Tendencia actual={m[clave]} previo={previoTest?.[clave]} unidad={unidad} conTexto />
                     </span>
                   </div>
                 );
@@ -5545,7 +5557,7 @@ function EvaluacionesPage({ perfil }) {
         <div>
           <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Tests físicos</div>
           <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
-            Últimos tests físicos cargados por el preparador físico
+            Último test de cada jugador. ▲ mejoró y ▼ empeoró respecto de su test anterior.
           </div>
         </div>
         {esEntrenador(perfil) && !mostrarCarga && (
@@ -5669,8 +5681,9 @@ function EvaluacionesPage({ perfil }) {
                   <td style={{ padding: "9px 10px", color: "var(--h-texto)", fontWeight: 500, whiteSpace: "nowrap" }}>{j.id}</td>
                   <td style={{ padding: "9px 10px", color: "var(--h-sub)" }}>{ev ? ev.fecha : "—"}</td>
                   {Object.keys(METRICAS_RANGOS).map((clave) => (
-                    <td key={clave} style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>
-                      {ev ? ev[clave] : "—"}
+                    <td key={clave} style={{ padding: "9px 10px", color: "var(--h-texto2)", whiteSpace: "nowrap" }}>
+                      {ev ? ev[clave] ?? "—" : "—"}{" "}
+                      {ev && <Tendencia actual={ev[clave]} previo={EVALUACIONES_ANTERIORES[j.id]?.[clave]} unidad={METRICAS_RANGOS[clave].unidad} />}
                     </td>
                   ))}
                 </tr>
@@ -8352,7 +8365,8 @@ async function cargarConfig() {
   if (!error && data?.valor) TEMPORADA_ACTIVA = String(data.valor);
 }
 
-let EVALUACIONES_REALES = {}; // nombre de jugador -> última evaluación real cargada por el cuerpo técnico
+let EVALUACIONES_REALES = {};
+let EVALUACIONES_ANTERIORES = {}; // nombre de jugador -> test anterior al último (para ver si mejoró) // nombre de jugador -> última evaluación real cargada por el cuerpo técnico
 
 async function cargarEvaluaciones() {
   const { data, error } = await supabase
@@ -8364,9 +8378,17 @@ async function cargarEvaluaciones() {
     return;
   }
   const porNombre = {};
+  const anteriores = {};
   (data || []).forEach((r) => {
     const nombre = r.jugadores?.nombre;
-    if (!nombre || porNombre[nombre]) return; // ya tenemos la más nueva de ese jugador (viene ordenado desc)
+    if (!nombre) return;
+    if (porNombre[nombre]) {
+      // Viene ordenado del más nuevo al más viejo: la segunda fila de cada jugador es su test anterior.
+      if (!anteriores[nombre] && r.fecha !== porNombre[nombre].fecha) {
+        anteriores[nombre] = { fecha: r.fecha, Potencia: r.potencia, Reactividad: r.reactividad, Fuerza: r.fuerza, Velocidad: r.velocidad, Resistencia: r.resistencia };
+      }
+      return;
+    }
     porNombre[nombre] = {
       fecha: r.fecha,
       Potencia: r.potencia,
@@ -8377,6 +8399,7 @@ async function cargarEvaluaciones() {
     };
   });
   EVALUACIONES_REALES = porNombre;
+  EVALUACIONES_ANTERIORES = anteriores;
 }
 
 async function cargarTodo() {
