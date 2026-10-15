@@ -8929,7 +8929,15 @@ function LoginPage() {
     setCargando(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setCargando(false);
-    if (error) setMensaje(error.message);
+    if (error) {
+      const m = (error.message || "").toLowerCase();
+      setMensaje(
+        m.includes("not confirmed") ? "Todavía no confirmaste tu email. Buscá el mail de confirmación (mirá también en Correo no deseado)."
+        : m.includes("invalid login") ? "Email o contraseña incorrectos."
+        : m.includes("rate limit") ? "Demasiados intentos seguidos. Esperá un rato y probá de nuevo."
+        : error.message
+      );
+    }
     // Si no hay error, el listener de sesión en AppRoot te lleva solo a la app.
   }
 
@@ -8976,7 +8984,18 @@ function LoginPage() {
     });
     setCargando(false);
     if (error) {
-      setMensaje(error.message);
+      const m = (error.message || "").toLowerCase();
+      if (m.includes("rate limit") || error.status === 429) {
+        setMensaje("Hay muchos registros al mismo tiempo y el envío de mails de confirmación está saturado. Tu cuenta no se creó todavía: probá de nuevo en un rato.");
+      } else if (m.includes("already registered") || m.includes("already been registered")) {
+        setMensaje("Ese email ya tiene una cuenta. Iniciá sesión (o usá \"Olvidé mi contraseña\").");
+      } else if (m.includes("password") && m.includes("characters")) {
+        setMensaje("La contraseña tiene que tener al menos 6 caracteres.");
+      } else if (m.includes("invalid") && m.includes("email")) {
+        setMensaje("Revisá el email: parece que tiene un error.");
+      } else {
+        setMensaje("No se pudo crear la cuenta: " + error.message);
+      }
       return;
     }
 
