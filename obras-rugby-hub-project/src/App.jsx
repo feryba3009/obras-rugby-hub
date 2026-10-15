@@ -7848,7 +7848,7 @@ function PanelStaff({ perfil }) {
   const [copiado, setCopiado] = useState(false);
   const texto = textoInvitacion();
   const puede = puedeGestionar(perfil);
-  const esManager = perfil?.rol === "Manager";
+  const esManager = ["Manager", "Cuerpo técnico"].includes(perfil?.rol); // los dos pueden confirmar cuentas
 
   async function recargar() {
     setCargando(true);
@@ -7915,7 +7915,7 @@ function PanelStaff({ perfil }) {
                   Confirmar
                 </button>
               ) : (
-                <span style={{ fontSize: 11, color: "var(--h-sub2)" }}>Esperando al manager</span>
+                <span style={{ fontSize: 11, color: "var(--h-sub2)" }}>Esperando al staff</span>
               )}
             </div>
           ))}
