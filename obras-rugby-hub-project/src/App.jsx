@@ -180,6 +180,13 @@ function StatCard({ label, value, tone }) {
   );
 }
 
+// Las fechas 19 en adelante son de la fase final (Desarrollo se divide en zonas después de la fecha 18).
+const FECHAS_FASE_REGULAR = 18;
+const etiquetaFecha = (n) => (n > FECHAS_FASE_REGULAR ? `Fase final · Fecha ${n - FECHAS_FASE_REGULAR}` : `Fecha ${n}`);
+const etiquetaFechaCorta = (n) => (n > FECHAS_FASE_REGULAR ? `FF${n - FECHAS_FASE_REGULAR}` : `F${n}`);
+// Bloques de práctica: si vienen todo en mayúsculas (cargas viejas) se muestran en minúscula con la primera en mayúscula.
+const textoBloque = (t) => { const x = String(t || ""); return x && x === x.toUpperCase() ? x.charAt(0) + x.slice(1).toLowerCase() : x; };
+
 // Datos reales · URBA · Torneo Desarrollo 2026 (urba.org.ar/fixture)
 let POSICIONES = { superior: [], intermedia: [] };
 let FIXTURE = { superior: [], intermedia: [] };
@@ -1348,7 +1355,7 @@ function PartidoAgenda({ p, proximo, destacado, perfil, onGuardado }) {
       <TeamBadge name={p.rival} size={26} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--h-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.cond === "Local" ? "vs" : "en"} {p.rival}</div>
-        <div style={{ fontSize: 12, color: "var(--h-sub)" }}>Fecha {p.fecha} · {p.cond === "Local" ? "en casa" : "de visitante"}</div>
+        <div style={{ fontSize: 12, color: "var(--h-sub)" }}>{etiquetaFecha(p.fecha)} · {p.cond === "Local" ? "en casa" : "de visitante"}</div>
       </div>
       {editando ? (
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -1543,7 +1550,7 @@ function GrupoTabla({ titulo, filas, editMode, onChange, onDelete, onAdd }) {
                 ) : (
                   <>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
-                      <span style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 14, textTransform: "capitalize" }}>{(f.c || "").toLowerCase()}</span>
+                      <span style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 14 }}>{textoBloque(f.c)}</span>
                       <span style={{ fontFamily: "var(--h-titulo)", fontWeight: 800, fontSize: 16, color: "var(--h-texto)", flexShrink: 0 }}>{f.t}</span>
                     </div>
                     {f.e && <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 3 }}>{f.e}</div>}
@@ -1551,7 +1558,7 @@ function GrupoTabla({ titulo, filas, editMode, onChange, onDelete, onAdd }) {
                       <span style={{ color, fontWeight: 700 }}>{TIPOS_BLOQUE[k].label}</span>
                       <span>·</span>
                       <span>min {desde}–{acumulado}</span>
-                      {f.s && <><span>·</span><span style={{ textTransform: "capitalize" }}>{f.s.toLowerCase()}</span></>}
+                      {f.s && <><span>·</span><span>{textoBloque(f.s)}</span></>}
                     </div>
                   </>
                 )}
@@ -3065,10 +3072,17 @@ function disponibilidadReal(j) {
   return "No habilitado";
 }
 
+// "No apto" → "sin apto médico"; "Pendiente" (o vacío) → "apto médico pendiente".
+function textoApto(apto) {
+  if (apto === "Apto") return "apto médico al día";
+  if (apto === "No apto") return "sin apto médico";
+  return "apto médico pendiente";
+}
+
 function estadoMedicoTexto(j) {
   if (j.estado === "Lesionado") return `Lesionado · ${j.zona}`;
   if (j.estado === "A vigilar") return `A vigilar · ${j.zona}`;
-  if (disponibilidadReal(j) === "No habilitado") return `No habilitado · apto ${j.apto?.toLowerCase() || "pendiente"}`;
+  if (disponibilidadReal(j) === "No habilitado") return `No habilitado · ${textoApto(j.apto)}`;
   return "Disponible";
 }
 
@@ -3141,7 +3155,7 @@ function RendimientoJugador({ jugador }) {
           <div style={{ fontSize: 13.5, color: "var(--h-sub)" }}>Cargando…</div>
         ) : lista.length === 0 ? (
           <div style={{ fontSize: 13.5, color: "var(--h-sub)", lineHeight: 1.5 }}>
-            Todavía no hay partidos analizados para {jugador.id}. Aparecen acá cuando el staff completa la planilla individual en Estadísticas › Partido.
+            Todavía no hay partidos analizados para {jugador.id}. Aparecen acá cuando el staff analiza el partido en Análisis de video y marca quién hizo cada jugada.
           </div>
         ) : (
           <>
@@ -3154,7 +3168,7 @@ function RendimientoJugador({ jugador }) {
             {lista.map(({ r, pt }) => (
               <div key={r.id} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "10px 0", borderTop: "1px solid var(--h-borde)", flexWrap: "wrap" }}>
                 <span style={{ flex: "1 1 160px", fontSize: 14, color: "var(--h-texto)" }}>
-                  {pt ? <>Fecha {pt.fecha} · {pt.cond === "Local" ? "vs" : "en"} {pt.rival}</> : "Partido"}
+                  {pt ? <>{etiquetaFecha(pt.fecha)} · {pt.cond === "Local" ? "vs" : "en"} {pt.rival}</> : "Partido"}
                   {pt && pt.gf != null && <span style={{ color: "var(--h-sub)", fontSize: 12.5 }}> · {pt.gf}-{pt.gc}</span>}
                 </span>
                 <span style={{ fontSize: 13, color: "var(--h-texto2)" }}>
@@ -3293,7 +3307,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
             Ficha médica: {(jugador.apto || "pendiente").toLowerCase()}
           </span>
           <span style={{ color: "var(--h-sub)" }}>
-            Vino a {asistencia ? `${asistencia.presentes} de ${asistencia.total}` : "…"} prácticas en {TEMPORADA_ACTIVA}
+            {!asistencia ? "…" : asistencia.total ? `Vino a ${asistencia.presentes} de ${asistencia.total} prácticas en ${TEMPORADA_ACTIVA}` : "Todavía sin asistencia cargada"}
           </span>
           {perfil?.rol === "Manager" && (
             <>
@@ -3810,7 +3824,7 @@ function MatchSelector({ partidos, fecha, onSelect }) {
           }}
           title={`vs ${p.rival} · ${p.gf}-${p.gc}`}
         >
-          F{p.fecha}
+          {etiquetaFechaCorta(p.fecha)}
         </button>
       ))}
     </div>
@@ -5283,7 +5297,7 @@ function GraficoResultados({ partidos }) {
               <rect x={x + 16} y={base - esc(p.gc)} width="14" height={esc(p.gc)} rx="3" fill="var(--h-borde2)" />
               <text x={x + 15} y={base - Math.max(esc(p.gf), esc(p.gc)) - 4} textAnchor="middle" fontSize="10" fill="var(--h-sub)">{p.gf}-{p.gc}</text>
               <circle cx={x + 15} cy={base + 12} r="4" fill={color} />
-              <text x={x + 15} y={base + 27} textAnchor="middle" fontSize="10" fill="var(--h-sub)">F{p.fecha}</text>
+              <text x={x + 15} y={base + 27} textAnchor="middle" fontSize="10" fill="var(--h-sub)">{etiquetaFechaCorta(p.fecha)}</text>
             </g>
           );
         })}
@@ -5336,7 +5350,7 @@ function TemporadaPage() {
         ) : (
           conInforme.map(({ p, ind }) => (
             <div key={p.fecha} style={{ display: "grid", gridTemplateColumns: "54px 1fr 1fr", gap: 10, alignItems: "center", padding: "6px 0", borderTop: "1px solid var(--h-borde)", fontSize: 12.5 }}>
-              <span style={{ color: "var(--h-sub)", fontWeight: 700 }}>F{p.fecha}</span>
+              <span style={{ color: "var(--h-sub)", fontWeight: 700 }}>{etiquetaFechaCorta(p.fecha)}</span>
               {[["Scrum", ind.scrum], ["Line", ind.line]].map(([l, v]) => (
                 <span key={l} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ width: 38, color: "var(--h-sub)" }}>{l}</span>
@@ -5846,7 +5860,7 @@ function ResumenSemana() {
       </BloqueResumen>
       <BloqueResumen titulo="Lesiones">
         {nuevas.length ? <div>Nuevas: {nuevas.map((x) => `${x.jugadores?.nombre || "—"} (${(x.zona || "").toLowerCase()})`).join(", ")}.</div> : <div>Sin lesiones nuevas.</div>}
-        <div>Hoy {afuera === 1 ? "hay 1 lesionado" : `hay ${afuera} lesionados`}.</div>
+        <div>{afuera === 0 ? "Hoy no hay lesionados." : afuera === 1 ? "Hoy hay 1 lesionado." : `Hoy hay ${afuera} lesionados.`}</div>
       </BloqueResumen>
       {testeados.length > 0 && (
         <BloqueResumen titulo="Tests físicos">
@@ -5925,7 +5939,7 @@ function ResumenMes() {
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)" }}>{p.cond === "Local" ? "vs" : "en"} {p.rival}</span>
                   <span style={{ fontSize: 15, fontWeight: 800, color }}>{p.gf ?? "–"}-{p.gc ?? "–"}</span>
-                  <span style={{ fontSize: 12.5, color: "var(--h-sub)" }}>Fecha {p.fecha} · {p.date}</span>
+                  <span style={{ fontSize: 12.5, color: "var(--h-sub)" }}>{etiquetaFecha(p.fecha)} · {p.date}</span>
                 </div>
                 <div style={{ fontSize: 14, color: "var(--h-texto)", lineHeight: 1.6, marginTop: 6 }}>
                   <div style={{ fontWeight: 700, color: "var(--h-sub)", fontSize: 12.5, marginTop: 2 }}>El partido</div>
@@ -7184,7 +7198,7 @@ function EquiposPage({ perfil }) {
         {partido && <TeamBadge name={partido.rival} size={34} />}
         <div style={{ flex: 1, minWidth: 160 }}>
           <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1.1 }}>{partido ? partido.rival : "Sin próximo partido cargado"}</div>
-          {partido && <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Fecha {partido.fecha} · {partido.date} · {partido.cond}</div>}
+          {partido && <div style={{ fontSize: 13, color: "var(--h-sub)" }}>{etiquetaFecha(partido.fecha)} · {partido.date} · {partido.cond}</div>}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {faltan.length === 0 && <button onClick={compartir} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}>Mandar al grupo</button>}
@@ -7375,7 +7389,7 @@ function EstadoPlantelPage({ perfil }) {
 
       <Seccion titulo="Sin habilitar" color="var(--h-sub)" cantidad={sinHab.length}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {sinHab.map((j) => <button key={j.id} onClick={() => setVerId(j.id)} style={{ ...tagStyle, border: "none", cursor: "pointer", font: "inherit", borderRadius: 999, padding: "6px 12px", fontSize: 13, background: "var(--h-panel2)", color: "var(--h-texto)" }}>{j.id} · apto {j.apto?.toLowerCase() || "pendiente"}</button>)}
+          {sinHab.map((j) => <button key={j.id} onClick={() => setVerId(j.id)} style={{ ...tagStyle, border: "none", cursor: "pointer", font: "inherit", borderRadius: 999, padding: "6px 12px", fontSize: 13, background: "var(--h-panel2)", color: "var(--h-texto)" }}>{j.id} · {textoApto(j.apto)}</button>)}
         </div>
       </Seccion>
 
@@ -8679,7 +8693,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
         <AccesoDiario
           icono="sesion"
           titulo={esJugador ? `Tu práctica · Grupo ${miGrupoPractica}` : "Práctica"}
-          linea={bloquesPractica.length ? bloquesPractica.map((f) => (f.c || "").charAt(0) + (f.c || "").slice(1).toLowerCase()).join(" · ") : "Hoy no hay práctica en cancha."}
+          linea={bloquesPractica.length ? bloquesPractica.map((f) => textoBloque(f.c)).join(" · ") : "Hoy no hay práctica en cancha."}
           estado={bloquesPractica.length ? { texto: `${bloquesPractica.reduce((a, f) => a + minutosBloque(f), 0)} min`, fondo: "var(--h-acento-suave)", color: "var(--h-club-tinta)" } : null}
           onClick={() => onNavigate("sesion")}
         />
@@ -8822,7 +8836,7 @@ function CaminoAlPartido({ proximo, onNavigate }) {
         <div style={{ flex: 1, minWidth: 160 }}>
           <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>{cuando}</div>
           <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, lineHeight: 1.05 }}>{proximo.rival}</div>
-          <div style={{ fontSize: 13, opacity: 0.85, marginTop: 2 }}>Fecha {proximo.fecha} · {proximo.date} · {proximo.cond}</div>
+          <div style={{ fontSize: 13, opacity: 0.85, marginTop: 2 }}>{etiquetaFecha(proximo.fecha)} · {proximo.date} · {proximo.cond}</div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
           <BotonCamino fuerte onClick={() => onNavigate("equipos")}>Armar el equipo</BotonCamino>
@@ -9390,7 +9404,7 @@ function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
     function check() {
-      const w = (window.screen && window.screen.width) || window.innerWidth;
+      const w = Math.min((window.screen && window.screen.width) || window.innerWidth, window.innerWidth || 9999);
       setIsMobile(w <= 820);
     }
     check();
@@ -9666,12 +9680,12 @@ function ObrasHub({ perfil }) {
 
       {mostrarSidebar && (
         <div style={{ width: 248, borderRight: "1px solid var(--h-borde)", background: "var(--h-panel)", padding: "18px 12px", flexShrink: 0, display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto", boxSizing: "border-box" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "0 6px 18px" }}>
+          <div style={{ padding: "0 6px 18px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
               <InsigniaADN size={34} />
               <NombreHub />
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: 8 }}>
               <CampanaNotificaciones perfil={perfil} align="left" onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
               <BotonAjustes activo={active === CONFIG_ITEM.key} onClick={() => setActive(CONFIG_ITEM.key)} />
             </div>
