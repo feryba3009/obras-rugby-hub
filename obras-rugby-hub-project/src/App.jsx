@@ -2971,8 +2971,9 @@ function RendimientoJugador({ jugador }) {
   const suma = (f) => lista.reduce((a, { r }) => a + f(r), 0);
   const tackles = suma(tacklesDe), errados = suma((r) => n(r, "tackle_errado"));
   const efectividad = tackles ? Math.round(((tackles - errados) / tackles) * 100) : null;
-  const tries = suma((r) => n(r, "quiebre_con_try"));
-  const quiebres = tries + suma((r) => n(r, "quiebre_sin_try"));
+  const tries = suma((r) => n(r, "tries"));
+  const quiebres = suma((r) => n(r, "quiebre_con_try") + n(r, "quiebre_sin_try"));
+  const recuperadasTot = suma((r) => n(r, "recuperadas"));
   const penales = suma(penalesDe);
   const promW = wellness.length ? Math.round(wellness.reduce((a, x) => a + x.pct, 0) / wellness.length) : null;
 
@@ -2990,7 +2991,7 @@ function RendimientoJugador({ jugador }) {
             <div style={{ fontSize: 15, color: "var(--h-texto)", lineHeight: 1.55, marginBottom: 14 }}>
               En <b>{lista.length} {lista.length === 1 ? "partido" : "partidos"}</b> hizo <b>{tackles} tackles</b>
               {efectividad !== null && <> ({efectividad}% efectivos)</>}, <b>{quiebres} {quiebres === 1 ? "quiebre" : "quiebres"}</b>
-              {tries > 0 && <> que terminaron en <b>{tries} {tries === 1 ? "try" : "tries"}</b></>} y le cobraron <b>{penales} {penales === 1 ? "penal" : "penales"}</b> en contra.
+              {tries > 0 && <>, apoyó <b>{tries} {tries === 1 ? "try" : "tries"}</b></>}{recuperadasTot > 0 && <>, recuperó <b>{recuperadasTot} {recuperadasTot === 1 ? "pelota" : "pelotas"}</b></>} y le cobraron <b>{penales} {penales === 1 ? "penal" : "penales"}</b> en contra.
             </div>
             <div style={{ fontSize: 13, fontWeight: 700, color: "var(--h-sub)", marginBottom: 4 }}>Partido por partido</div>
             {lista.map(({ r, pt }) => (
@@ -3689,6 +3690,24 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
   const [extras, setExtras] = useState(() => ({ ...(previo?.analisisVideo?.extras || {}) })); // salidas, tries, patadas a los palos
   const videoRef = React.useRef(null);
 
+  // Quién hizo cada jugada: al tocar un tackle, un quiebre, un try, una recuperada o un penal,
+  // se elige el jugador y eso va sumando solo a su planilla individual del partido.
+  const convocados = (LINEUPS_INICIALES[categoria] || []).filter((sl) => sl.jugadorId);
+  const [porJugador, setPorJugador] = useState({});
+  const [pendiente, setPendiente] = useState(null); // { id, k }
+  const [tipoPenal, setTipoPenal] = useState("Juego");
+  const idRef = React.useRef(1);
+  useEffect(() => {
+    cargarAnalisisIndividual(partido.id).then((real) => {
+      const ini = {};
+      Object.entries(real).forEach(([dbId, r]) => {
+        const j = POOL.find((p) => p.dbId === dbId);
+        if (j) ini[j.id] = datosDesdeFila(r);
+      });
+      setPorJugador(ini);
+    });
+  }, [partido.id]);
+
   const [guardando, setGuardando] = useState(false);
   const [msg, setMsg] = useState("");
   const [verAtajos, setVerAtajos] = useState(false);
@@ -3699,7 +3718,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
   const [arrancado, setArrancado] = useState(false);
   const intervaloRef = React.useRef(null);
   const estadoRef = React.useRef({});
-  estadoRef.current = { scrum, line, pelotasRecuperadas, perdidasPelota, penalesAFavor, penalesEnContra, posesion, reloj, extras };
+  estadoRef.current = { scrum, line, pelotasRecuperadas, perdidasPelota, penalesAFavor, penalesEnContra, posesion, reloj, extras, porJugador };
 
   useEffect(() => {
     if (!arrancado) return;
@@ -3712,10 +3731,33 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
   // o con el reloj del análisis si no.
   function anotar(texto, tono, accion, tipo) {
     const e = estadoRef.current;
-    const antes = { scrum: e.scrum, line: e.line, pelotasRecuperadas: e.pelotasRecuperadas, perdidasPelota: e.perdidasPelota, penalesAFavor: e.penalesAFavor, penalesEnContra: e.penalesEnContra, posesion: e.posesion, extras: e.extras };
+    const antes = { scrum: e.scrum, line: e.line, pelotasRecuperadas: e.pelotasRecuperadas, perdidasPelota: e.perdidasPelota, penalesAFavor: e.penalesAFavor, penalesEnContra: e.penalesEnContra, posesion: e.posesion, extras: e.extras, porJugador: e.porJugador };
     const seg = videoRef.current?.segundo?.();
     accion();
-    setRegistro((prev) => [{ t: seg ?? e.reloj, seg: seg ?? null, texto, tono, tipo, antes }, ...prev].slice(0, 500));
+    const id = idRef.current++;
+    setRegistro((prev) => [{ id, t: seg ?? e.reloj, seg: seg ?? null, texto, tono, tipo, antes }, ...prev].slice(0, 500));
+    return id;
+  }
+  // Campo de la planilla individual que suma cada jugada (si se dice quién la hizo).
+  const CAMPO_INDIVIDUAL = {
+    tackle: "tackleHecho", tacklePositivo: "tacklePositivo", tackleErrado: "tackleErrado",
+    quiebre: "quiebreSinTry", tryNuestro: "tries", recuperada: "recuperadas", penalFavor: "penalAFavor",
+    penalContra: () => ({ Ruck: "penalEnContraRuck", Maul: "penalEnContraMaul", Juego: "penalEnContraJuego", Inconducta: "penalEnContraInconducta" })[tipoPenal],
+  };
+  function elegirJugador(jugadorId) {
+    if (!pendiente) return;
+    const def = CAMPO_INDIVIDUAL[pendiente.k];
+    const campo = typeof def === "function" ? def() : def;
+    if (jugadorId && campo) {
+      setPorJugador((prev) => {
+        const d = { ...(prev[jugadorId] || datosVacioJugador()) };
+        d[campo] = (d[campo] || 0) + 1;
+        return { ...prev, [jugadorId]: d };
+      });
+      const extra = pendiente.k === "penalContra" ? ` (${tipoPenal.toLowerCase()})` : "";
+      setRegistro((prev) => prev.map((ev) => (ev.id === pendiente.id ? { ...ev, texto: `${ev.texto}${extra} · ${jugadorId}`, quien: jugadorId } : ev)));
+    }
+    setPendiente(null);
   }
   function deshacer() {
     setRegistro((prev) => {
@@ -3726,6 +3768,8 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
       setPelotasRecuperadas(antes.pelotasRecuperadas); setPerdidasPelota(antes.perdidasPelota);
       setPenalesAFavor(antes.penalesAFavor); setPenalesEnContra(antes.penalesEnContra);
       setPosesion(antes.posesion);
+      if (antes.porJugador) setPorJugador(antes.porJugador);
+      setPendiente(null);
       return prev.slice(1);
     });
   }
@@ -3786,9 +3830,16 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
     recuperada: ["Pelota recuperada", "ok", () => { setPelotasRecuperadas((v) => v + 1); setPosesion("Obras"); }, "pelota"],
     perdida: ["Pelota perdida", "mal", () => { setPerdidasPelota((v) => v + 1); setPosesion("Rival"); }, "pelota"],
     penalFavor: ["Penal a favor", "ok", () => setPenalesAFavor((v) => v + 1), "penal"],
+    tackle: ["Tackle", "ok", () => sumarExtra("tackles"), "tackle"],
+    tacklePositivo: ["Tackle positivo", "ok", () => sumarExtra("tacklesPositivos"), "tackle"],
+    tackleErrado: ["Tackle errado", "mal", () => sumarExtra("tacklesErrados"), "tackle"],
+    quiebre: ["Quiebre", "ok", () => sumarExtra("quiebres"), "quiebre"],
     penalContra: ["Penal en contra", "mal", () => setPenalesEnContra((v) => v + 1), "penal"],
   };
-  const hacer = (k) => anotar(ACCIONES[k][0], ACCIONES[k][1], ACCIONES[k][2], ACCIONES[k][3]);
+  const hacer = (k) => {
+    const id = anotar(ACCIONES[k][0], ACCIONES[k][1], ACCIONES[k][2], ACCIONES[k][3]);
+    setPendiente(CAMPO_INDIVIDUAL[k] && convocados.length ? { id, k } : null);
+  };
 
   // Atajos de teclado — solo en escritorio, para anotar sin soltar el mouse del video.
   useEffect(() => {
@@ -3819,6 +3870,10 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
         x: () => hacer("perdida"),
         c: () => hacer("penalFavor"),
         v: () => hacer("penalContra"),
+        t: () => hacer("tackle"),
+        y: () => hacer("tacklePositivo"),
+        u: () => hacer("tackleErrado"),
+        b: () => hacer("quiebre"),
         backspace: () => deshacer(),
       };
       if (acciones[k]) {
@@ -3859,17 +3914,30 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
       secuenciaMasLargaSegundos: secuenciasFinal.length ? Math.max(...secuenciasFinal) : 0,
       extras,
     };
+    const tacklesVideo = (extras.tackles || 0) + (extras.tacklesPositivos || 0) + (extras.tacklesErrados || 0);
+    if (tacklesVideo) informe.favorables.tacklesTotales = tacklesVideo;
+    if (extras.quiebres) informe.favorables.quiebresAtaque = extras.quiebres;
     // Cronología: cada jugada con su segundo del video, para después filtrar y verlas.
     informe.cronologia = [...registro]
       .reverse()
-      .map((ev) => ({ seg: ev.seg ?? ev.t, enVideo: ev.seg !== null && ev.seg !== undefined, tipo: ev.tipo || "otro", texto: ev.texto, tono: ev.tono }))
+      .map((ev) => ({ seg: ev.seg ?? ev.t, enVideo: ev.seg !== null && ev.seg !== undefined, tipo: ev.tipo || "otro", texto: ev.texto, tono: ev.tono, ...(ev.quien ? { quien: ev.quien } : {}) }))
       .sort((a, b) => a.seg - b.seg);
 
     const { error } = await supabase.from("partidos").update({ informe }).eq("id", partido.id);
+    // Planilla individual: se guarda lo de cada jugador que tuvo alguna jugada asignada.
+    let individuales = 0, fallas = 0;
+    for (const [jugadorId, datos] of Object.entries(porJugador)) {
+      const j = POOL.find((p) => p.id === jugadorId);
+      if (!j?.dbId) continue;
+      const ok = await guardarAnalisisJugador(partido.id, j.dbId, datos, perfil?.id);
+      if (ok) individuales++; else fallas++;
+    }
     if (!error) {
       partido.informe = informe;
       crearNotificacion("informe_partido", `Análisis de video listo: ${categoria} vs ${partido.rival}.`, null, perfil?.id);
-      setMsg("✓ Guardado. Ya se ve en Análisis de video y en Estadísticas.");
+      setMsg(fallas
+        ? `✓ Guardado el análisis, pero no se pudo guardar la planilla de ${fallas} jugador${fallas === 1 ? "" : "es"}. Probá de nuevo.`
+        : `✓ Guardado. ${individuales ? `La planilla de ${individuales} jugador${individuales === 1 ? "" : "es"} se completó sola. ` : ""}Ya se ve en Estadísticas y en la ficha de cada uno.`);
     } else {
       setMsg("No se pudo guardar. Probá de nuevo.");
     }
@@ -3966,8 +4034,43 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
     </div>
   );
 
+  const nombrePendiente = pendiente ? ACCIONES[pendiente.k]?.[0] : "";
+  const selectorQuien = pendiente && (
+    <div style={{ ...panelStyle, position: "sticky", top: isMobile ? 210 : 8, zIndex: 6, border: "2px solid var(--h-club)", boxShadow: "0 6px 18px rgba(0,0,0,0.15)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{ flex: 1, fontSize: 15, fontWeight: 800, color: "var(--h-texto)" }}>{nombrePendiente}: ¿quién fue?</span>
+        <button onClick={() => elegirJugador(null)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)", fontSize: 12.5 }}>Sin asignar</button>
+      </div>
+      {pendiente.k === "penalContra" && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+          {["Ruck", "Maul", "Juego", "Inconducta"].map((t) => (
+            <button key={t} onClick={() => setTipoPenal(t)} style={{ ...pillButton, fontSize: 12.5, border: "1px solid " + (tipoPenal === t ? "var(--h-club)" : "var(--h-borde2)"), background: tipoPenal === t ? "var(--h-club)" : "transparent", color: tipoPenal === t ? "var(--h-club-txt)" : "var(--h-texto2)" }}>{t}</button>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 6 }}>
+        {convocados.map((sl) => (
+          <button
+            key={sl.numero}
+            onClick={() => elegirJugador(sl.jugadorId)}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 8px", borderRadius: 10, border: "1px solid var(--h-borde)", background: "var(--h-panel2)", color: "var(--h-texto)", cursor: "pointer", textAlign: "left", fontSize: 13, minHeight: 40 }}
+          >
+            <b style={{ fontFamily: "var(--h-titulo)", color: "var(--h-club-tinta)", minWidth: 18 }}>{sl.numero}</b>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{apellido(sl.jugadorId)}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   const panelAnotador = (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {selectorQuien}
+      {!convocados.length && (
+        <div style={{ ...panelStyle, fontSize: 13, color: "var(--h-sub)" }}>
+          Si armás el Equipo del partido de {categoria}, al marcar un tackle, un quiebre, un try o un penal vas a poder elegir quién fue, y su planilla se completa sola.
+        </div>
+      )}
       <button
         onClick={toggleEnJuego}
         style={{
@@ -4010,9 +4113,13 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
       </Fase>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Fase titulo="Ataque" columnas={1}>
+          <BotonJugada k="quiebre" label="Quiebre" valor={extras.quiebres || 0} />
           <BotonJugada k="perdida" label="Pelota perdida" valor={perdidasPelota} />
         </Fase>
         <Fase titulo="Defensa" columnas={1}>
+          <BotonJugada k="tackle" label="Tackle" valor={extras.tackles || 0} />
+          <BotonJugada k="tacklePositivo" label="Tackle positivo" valor={extras.tacklesPositivos || 0} />
+          <BotonJugada k="tackleErrado" label="Tackle errado" valor={extras.tacklesErrados || 0} />
           <BotonJugada k="recuperada" label="Recuperada" valor={pelotasRecuperadas} />
         </Fase>
       </div>
@@ -4069,7 +4176,8 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
               <b>Espacio</b> en juego / pelota parada · <b>1</b>/<b>2</b> pelota de Obras / del rival · <b>3</b>/<b>4</b> campo propio / rival<br />
               <b>Q W E R</b> scrum ganado / perdido / robado / del rival<br />
               <b>A S D F G</b> line ganado / perdido / robado / torcido / del rival<br />
-              <b>Z X C V</b> recuperada / perdida / penal a favor / penal en contra · <b>Borrar</b> deshacer
+              <b>Z X C V</b> recuperada / perdida / penal a favor / penal en contra<br />
+              <b>T Y U</b> tackle / positivo / errado · <b>B</b> quiebre · <b>Borrar</b> deshacer
             </div>
           )}
         </div>
@@ -4163,6 +4271,20 @@ function datosVacioJugador() {
     penalAFavor: 0,
     penalEnContraRuck: 0, penalEnContraMaul: 0, penalEnContraJuego: 0, penalEnContraInconducta: 0,
     esPateador: false, dropConvertido: 0, cincuenta22: 0,
+    tries: 0, recuperadas: 0,
+  };
+}
+
+// Fila de la base -> datos del jugador para la planilla individual.
+function datosDesdeFila(r) {
+  return {
+    tackleHecho: r.tackle_hecho || 0, tacklePositivo: r.tackle_positivo || 0, tackleErrado: r.tackle_errado || 0,
+    quiebreConTry: r.quiebre_con_try || 0, quiebreSinTry: r.quiebre_sin_try || 0,
+    penalAFavor: r.penal_a_favor || 0,
+    penalEnContraRuck: r.penal_en_contra_ruck || 0, penalEnContraMaul: r.penal_en_contra_maul || 0,
+    penalEnContraJuego: r.penal_en_contra_juego || 0, penalEnContraInconducta: r.penal_en_contra_inconducta || 0,
+    esPateador: !!r.es_pateador, dropConvertido: r.drop_convertido || 0, cincuenta22: r.cincuenta_22 || 0,
+    tries: r.tries || 0, recuperadas: r.recuperadas || 0,
   };
 }
 
@@ -4306,16 +4428,7 @@ function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
       convocados.forEach((s) => {
         const jugadorDb = POOL.find((p) => p.id === s.jugadorId);
         const r = jugadorDb && real[jugadorDb.dbId];
-        iniciales[s.jugadorId] = r
-          ? {
-              tackleHecho: r.tackle_hecho, tacklePositivo: r.tackle_positivo, tackleErrado: r.tackle_errado,
-              quiebreConTry: r.quiebre_con_try, quiebreSinTry: r.quiebre_sin_try,
-              penalAFavor: r.penal_a_favor,
-              penalEnContraRuck: r.penal_en_contra_ruck, penalEnContraMaul: r.penal_en_contra_maul,
-              penalEnContraJuego: r.penal_en_contra_juego, penalEnContraInconducta: r.penal_en_contra_inconducta,
-              esPateador: r.es_pateador, dropConvertido: r.drop_convertido, cincuenta22: r.cincuenta_22,
-            }
-          : datosVacioJugador();
+        iniciales[s.jugadorId] = r ? datosDesdeFila(r) : datosVacioJugador();
       });
       setDatosPorJugador(iniciales);
       setCargando(false);
@@ -4465,6 +4578,8 @@ const TIPOS_CRONOLOGIA = [
   { k: "palos", label: "Patadas a los palos" },
   { k: "penal", label: "Penales" },
   { k: "pelota", label: "Recuperadas y pérdidas" },
+  { k: "tackle", label: "Tackles" },
+  { k: "quiebre", label: "Quiebres" },
 ];
 
 // Los videos de los partidos están en YouTube (igual que la videoteca).
@@ -4914,6 +5029,7 @@ const COLUMNAS_PLANILLA = [
   { k: "errados", label: "Tackles errados", bajoEsMejor: true },
   { k: "quiebres", label: "Quiebres" },
   { k: "qbreXTry", label: "Quiebres que terminan en try" },
+  { k: "tries", label: "Tries" },
   { k: "recuperadas", label: "Recuperadas" },
   { k: "accPos", label: "Acciones positivas" },
   { k: "pk", label: "Penales", bajoEsMejor: true },
@@ -5124,8 +5240,9 @@ function InformePartidoPage({ perfil }) {
       const quiebres = real.quiebre_con_try + real.quiebre_sin_try;
       const qbreXTry = real.quiebre_con_try;
       const pk = real.penal_en_contra_ruck + real.penal_en_contra_maul + real.penal_en_contra_juego + real.penal_en_contra_inconducta;
-      const accPos = real.tackle_positivo + quiebres + real.penal_a_favor + (real.es_pateador ? real.drop_convertido + real.cincuenta_22 : 0);
-      return { ...s, tackles, tacklesPositivos: real.tackle_positivo, recuperadas: 0, errados: real.tackle_errado, pk, quiebres, qbreXTry, accPos };
+      const recuperadas = real.recuperadas || 0;
+      const accPos = real.tackle_positivo + quiebres + recuperadas + real.penal_a_favor + (real.es_pateador ? real.drop_convertido + real.cincuenta_22 : 0);
+      return { ...s, tackles, tacklesPositivos: real.tackle_positivo, recuperadas, tries: real.tries || 0, errados: real.tackle_errado, pk, quiebres, qbreXTry, accPos };
     }
     return null; // sin planilla cargada para este jugador: no se inventa nada
   }).filter(Boolean);
@@ -5804,6 +5921,8 @@ async function guardarAnalisisJugador(partidoId, jugadorId, datos, perfilId) {
       es_pateador: datos.esPateador,
       drop_convertido: datos.dropConvertido,
       cincuenta_22: datos.cincuenta22,
+      ...(datos.tries !== undefined ? { tries: datos.tries || 0 } : {}),
+      ...(datos.recuperadas !== undefined ? { recuperadas: datos.recuperadas || 0 } : {}),
       creado_por: perfilId,
       updated_at: new Date().toISOString(),
     },
