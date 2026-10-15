@@ -50,6 +50,7 @@ const NAV = [
     items: [
       { key: "reportes", label: "Estadísticas", icono: "reportes" },
       { key: "veo", label: "Análisis de video", icono: "analisis" },
+      { key: "resumenes", label: "Resúmenes", icono: "resumen" },
     ],
   },
   {
@@ -85,6 +86,7 @@ const ICONOS = {
   plantel: "M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM2 20c0-3 3-5 6-5s6 2 6 5M16 11a3 3 0 1 0 0-6M18 15c2 .6 4 2.2 4 5",
   disponibilidad: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM8 12l3 3 5-6",
   evaluaciones: "M4 20V10M10 20V4M16 20v-7M22 20H2",
+  resumen: "M6 3h9l3 3v15H6zM15 3v3h3M9 10h6M9 14h6M9 18h4",
   rtp: "M12 21s-8-4.5-8-11a5 5 0 0 1 8-4 5 5 0 0 1 8 4c0 6.5-8 11-8 11zM9 11h6M12 8v6",
   equipos: "M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z",
   videoteca: "M3 6h13v12H3zM16 10l5-3v10l-5-3",
@@ -5565,6 +5567,246 @@ function ReporteIndividualPage({ perfil }) {
   );
 }
 
+
+// ───────────────────────── Resúmenes ─────────────────────────
+// Dos seguimientos independientes: la semana de entrenamiento (lunes a viernes) y los partidos del mes con su postpartido.
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const isoDia = (d) => d.toLocaleDateString("sv-SE");
+const sumarDias = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const promedio = (arr) => (arr.length ? Math.round(arr.reduce((a, v) => a + v, 0) / arr.length) : null);
+
+function Flechas({ texto, onAntes, onDespues, puedeDespues = true }) {
+  const b = { ...pillButton, minWidth: 44, minHeight: 40, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)", fontSize: 18, padding: "0 10px" };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+      <button onClick={onAntes} aria-label="Anterior" style={b}>‹</button>
+      <span style={{ flex: 1, textAlign: "center", fontSize: 15, fontWeight: 700, color: "var(--h-texto)" }}>{texto}</span>
+      <button onClick={onDespues} disabled={!puedeDespues} aria-label="Siguiente" style={{ ...b, opacity: puedeDespues ? 1 : 0.35 }}>›</button>
+    </div>
+  );
+}
+
+function BloqueResumen({ titulo, children }) {
+  return (
+    <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 12 }}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>{titulo}</div>
+      <div style={{ fontSize: 14, color: "var(--h-texto)", lineHeight: 1.6 }}>{children}</div>
+    </div>
+  );
+}
+
+function ResumenSemana() {
+  const [corrimiento, setCorrimiento] = useState(0); // 0 = esta semana, -1 = la anterior…
+  const [d, setD] = useState(null);
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const lunes = sumarDias(hoy, -((hoy.getDay() + 6) % 7) + corrimiento * 7);
+  const viernes = sumarDias(lunes, 4);
+  const L = isoDia(lunes), V = isoDia(viernes), Lprev = isoDia(sumarDias(lunes, -7)), Vprev = isoDia(sumarDias(lunes, -3));
+
+  useEffect(() => {
+    let vivo = true;
+    setD(null);
+    Promise.all([
+      supabase.from("asistencias").select("jugador_id, fecha, presente").gte("fecha", L).lte("fecha", V),
+      supabase.from("wellness_respuestas").select("jugador_id, fecha, estres, sueno, doms, fatiga, escala").gte("fecha", Lprev).lte("fecha", V),
+      supabase.from("registros_gimnasio").select("jugador_id, fecha").gte("fecha", L).lte("fecha", V),
+      supabase.from("lesiones").select("jugador_id, zona, fecha_lesion, activa, fecha_vuelta_estimada, jugadores(nombre)").or(`activa.eq.true,fecha_lesion.gte.${L}`),
+      supabase.from("evaluaciones").select("jugador_id, fecha").gte("fecha", L).lte("fecha", V),
+    ]).then(([a, w, g, l, e]) => vivo && setD({ asis: a.data || [], well: w.data || [], gym: g.data || [], les: l.data || [], evs: e.data || [] }));
+    return () => { vivo = false; };
+  }, [L]);
+
+  const nombreDe = (dbId) => POOL.find((j) => j.dbId === dbId)?.id || "—";
+  const titulo = `Lunes ${lunes.getDate()} al viernes ${viernes.getDate()} de ${MESES[viernes.getMonth()]}`;
+  if (!d) return <><Flechas texto={titulo} onAntes={() => setCorrimiento((c) => c - 1)} onDespues={() => setCorrimiento((c) => c + 1)} puedeDespues={corrimiento < 0} /><div style={{ color: "var(--h-sub)", fontSize: 13 }}>Cargando…</div></>;
+
+  // Asistencia por día de práctica
+  const diasPractica = [...new Set(d.asis.map((r) => r.fecha))].sort();
+  const faltasPor = {};
+  d.asis.forEach((r) => { if (!r.presente) faltasPor[r.jugador_id] = (faltasPor[r.jugador_id] || 0) + 1; });
+  const faltaronTodas = diasPractica.length > 1 ? Object.entries(faltasPor).filter(([, n]) => n === diasPractica.length).map(([id]) => nombreDe(id)) : [];
+  // Wellness
+  const semana = d.well.filter((r) => r.fecha >= L);
+  const anterior = d.well.filter((r) => r.fecha < L);
+  const promSemana = promedio(semana.map(pctWellness)), promAnterior = promedio(anterior.map(pctWellness));
+  const porDia = [0, 1, 2, 3, 4].map((i) => { const f = isoDia(sumarDias(lunes, i)); const rs = semana.filter((r) => r.fecha === f); return { fecha: f, pct: promedio(rs.map(pctWellness)), n: rs.length }; });
+  const cargaron = new Set(semana.map((r) => r.jugador_id)).size;
+  const porJugador = {};
+  semana.forEach((r) => { (porJugador[r.jugador_id] = porJugador[r.jugador_id] || []).push(pctWellness(r)); });
+  const masBajos = Object.entries(porJugador).map(([id, v]) => ({ id, p: promedio(v) })).filter((x) => x.p < 50).sort((a, b) => a.p - b.p).slice(0, 5);
+  // Gimnasio, lesiones, tests
+  const gymJugadores = new Set(d.gym.map((r) => r.jugador_id)).size;
+  const nuevas = d.les.filter((x) => x.fecha_lesion >= L && x.fecha_lesion <= V);
+  const afuera = d.les.filter((x) => x.activa).length;
+  const testeados = [...new Set(d.evs.map((x) => x.jugador_id))];
+  const mejoras = testeados.map((id) => {
+    const n = nombreDe(id); const a = EVALUACIONES_REALES[n], b = EVALUACIONES_ANTERIORES[n];
+    if (!a || !b) return null;
+    const sube = Object.keys(METRICAS_RANGOS).filter((k) => typeof a[k] === "number" && typeof b[k] === "number" && a[k] > b[k]);
+    return sube.length ? `${n} (${sube.map(nombreMetrica).join(", ").toLowerCase()})` : null;
+  }).filter(Boolean);
+  const dif = promSemana !== null && promAnterior !== null ? promSemana - promAnterior : null;
+
+  return (
+    <div>
+      <Flechas texto={titulo} onAntes={() => setCorrimiento((c) => c - 1)} onDespues={() => setCorrimiento((c) => c + 1)} puedeDespues={corrimiento < 0} />
+      <BloqueResumen titulo="Prácticas">
+        {diasPractica.length === 0 ? <span style={{ color: "var(--h-sub)" }}>No se tomó asistencia esta semana.</span> : (
+          <>
+            {diasPractica.map((f) => {
+              const rs = d.asis.filter((r) => r.fecha === f);
+              const dia = DIAS_NOMBRE[new Date(f + "T00:00:00").getDay()];
+              return <div key={f}>{dia}: vinieron <b>{rs.filter((r) => r.presente).length}</b> de {rs.length}.</div>;
+            })}
+            {faltaronTodas.length > 0 && <div style={{ marginTop: 4 }}>No vino a ninguna: <b>{faltaronTodas.join(", ")}</b>.</div>}
+          </>
+        )}
+      </BloqueResumen>
+      <BloqueResumen titulo="Wellness">
+        {semana.length === 0 ? <span style={{ color: "var(--h-sub)" }}>Nadie cargó wellness esta semana.</span> : (
+          <>
+            <div>Promedio del plantel: <b>{promSemana}%</b>{dif !== null && <> ({dif === 0 ? "igual que" : <span style={{ color: dif > 0 ? "var(--h-ok)" : "var(--h-error)", fontWeight: 700 }}>{dif > 0 ? "▲" : "▼"} {Math.abs(dif)} puntos</span>}{dif !== 0 ? " contra" : ""} la semana anterior)</>}. Cargaron <b>{cargaron}</b> de {POOL.length}.</div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "flex-end" }}>
+              {porDia.map((x, i) => (
+                <div key={x.fecha} style={{ flex: 1, textAlign: "center" }}>
+                  <div style={{ height: 56, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+                    <span title={x.pct === null ? "Sin datos" : `${x.pct}% · ${x.n} respuestas`} style={{ width: "70%", maxWidth: 34, height: x.pct === null ? 3 : Math.max(4, (x.pct / 100) * 56), borderRadius: 4, background: x.pct === null ? "var(--h-borde)" : colorPct(x.pct) }} />
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--h-sub)", marginTop: 4 }}>{["Lun", "Mar", "Mié", "Jue", "Vie"][i]}{x.pct !== null ? ` ${x.pct}%` : ""}</div>
+                </div>
+              ))}
+            </div>
+            {masBajos.length > 0 && <div style={{ marginTop: 8 }}>Para mirar: {masBajos.map((x) => <span key={x.id}><b>{nombreDe(x.id)}</b> ({x.p}%)</span>).reduce((acc, el, i) => (i ? [...acc, ", ", el] : [el]), [])}.</div>}
+          </>
+        )}
+      </BloqueResumen>
+      <BloqueResumen titulo="Gimnasio">
+        {gymJugadores ? <><b>{gymJugadores}</b> {gymJugadores === 1 ? "jugador registró" : "jugadores registraron"} sus cargas esta semana.</> : <span style={{ color: "var(--h-sub)" }}>Nadie registró cargas de gimnasio esta semana.</span>}
+      </BloqueResumen>
+      <BloqueResumen titulo="Lesiones">
+        {nuevas.length ? <div>Nuevas: {nuevas.map((x) => `${x.jugadores?.nombre || "—"} (${(x.zona || "").toLowerCase()})`).join(", ")}.</div> : <div>Sin lesiones nuevas.</div>}
+        <div>Hoy {afuera === 1 ? "hay 1 lesionado" : `hay ${afuera} lesionados`}.</div>
+      </BloqueResumen>
+      {testeados.length > 0 && (
+        <BloqueResumen titulo="Tests físicos">
+          <div>Se testearon <b>{testeados.length}</b> jugadores.</div>
+          {mejoras.length > 0 && <div>Mejoraron: {mejoras.join(" · ")}.</div>}
+        </BloqueResumen>
+      )}
+    </div>
+  );
+}
+
+function ResumenMes() {
+  const [corrimiento, setCorrimiento] = useState(0);
+  const [cat, setCat] = useState("Superior");
+  const [d, setD] = useState(null);
+  const hoy = new Date();
+  const ini = new Date(hoy.getFullYear(), hoy.getMonth() + corrimiento, 1);
+  const fin = new Date(ini.getFullYear(), ini.getMonth() + 1, 0);
+  const partidos = (FIXTURE[cat.toLowerCase()] || [])
+    .map((p) => ({ ...p, dia: fechaDesdeDisplay(p.date) }))
+    .filter((p) => p.dia && p.dia >= ini && p.dia <= fin)
+    .sort((a, b) => a.dia - b.dia);
+  const ids = partidos.map((p) => p.id).filter(Boolean);
+  const clave = `${isoDia(ini)}-${cat}-${ids.join(",")}`;
+
+  useEffect(() => {
+    let vivo = true;
+    setD(null);
+    const desde = isoDia(sumarDias(ini, -7)), hasta = isoDia(sumarDias(fin, 3));
+    Promise.all([
+      supabase.from("wellness_respuestas").select("jugador_id, fecha, estres, sueno, doms, fatiga, escala").gte("fecha", desde).lte("fecha", hasta),
+      supabase.from("lesiones").select("zona, fecha_lesion, jugadores(nombre)").gte("fecha_lesion", isoDia(ini)).lte("fecha_lesion", hasta),
+      ids.length ? supabase.from("analisis_individual_partido").select("*").in("partido_id", ids) : Promise.resolve({ data: [] }),
+      ids.length ? supabase.from("convocatoria_respuestas").select("partido_id, jugador_id, respuesta, motivo").in("partido_id", ids) : Promise.resolve({ data: [] }),
+    ]).then(([w, l, ind, conv]) => vivo && setD({ well: w.data || [], les: l.data || [], ind: ind.data || [], conv: conv.data || [] }));
+    return () => { vivo = false; };
+  }, [clave]);
+
+  const titulo = `${MESES[ini.getMonth()].charAt(0).toUpperCase() + MESES[ini.getMonth()].slice(1)} ${ini.getFullYear()}`;
+  const nombreDe = (dbId) => POOL.find((j) => j.dbId === dbId)?.id || "—";
+  const ganados = partidos.filter((p) => p.res === "Ganado").length, perdidos = partidos.filter((p) => p.res === "Perdido").length, empatados = partidos.filter((p) => p.res === "Empate" || p.res === "Empatado").length;
+  const pf = partidos.reduce((a, p) => a + (p.gf || 0), 0), pc = partidos.reduce((a, p) => a + (p.gc || 0), 0);
+  const obtenciones = partidos.map((p) => (p.informe ? indicadoresInforme(p.informe).obtencion : null)).filter((v) => v !== null && v !== undefined);
+
+  return (
+    <div>
+      <Flechas texto={titulo} onAntes={() => setCorrimiento((c) => c - 1)} onDespues={() => setCorrimiento((c) => c + 1)} puedeDespues={corrimiento < 0} />
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {["Superior", "Intermedia"].map((c) => (
+          <button key={c} onClick={() => setCat(c)} style={{ ...pillButton, fontWeight: 700, border: "1px solid " + (cat === c ? "var(--h-acento)" : "var(--h-borde2)"), background: cat === c ? "var(--h-acento-suave)" : "transparent", color: cat === c ? "var(--h-acento)" : "var(--h-texto2)" }}>{c}</button>
+        ))}
+      </div>
+      {partidos.length === 0 ? (
+        <BloqueResumen titulo="Sin partidos"><span style={{ color: "var(--h-sub)" }}>{cat} no jugó partidos en {MESES[ini.getMonth()]}.</span></BloqueResumen>
+      ) : (
+        <>
+          <BloqueResumen titulo="El mes">
+            {partidos.length} {partidos.length === 1 ? "partido" : "partidos"}: <b>{ganados} {ganados === 1 ? "ganado" : "ganados"}</b>{empatados ? `, ${empatados} empatado${empatados === 1 ? "" : "s"}` : ""} y <b>{perdidos} {perdidos === 1 ? "perdido" : "perdidos"}</b>. {pf} puntos a favor y {pc} en contra.
+            {obtenciones.length > 0 && <> Obtención propia promedio: <b>{promedio(obtenciones)}%</b>.</>}
+          </BloqueResumen>
+          {!d ? <div style={{ color: "var(--h-sub)", fontSize: 13 }}>Cargando…</div> : partidos.map((p) => {
+            const dia = p.dia;
+            const antes = d.well.filter((r) => r.fecha >= isoDia(sumarDias(dia, -6)) && r.fecha < isoDia(dia)).map(pctWellness);
+            const despues = d.well.filter((r) => r.fecha >= isoDia(sumarDias(dia, 1)) && r.fecha <= isoDia(sumarDias(dia, 2))).map(pctWellness);
+            const pa = promedio(antes), pd = promedio(despues);
+            const lesP = d.les.filter((x) => x.fecha_lesion >= isoDia(dia) && x.fecha_lesion <= isoDia(sumarDias(dia, 2)));
+            const ind = d.ind.filter((r) => r.partido_id === p.id);
+            const tacklesDe = (r) => (r.tackle_hecho || 0) + (r.tackle_positivo || 0) + (r.tackle_errado || 0);
+            const top = [...ind].sort((a, b) => tacklesDe(b) - tacklesDe(a))[0];
+            const tryman = ind.filter((r) => r.tries > 0).map((r) => `${apellido(nombreDe(r.jugador_id))}${r.tries > 1 ? ` (${r.tries})` : ""}`);
+            const bajas = d.conv.filter((r) => r.partido_id === p.id && r.respuesta === "no_puedo");
+            const k = p.informe ? indicadoresInforme(p.informe) : null;
+            const color = p.res === "Ganado" ? "var(--h-ok)" : p.res === "Perdido" ? "var(--h-error)" : "var(--h-sub)";
+            return (
+              <div key={p.id || p.fecha} style={{ ...cardStyle, padding: "16px 18px", marginBottom: 12, borderLeft: `5px solid ${color}` }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)" }}>{p.cond === "Local" ? "vs" : "en"} {p.rival}</span>
+                  <span style={{ fontSize: 15, fontWeight: 800, color }}>{p.gf ?? "–"}-{p.gc ?? "–"}</span>
+                  <span style={{ fontSize: 12.5, color: "var(--h-sub)" }}>Fecha {p.fecha} · {p.date}</span>
+                </div>
+                <div style={{ fontSize: 14, color: "var(--h-texto)", lineHeight: 1.6, marginTop: 6 }}>
+                  <div style={{ fontWeight: 700, color: "var(--h-sub)", fontSize: 12.5, marginTop: 2 }}>El partido</div>
+                  {k ? (
+                    <div>{k.obtencion !== null ? `Obtención propia ${k.obtencion}% · ` : ""}{k.tackles ? `${k.tackles} tackles · ` : ""}{k.quiebres ? `${k.quiebres} quiebres · ` : ""}{k.penales} penales en contra · {k.perdidas} pelotas perdidas.</div>
+                  ) : <div style={{ color: "var(--h-sub)" }}>Todavía no tiene análisis cargado.</div>}
+                  {(top && tacklesDe(top) > 0) || tryman.length ? (
+                    <div>{tryman.length ? `Tries: ${tryman.join(", ")}. ` : ""}{top && tacklesDe(top) > 0 ? `Más tackles: ${nombreDe(top.jugador_id)} (${tacklesDe(top)}).` : ""}</div>
+                  ) : null}
+                  {bajas.length > 0 && <div>No pudieron jugar: {bajas.map((r) => `${nombreDe(r.jugador_id)}${r.motivo ? ` (${r.motivo})` : ""}`).join(", ")}.</div>}
+                  <div style={{ fontWeight: 700, color: "var(--h-sub)", fontSize: 12.5, marginTop: 8 }}>El postpartido</div>
+                  <div>
+                    {pd === null ? "Sin wellness cargado los dos días siguientes." : <>Wellness de los dos días siguientes: <b>{pd}%</b>{pa !== null && <> (la semana previa venía en {pa}%{pd - pa !== 0 && <span style={{ color: pd > pa ? "var(--h-ok)" : "var(--h-error)", fontWeight: 700 }}> {pd > pa ? "▲" : "▼"} {Math.abs(pd - pa)}</span>})</>}.</>}
+                  </div>
+                  <div>{lesP.length ? `Lesiones: ${lesP.map((x) => `${x.jugadores?.nombre || "—"} (${(x.zona || "").toLowerCase()})`).join(", ")}.` : "Sin lesiones nuevas."}</div>
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ResumenesPage({ perfil }) {
+  const [tab, setTab] = useState("semana");
+  if (!esStaff(perfil)) return <div style={{ ...cardStyle, padding: "18px", fontSize: 14, color: "var(--h-sub)" }}>Los resúmenes son para el staff del club.</div>;
+  return (
+    <div>
+      <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 4 }}>Resúmenes</div>
+      <div style={{ fontSize: 13.5, color: "var(--h-sub)", marginBottom: 12 }}>La semana de entrenamiento y los partidos del mes, cada uno por separado.</div>
+      <div role="tablist" style={{ display: "flex", gap: 22, borderBottom: "1px solid var(--h-borde)", marginBottom: 16 }}>
+        {[["semana", "La semana"], ["mes", "Partidos del mes"]].map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} style={{ background: "transparent", border: "none", borderBottom: "3px solid " + (tab === k ? "var(--h-club)" : "transparent"), padding: "8px 0", marginBottom: -1, fontSize: 15, fontWeight: tab === k ? 700 : 500, color: tab === k ? "var(--h-texto)" : "var(--h-sub)", cursor: "pointer" }}>{l}</button>
+        ))}
+      </div>
+      {tab === "semana" ? <ResumenSemana /> : <ResumenMes />}
+    </div>
+  );
+}
+
 function ReportesPage({ perfil }) {
   const [vista, setVista] = useState("temporada");
   const tabs = [
@@ -8931,6 +9173,8 @@ const NOTI_DESTINO = {
   convocatoria_baja: "equipos",
   alerta_wellness: "wellness",
   alerta_lesion: "disponibilidad",
+  resumen_semanal: "resumenes",
+  resumen_mensual: "resumenes",
   sesion_planificada: "sesion",
   video_partido: "veo",
   informe_partido: "reportes",
@@ -9161,6 +9405,8 @@ function ObrasHub({ perfil }) {
           <WellnessPage perfil={perfil} />
         ) : active === "rtp" ? (
           <EstadoPlantelPage perfil={perfil} />
+        ) : active === "resumenes" ? (
+          <ResumenesPage perfil={perfil} />
         ) : active === "reportes" ? (
           <ReportesPage perfil={perfil} />
         ) : active === "videoteca" ? (
