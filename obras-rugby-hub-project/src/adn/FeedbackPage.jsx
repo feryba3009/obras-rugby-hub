@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 
-// Feedback del encargado del Hub para ADN Sports. Se guarda en la base del Hub y el panel de
+// Feedback del encargado de la app para ADN Sports. Se guarda en la base de la app y el panel de
 // ADN lo lee con su token; las respuestas de ADN vuelven acá y llegan como notificación.
 
 const C = {

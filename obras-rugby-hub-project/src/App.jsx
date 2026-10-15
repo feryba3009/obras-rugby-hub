@@ -4,7 +4,7 @@ import { CLUB_SLUG, useClub, iniciales } from "./adn/club";
 import VideotecaPage, { extraerYoutubeId } from "./adn/VideotecaPage";
 import FeedbackPage from "./adn/FeedbackPage";
 
-// Conexión a Supabase (proyecto "HUB RUGBY"). Vive en src/adn/supabaseClient.js; se re-exporta
+// Conexión a Supabase. Vive en src/adn/supabaseClient.js; se re-exporta
 // acá para que el resto del código lo siga importando como antes.
 export { supabase };
 
@@ -58,9 +58,24 @@ const NAV = [
   },
 ];
 
-const CONFIG_ITEM = { key: "configuracion", label: "Configuración", icono: "configuracion" };
+const CONFIG_ITEM = { key: "configuracion", label: "Ajustes", icono: "configuracion" };
 
-// Íconos de línea propios del Hub (24×24, trazo 1.8).
+// Botón redondo de Ajustes (va arriba, al lado de la campana).
+function BotonAjustes({ activo, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label="Ajustes"
+      title="Ajustes"
+      aria-current={activo ? "page" : undefined}
+      style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid var(--h-borde)", background: activo ? "var(--h-club)" : "transparent", color: activo ? "var(--h-club-txt)" : "var(--h-texto2)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
+    >
+      <Icono nombre="configuracion" size={18} />
+    </button>
+  );
+}
+
+// Íconos de línea propios  de la app (24×24, trazo 1.8).
 const ICONOS = {
   inicio: "M3 11l9-7 9 7M5 10v10h5v-6h4v6h5V10",
   calendario: "M4 5h16v15H4zM4 9h16M9 3v4M15 3v4M8 13h3v3H8z",
@@ -89,7 +104,7 @@ function Icono({ nombre, size = 20 }) {
   );
 }
 
-// Insignia de ADN Sports (hélice en círculo verde) para la firma del Hub.
+// Insignia de ADN Sports (hélice en círculo verde) para la firma  de la app.
 function InsigniaADN({ size = 18 }) {
   return (
     <span style={{ width: size, height: size, borderRadius: "50%", background: "#1FA37A", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -6631,13 +6646,6 @@ function EstadoPlantelPage({ perfil }) {
     </div>
   );
 
-  const zonas = {};
-  POOL.forEach((j) => {
-    [j.zona, ...(j.historial || [])].forEach((t) => {
-      ["Rodilla", "Tobillo", "Hombro", "Muslo", "Isquiotibial", "Cadera", "Espalda", "Cabeza"].forEach((z) => { if (t && t.includes(z)) zonas[z] = (zonas[z] || 0) + 1; });
-    });
-  });
-
   return (
     <div>
       <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 12 }}>Estado del plantel</div>
@@ -6716,11 +6724,6 @@ function EstadoPlantelPage({ perfil }) {
           ))}
       </Seccion>
 
-      {Object.keys(zonas).length > 0 && (
-        <div style={{ fontSize: 12.5, color: "var(--h-sub)" }}>
-          Zonas que más se repiten: {Object.entries(zonas).sort((a, b) => b[1] - a[1]).map(([z, n]) => `${z} (${n})`).join(" · ")}
-        </div>
-      )}
     </div>
   );
 }
@@ -6732,7 +6735,7 @@ const CONFIG_TABS = [
   { key: "escudos", label: "Escudos de rivales", icon: "", admin: true },
   { key: "apariencia", label: "Apariencia y preferencias", icon: "" },
   { key: "instalar", label: "Instalar la app", icon: "" },
-  { key: "evaluaciones-cfg", label: "Evaluaciones del jugador", icon: "", admin: true },
+  { key: "evaluaciones-cfg", label: "Tests físicos", icon: "", admin: true },
   { key: "metricas", label: "Métricas", icon: "", admin: true },
   { key: "notificaciones", label: "Notificaciones", icon: "" },
 ];
@@ -6834,7 +6837,7 @@ function PanelPerfil({ perfil }) {
     setSubiendo(false);
     if (url) {
       setAvatarUrl(url);
-      perfil.avatar_url = url; // mismo objeto que usa el resto del Hub, así queda al día sin recargar
+      perfil.avatar_url = url; // mismo objeto que usa el resto  de la app, así queda al día sin recargar
     }
   }
 
@@ -7417,7 +7420,7 @@ function PanelEvaluacionesCfg() {
   });
   return (
     <div>
-      <ConfigTitulo sub="Cómo se cargan y se muestran las evaluaciones físicas.">Evaluaciones del jugador</ConfigTitulo>
+      <ConfigTitulo sub="Cómo se cargan y se muestran las evaluaciones físicas.">Tests físicos</ConfigTitulo>
       <label style={labelStyle}>FRECUENCIA SUGERIDA DE TESTEO</label>
       <select style={inputStyle} defaultValue="Mensual">
         <option style={{ background: "var(--h-campo)" }}>Mensual</option>
@@ -7564,7 +7567,7 @@ function ConfiguracionPage({ menuPref, setMenuPref, temaPref, setTemaPref, panta
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Configuración</div>
+        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Ajustes</div>
         <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>Tu cuenta y preferencias en la app.</div>
       </div>
 
@@ -7997,9 +8000,9 @@ function CaminoAlPartido({ proximo, onNavigate }) {
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
   const fecha = fechaDesdeDisplay(proximo.date);
   const faltan = fecha ? Math.round((fecha - hoy) / 86400000) : null;
-  const cuando = faltan === 0 ? "Hoy" : faltan === 1 ? "Mañana" : faltan > 1 ? `En ${faltan} días` : "Próximo";
+  const cuando = faltan === 0 ? "Hoy se juega" : faltan === 1 ? "Mañana se juega" : faltan > 1 ? `Se juega en ${faltan} días` : "Lo que viene";
   return (
-    <section style={caja} aria-label="Próximo partido">
+    <section style={caja} aria-label="El partido que viene">
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <span style={{ background: "#fff", borderRadius: "50%", padding: 3, display: "inline-flex" }}><Shield size={34} /></span>
@@ -8007,7 +8010,7 @@ function CaminoAlPartido({ proximo, onNavigate }) {
           <TeamBadge name={proximo.rival} size={40} />
         </div>
         <div style={{ flex: 1, minWidth: 160 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>Próximo partido · {cuando}</div>
+          <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>{cuando}</div>
           <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, lineHeight: 1.05 }}>{proximo.rival}</div>
           <div style={{ fontSize: 13, opacity: 0.85, marginTop: 2 }}>Fecha {proximo.fecha} · {proximo.date} · {proximo.cond}</div>
         </div>
@@ -8091,7 +8094,7 @@ function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setCargando(false);
     if (error) setMensaje(error.message);
-    // Si no hay error, el listener de sesión en AppRoot te lleva solo al HUB.
+    // Si no hay error, el listener de sesión en AppRoot te lleva solo  a la app.
   }
 
   async function handleRegistro() {
@@ -8135,7 +8138,7 @@ function LoginPage() {
       setMensaje("¡Cuenta creada! Revisá tu email para confirmarla y después iniciá sesión.");
       setModo("ingresar");
     }
-    // Si Supabase ya devolvió sesión activa, el listener en AppRoot te lleva directo al HUB.
+    // Si Supabase ya devolvió sesión activa, el listener en AppRoot te lleva directo  a la app.
   }
 
   return (
@@ -8475,7 +8478,7 @@ export default function AppRoot() {
   useEffect(() => {
     const userId = sesion?.user?.id || null;
     // Supabase renueva el token de sesión solo cada tanto (y dispara este evento) sin que
-    // cambie el usuario — antes eso recargaba todo el HUB y te devolvía a "Hoy". Ahora solo
+    // cambie el usuario — antes eso recargaba todo  la app y te devolvía a "Hoy". Ahora solo
     // recargamos cuando el usuario logueado realmente cambia (login/logout/otra cuenta).
     if (userId === userIdCargado.current) return;
     userIdCargado.current = userId;
@@ -8590,7 +8593,7 @@ function BotonNav({ item, activo, onClick, grande }) {
 
 function TituloGrupo({ children }) {
   return (
-    <div style={{ fontFamily: "var(--h-titulo)", fontSize: 12, fontWeight: 700, color: "var(--h-sub)", letterSpacing: "0.14em", textTransform: "uppercase", padding: "0 10px 6px" }}>
+    <div style={{ fontFamily: "var(--h-titulo)", fontSize: 14, fontWeight: 800, color: "var(--h-texto)", padding: "0 10px 4px" }}>
       {children}
     </div>
   );
@@ -8619,7 +8622,8 @@ function MasMenu({ onSelect, onClose, active }) {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <span style={{ fontSize: 22, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Menú</span>
+          <span style={{ fontSize: 22, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", flex: 1 }}>Menú</span>
+          <BotonAjustes activo={active === CONFIG_ITEM.key} onClick={() => onSelect(CONFIG_ITEM.key)} />
           <button onClick={onClose} aria-label="Cerrar" style={{ background: "transparent", border: "none", color: "var(--h-sub)", fontSize: 24, cursor: "pointer", minWidth: 44, minHeight: 44 }}>
             ×
           </button>
@@ -8632,8 +8636,6 @@ function MasMenu({ onSelect, onClose, active }) {
             ))}
           </div>
         ))}
-        <div style={{ borderTop: "1px solid var(--h-borde)", margin: "6px 0 10px" }} />
-        <BotonNav item={CONFIG_ITEM} grande activo={active === CONFIG_ITEM.key} onClick={() => onSelect(CONFIG_ITEM.key)} />
         <FirmaADN />
       </div>
     </div>
@@ -8823,7 +8825,10 @@ function ObrasHub({ perfil }) {
               <InsigniaADN size={34} />
               <NombreHub />
             </div>
-            <CampanaNotificaciones perfil={perfil} align="left" onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <CampanaNotificaciones perfil={perfil} align="left" onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
+              <BotonAjustes activo={active === CONFIG_ITEM.key} onClick={() => setActive(CONFIG_ITEM.key)} />
+            </div>
           </div>
 
           {NAV.map((g) => (
@@ -8835,8 +8840,6 @@ function ObrasHub({ perfil }) {
             </div>
           ))}
 
-          <div style={{ borderTop: "1px solid var(--h-borde)", margin: "4px 6px 8px" }} />
-          <BotonNav item={CONFIG_ITEM} activo={active === CONFIG_ITEM.key} onClick={() => setActive(CONFIG_ITEM.key)} />
           <div style={{ marginTop: "auto" }}>
             <FirmaADN />
           </div>
