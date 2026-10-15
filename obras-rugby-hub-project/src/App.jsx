@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { supabase } from "./adn/supabaseClient";
+import { supabase, mantenerSesion, setMantenerSesion } from "./adn/supabaseClient";
 import { CLUB_SLUG, useClub, iniciales } from "./adn/club";
 import VideotecaPage, { extraerYoutubeId } from "./adn/VideotecaPage";
 import FeedbackPage from "./adn/FeedbackPage";
@@ -8909,6 +8909,25 @@ function LoginPage() {
   const [posicionNueva, setPosicionNueva] = useState("Centro");
   const [mensaje, setMensaje] = useState("");
   const [cargando, setCargando] = useState(false);
+  const [mantener, setMantener] = useState(mantenerSesion());
+  const [recuperando, setRecuperando] = useState(false); // "¿Olvidaste tu contraseña?"
+  const [avisoOk, setAvisoOk] = useState("");
+
+  async function handleRecuperar() {
+    setMensaje(""); setAvisoOk("");
+    if (!email.trim()) { setMensaje("Escribí el email con el que te registraste."); return; }
+    setCargando(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin });
+    setCargando(false);
+    if (error) {
+      const m = (error.message || "").toLowerCase();
+      setMensaje(m.includes("rate limit") || error.status === 429
+        ? "Se pidieron muchos links seguidos. Esperá un rato y probá de nuevo."
+        : "No se pudo enviar el link. Revisá el email y probá de nuevo.");
+      return;
+    }
+    setAvisoOk("Listo. Si ese email tiene cuenta, te llega un link para elegir una contraseña nueva (mirá también en Correo no deseado).");
+  }
 
   useEffect(() => {
     // Lista para el selector de registro — no requiere estar logueado. Viene de una función de
@@ -8927,6 +8946,7 @@ function LoginPage() {
   async function handleIngresar() {
     setMensaje("");
     setCargando(true);
+    setMantenerSesion(mantener);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setCargando(false);
     if (error) {
@@ -9071,12 +9091,48 @@ function LoginPage() {
             </button>
           </div>
 
-          {modo === "ingresar" ? (
+          {modo === "ingresar" && recuperando ? (
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "var(--h-texto)", marginBottom: 4 }}>Recuperar contraseña</div>
+              <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 6 }}>
+                Escribí tu email y te mandamos un link para elegir una contraseña nueva.
+              </div>
+              <label style={labelStyle}>Email</label>
+              <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@email.com" />
+              {mensaje && <div style={{ color: "var(--h-error)", fontSize: 12.5, marginTop: 10 }}>{mensaje}</div>}
+              {avisoOk && <div style={{ color: "var(--h-ok)", fontSize: 13, marginTop: 10 }}>{avisoOk}</div>}
+              <button type="button" onClick={handleRecuperar} disabled={cargando} style={buttonStyle}>
+                {cargando ? "Enviando…" : "Enviarme el link"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setRecuperando(false); setMensaje(""); setAvisoOk(""); }}
+                style={{ background: "none", border: "none", color: "var(--h-acento)", fontSize: 13.5, fontWeight: 600, marginTop: 14, cursor: "pointer", padding: 0 }}
+              >
+                ← Volver a ingresar
+              </button>
+            </div>
+          ) : modo === "ingresar" ? (
             <div>
               <label style={labelStyle}>Email</label>
               <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@email.com" />
               <label style={labelStyle}>Contraseña</label>
-              <input type="password" style={inputStyle} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+              <input type="password" style={inputStyle} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••"
+                onKeyDown={(e) => { if (e.key === "Enter") handleIngresar(); }} />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: "var(--h-texto2)", cursor: "pointer" }}>
+                  <input type="checkbox" checked={mantener} onChange={(e) => setMantener(e.target.checked)}
+                    style={{ width: 18, height: 18, accentColor: "var(--h-acento)", margin: 0 }} />
+                  Mantener la sesión abierta
+                </label>
+                <button
+                  type="button"
+                  onClick={() => { setRecuperando(true); setMensaje(""); setAvisoOk(""); }}
+                  style={{ background: "none", border: "none", color: "var(--h-acento)", fontSize: 13.5, fontWeight: 600, cursor: "pointer", padding: 0 }}
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
               {mensaje && <div style={{ color: "var(--h-error)", fontSize: 12.5, marginTop: 10 }}>{mensaje}</div>}
               <button type="button" onClick={handleIngresar} disabled={cargando} style={buttonStyle}>
                 {cargando ? "Ingresando…" : "Ingresar"}
@@ -9338,19 +9394,61 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+function NuevaContrasenaPage({ onListo }) {
+  const [p1, setP1] = useState("");
+  const [p2, setP2] = useState("");
+  const [msg, setMsg] = useState("");
+  const [cargando, setCargando] = useState(false);
+  async function guardar() {
+    setMsg("");
+    if (p1.length < 6) { setMsg("La contraseña tiene que tener al menos 6 caracteres."); return; }
+    if (p1 !== p2) { setMsg("Las contraseñas no coinciden."); return; }
+    setCargando(true);
+    const { error } = await supabase.auth.updateUser({ password: p1 });
+    setCargando(false);
+    if (error) {
+      const m = (error.message || "").toLowerCase();
+      setMsg(m.includes("different") || m.includes("same") ? "Elegí una contraseña distinta a la anterior." : "No se pudo guardar. Probá de nuevo o pedí otro link.");
+      return;
+    }
+    try { window.history.replaceState(null, "", window.location.pathname); } catch { /* nada */ }
+    onListo();
+  }
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--h-fondo)", padding: 24 }}>
+      <div style={{ ...cardStyle, maxWidth: 380, width: "100%", padding: "28px 26px" }}>
+        <div style={{ fontSize: 17, color: "var(--h-texto)", fontWeight: 700, marginBottom: 6 }}>Elegí tu contraseña nueva</div>
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 6 }}>Después entrás directo a la app.</div>
+        <label style={labelStyle}>Contraseña nueva</label>
+        <input type="password" style={inputStyle} value={p1} onChange={(e) => setP1(e.target.value)} placeholder="••••••••" />
+        <label style={labelStyle}>Repetir contraseña</label>
+        <input type="password" style={inputStyle} value={p2} onChange={(e) => setP2(e.target.value)} placeholder="••••••••"
+          onKeyDown={(e) => { if (e.key === "Enter") guardar(); }} />
+        {msg && <div style={{ color: "var(--h-error)", fontSize: 12.5, marginTop: 10 }}>{msg}</div>}
+        <button type="button" onClick={guardar} disabled={cargando} style={buttonStyle}>
+          {cargando ? "Guardando…" : "Guardar y entrar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function AppRoot() {
   const [sesion, setSesion] = useState(null); // null = todavía no se sabe, undefined-like inicial
   const [chequeandoSesion, setChequeandoSesion] = useState(true);
   const [datosListos, setDatosListos] = useState(false);
   const [perfil, setPerfil] = useState(null);
   const userIdCargado = React.useRef(null);
+  // Entró desde el link de "Olvidé mi contraseña": primero elige la nueva.
+  const [nuevaClave, setNuevaClave] = useState(() => typeof window !== "undefined" && /type=recovery/.test(window.location.hash));
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSesion(data.session);
       setChequeandoSesion(false);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nuevaSesion) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((evento, nuevaSesion) => {
+      if (evento === "PASSWORD_RECOVERY") setNuevaClave(true);
       setSesion(nuevaSesion);
     });
     return () => listener.subscription.unsubscribe();
@@ -9380,6 +9478,7 @@ export default function AppRoot() {
   }, [sesion]);
 
   if (chequeandoSesion) return <PantallaCarga />;
+  if (sesion && nuevaClave) return <NuevaContrasenaPage onListo={() => setNuevaClave(false)} />;
   if (!sesion) return <LoginPage />;
   if (!datosListos) return <PantallaCarga />;
   if (perfil?.bloqueado) {
@@ -9406,8 +9505,8 @@ export default function AppRoot() {
         <div style={{ ...cardStyle, maxWidth: 380, padding: "28px 26px", textAlign: "center" }}>
           <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 600, marginBottom: 8 }}>Cuenta pendiente de aprobación</div>
           <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 18 }}>
-            Ya confirmaste tu email — ahora falta que el manager del club apruebe tu cuenta desde su panel. Te
-            avisamos apenas puedas entrar.
+            Tu cuenta ya está creada. Ahora falta que el staff del club (Manager o Cuerpo técnico) la apruebe.
+            Te avisamos apenas puedas entrar.
           </div>
           <button
             onClick={() => supabase.auth.signOut()}
