@@ -6407,12 +6407,24 @@ function JugadorEnCancha({ slot, info, editMode, onClick, colores }) {
       <span style={{ position: "relative" }}>
         <Camiseta numero={slot.numero} color={colores.club} txt={colores.txt} vacia={!j} />
         {j && <span style={{ position: "absolute", top: 0, right: -2, width: 11, height: 11, borderRadius: "50%", background: COLOR_ESTADO[estado], border: "2px solid #fff" }} />}
+        {j && <MarcaRespuesta r={info.respuestas?.[j.dbId]} style={{ position: "absolute", bottom: 4, left: -4 }} />}
       </span>
       <span style={{ marginTop: 2, fontSize: 11.5, fontWeight: 700, color: "#fff", textShadow: "0 1px 2px rgba(0,0,0,0.6)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 78 }}>
         {j ? apellido(j.id) : editMode ? "Elegir" : "Vacante"}
       </span>
       {j && w !== undefined && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.85)" }}>{w}%</span>}
     </button>
+  );
+}
+
+// Marca de la respuesta a la convocatoria: tilde verde (va) o cruz roja (no puede).
+function MarcaRespuesta({ r, style }) {
+  if (!r) return null;
+  const va = r.respuesta === "voy";
+  return (
+    <span title={va ? "Confirmó que va" : `No puede${r.motivo ? `: ${r.motivo}` : ""}`} style={{ width: 17, height: 17, borderRadius: "50%", background: va ? "var(--h-ok)" : "var(--h-error)", color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "2px solid #fff", lineHeight: 1, ...style }}>
+      {va ? "✓" : "✕"}
+    </span>
   );
 }
 
@@ -6458,6 +6470,7 @@ function FilaCamiseta({ slot, info, editMode, onClick }) {
       </span>
       {j && (
         <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, fontSize: 12, color: "var(--h-sub)" }}>
+          <MarcaRespuesta r={info.respuestas?.[j.dbId]} />
           {w !== undefined && <span>{w}%</span>}
           <span style={{ width: 10, height: 10, borderRadius: "50%", background: COLOR_ESTADO[estado] }} title={estado} />
         </span>
@@ -6567,6 +6580,95 @@ async function imagenFormacion({ cat, lineup, partido, clubNombre, colores }) {
   return await new Promise((ok) => canvas.toBlob(ok, "image/png"));
 }
 
+// ───────── Confirmación de la convocatoria ("Voy" / "No puedo") ─────────
+const ROLES_STAFF_AVISOS = ["Cuerpo técnico", "Manager", "Cuerpo médico"];
+async function cargarRespuestasConvocatoria(partidoId) {
+  if (!partidoId) return {};
+  const { data, error } = await supabase.from("convocatoria_respuestas").select("jugador_id, respuesta, motivo, updated_at").eq("partido_id", partidoId);
+  if (error) { console.error("Error cargando respuestas de la convocatoria:", error); return {}; }
+  return Object.fromEntries((data || []).map((r) => [r.jugador_id, r]));
+}
+async function responderConvocatoria(partidoId, jugadorDbId, respuesta, motivo) {
+  const { error } = await supabase.from("convocatoria_respuestas").upsert(
+    { partido_id: partidoId, jugador_id: jugadorDbId, respuesta, motivo: motivo || null, updated_at: new Date().toISOString() },
+    { onConflict: "partido_id,jugador_id" }
+  );
+  if (error) console.error("Error guardando la respuesta:", error);
+  return !error;
+}
+// Dónde está convocado el jugador logueado (categoría, camiseta y el partido que viene).
+function miConvocatoria(perfil) {
+  if (!perfil?.jugador_id) return null;
+  const yo = POOL.find((j) => j.dbId === perfil.jugador_id);
+  if (!yo) return null;
+  for (const cat of ["Superior", "Intermedia"]) {
+    const slot = (LINEUPS_INICIALES[cat] || []).find((sl) => sl.jugadorId === yo.id);
+    const partido = (PROXIMOS[cat.toLowerCase()] || [])[0];
+    if (slot && partido?.id) return { cat, slot, partido, yo };
+  }
+  return null;
+}
+
+function TarjetaConvocatoria({ perfil, onNavigate }) {
+  const mia = miConvocatoria(perfil);
+  const [resp, setResp] = useState(undefined); // undefined = cargando, null = sin responder
+  const [pidiendoMotivo, setPidiendoMotivo] = useState(false);
+  const [motivo, setMotivo] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const partidoId = mia?.partido.id;
+  useEffect(() => {
+    if (!partidoId) return;
+    cargarRespuestasConvocatoria(partidoId).then((m) => setResp(m[perfil.jugador_id] || null));
+  }, [partidoId]);
+  if (!mia) return null;
+  const { cat, slot, partido, yo } = mia;
+
+  async function responder(r, mot) {
+    setGuardando(true);
+    const ok = await responderConvocatoria(partido.id, perfil.jugador_id, r, mot);
+    setGuardando(false);
+    if (!ok) return;
+    setResp({ respuesta: r, motivo: mot || null });
+    setPidiendoMotivo(false);
+    if (r === "no_puedo") {
+      crearNotificacion("convocatoria_baja", `${yo.id} no puede jugar ${cat} vs ${partido.rival} (camiseta ${slot.numero})${mot ? `: ${mot}` : ""}.`, ROLES_STAFF_AVISOS, perfil?.id);
+    } else if (resp?.respuesta === "no_puedo") {
+      crearNotificacion("convocatoria_baja", `${yo.id} al final sí puede jugar ${cat} vs ${partido.rival}.`, ROLES_STAFF_AVISOS, perfil?.id);
+    }
+  }
+
+  const boton = (activo) => ({ ...pillButton, flex: 1, minHeight: 44, fontSize: 15, fontWeight: 800, border: "2px solid var(--h-club-txt)", background: activo ? "var(--h-club-txt)" : "transparent", color: activo ? "var(--h-club)" : "var(--h-club-txt)" });
+  return (
+    <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 12, background: "var(--h-club)", color: "var(--h-club-txt)", border: "none" }}>
+      <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.85 }}>Estás en el equipo</div>
+      <div style={{ fontSize: 17, fontWeight: 800, marginTop: 2 }}>Camiseta {slot.numero} · {cat} {partido.cond === "Local" ? "vs" : "en"} {partido.rival}</div>
+      <div style={{ fontSize: 13, opacity: 0.85 }}>{partido.date}{slot.puesto ? ` · ${slot.puesto}` : ""}</div>
+      {resp === undefined ? null : pidiendoMotivo ? (
+        <div style={{ marginTop: 10 }}>
+          <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="¿Por qué? (opcional)" style={{ ...inputStyle, marginBottom: 8 }} autoFocus />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setPidiendoMotivo(false)} style={boton(false)}>Volver</button>
+            <button onClick={() => responder("no_puedo", motivo.trim())} disabled={guardando} style={boton(true)}>{guardando ? "Avisando…" : "Avisar al staff"}</button>
+          </div>
+        </div>
+      ) : resp ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 15, fontWeight: 800 }}>{resp.respuesta === "voy" ? "Confirmaste que vas." : `Avisaste que no podés${resp.motivo ? ` (${resp.motivo})` : ""}.`}</span>
+          <button onClick={() => (resp.respuesta === "voy" ? setPidiendoMotivo(true) : responder("voy"))} disabled={guardando} style={{ ...pillButton, fontSize: 12.5, border: "1px solid var(--h-club-txt)", background: "transparent", color: "var(--h-club-txt)" }}>
+            {resp.respuesta === "voy" ? "Al final no puedo" : "Al final sí voy"}
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <button onClick={() => responder("voy")} disabled={guardando} style={boton(true)}>Voy</button>
+          <button onClick={() => setPidiendoMotivo(true)} disabled={guardando} style={boton(false)}>No puedo</button>
+        </div>
+      )}
+      <button onClick={() => onNavigate("equipos")} style={{ background: "none", border: "none", color: "var(--h-club-txt)", opacity: 0.85, fontSize: 12.5, padding: 0, marginTop: 10, cursor: "pointer" }}>Ver el equipo →</button>
+    </div>
+  );
+}
+
 function EquiposPage({ perfil }) {
   const club = useClub();
   const [cat, setCat] = useState("Superior");
@@ -6582,9 +6684,23 @@ function EquiposPage({ perfil }) {
     cargarWellnessHistorial(1).then((d) => setWellness(Object.fromEntries(d.hoy.map((x) => [x.jugadorId, x.pct]))));
   }, []);
 
-  const info = { wellness };
   const lineup = lineups[cat] || [];
   const partido = (PROXIMOS[cat.toLowerCase()] || [])[0] || null;
+  const [respuestas, setRespuestas] = useState({});
+  useEffect(() => {
+    setRespuestas({});
+    if (partido?.id) cargarRespuestasConvocatoria(partido.id).then(setRespuestas);
+  }, [partido?.id]);
+  const info = { wellness, respuestas };
+  const convocadosJ = lineup.filter((sl) => sl.jugadorId).map((sl) => ({ sl, j: POOL.find((p) => p.id === sl.jugadorId) })).filter((x) => x.j?.dbId);
+  const vanJ = convocadosJ.filter((x) => respuestas[x.j.dbId]?.respuesta === "voy");
+  const noPuedenJ = convocadosJ.filter((x) => respuestas[x.j.dbId]?.respuesta === "no_puedo");
+  const faltanResponder = convocadosJ.filter((x) => !respuestas[x.j.dbId]);
+  async function recordar() {
+    await crearNotificacion("convocatoria", `Recordá confirmar si vas a jugar ${cat}${partido ? ` vs ${partido.rival}` : ""}: entrá a la app y tocá Voy o No puedo.`, ["Jugador"], perfil?.id, faltanResponder.map((x) => x.j.dbId));
+    setAviso(`Listo: se le recordó a ${faltanResponder.length} ${faltanResponder.length === 1 ? "jugador" : "jugadores"}.`);
+    setTimeout(() => setAviso(""), 4000);
+  }
   const bySlot = (n) => lineup.find((s) => s.numero === n);
   const faltan = Array.from({ length: 15 }, (_, i) => i + 1).filter((n) => !bySlot(n)?.jugadorId);
   const otraCat = cat === "Superior" ? "Intermedia" : "Superior";
@@ -6612,7 +6728,7 @@ function EquiposPage({ perfil }) {
     const cuando = partido ? ` (${partido.date})` : "";
     const convocados = lineup.filter((s) => s.jugadorId).map((s) => ({ s, j: POOL.find((p) => p.id === s.jugadorId) })).filter((x) => x.j?.dbId);
     await Promise.all(convocados.map(({ s, j }) =>
-      crearNotificacion("convocatoria", `Estás convocado a ${cat}${rival}${cuando}, camiseta ${s.numero}.`, ["Jugador"], perfil?.id, [j.dbId])
+      crearNotificacion("convocatoria", `Estás convocado a ${cat}${rival}${cuando}, camiseta ${s.numero}. Entrá y confirmá si vas.`, ["Jugador"], perfil?.id, [j.dbId])
     ));
     crearNotificacion("formacion_confirmada", `Equipo de ${cat}${rival} publicado.`, ["Cuerpo técnico", "Manager", "Cuerpo médico"], perfil?.id);
     setEditMode(false);
@@ -6687,6 +6803,28 @@ function EquiposPage({ perfil }) {
       </div>
 
       {aviso && <div style={{ fontSize: 13, color: aviso.startsWith("No") ? "var(--h-error)" : "var(--h-ok)", marginBottom: 10 }}>{aviso}</div>}
+      {partido?.id && convocadosJ.length > 0 && (vanJ.length + noPuedenJ.length > 0 || staff) && (
+        <div style={{ ...cardStyle, padding: "12px 16px", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ flex: 1, fontSize: 14.5, color: "var(--h-texto)" }}>
+              <b>{vanJ.length}</b> confirmaron · <b style={{ color: noPuedenJ.length ? "var(--h-error)" : undefined }}>{noPuedenJ.length}</b> no pueden · <b>{faltanResponder.length}</b> sin responder
+            </span>
+            {staff && faltanResponder.length > 0 && (
+              <button onClick={recordar} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)", fontSize: 12.5 }}>Recordar a los que faltan</button>
+            )}
+          </div>
+          {noPuedenJ.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 13.5, color: "var(--h-texto)", lineHeight: 1.6 }}>
+              {noPuedenJ.map(({ sl, j }) => (
+                <div key={sl.numero}><b style={{ color: "var(--h-error)" }}>{sl.numero}</b> {j.id}{respuestas[j.dbId].motivo ? <span style={{ color: "var(--h-sub)" }}> · {respuestas[j.dbId].motivo}</span> : ""}</div>
+              ))}
+            </div>
+          )}
+          {staff && faltanResponder.length > 0 && faltanResponder.length <= 10 && (
+            <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--h-sub)" }}>Faltan: {faltanResponder.map((x) => apellido(x.j.id)).join(", ")}</div>
+          )}
+        </div>
+      )}
       {faltan.length > 0 && (
         <div style={{ ...cardStyle, padding: "10px 14px", marginBottom: 12, borderLeft: "4px solid var(--h-alerta)", fontSize: 13.5, color: "var(--h-texto)" }}>
           Falta cubrir {faltan.length === 1 ? "la camiseta" : "las camisetas"} <b>{faltan.join(", ")}</b>. Del 1 al 15 es obligatorio; los suplentes son opcionales.
@@ -6724,7 +6862,7 @@ function EquiposPage({ perfil }) {
         {Object.entries(COLOR_ESTADO).map(([k, c]) => (
           <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: c }} />{k}</span>
         ))}
-        <span>· El % es el wellness de hoy.</span>
+        <span>· El % es el wellness de hoy · ✓ confirmó que va · ✕ no puede.</span>
       </div>
 
       {eligiendo && (
@@ -7977,16 +8115,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
         </div>
       </div>
 
-      {convocatoria && (
-        <button
-          onClick={() => onNavigate("equipos")}
-          style={{ ...cardStyle, width: "100%", textAlign: "left", cursor: "pointer", padding: "14px 16px", marginBottom: 12, background: "var(--h-club)", color: "var(--h-club-txt)", border: "none", fontFamily: "var(--h-texto-fuente)" }}
-        >
-          <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85, textTransform: "uppercase", letterSpacing: "0.1em" }}>Estás en el equipo</div>
-          <div style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{sinEmojis(convocatoria.mensaje)}</div>
-          <div style={{ fontSize: 12.5, opacity: 0.85, marginTop: 4 }}>Ver el equipo →</div>
-        </button>
-      )}
+      {convocatoria && <TarjetaConvocatoria perfil={perfil} onNavigate={onNavigate} />}
 
       {/* Lo de todos los días: wellness, gimnasio y práctica, a un toque */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 14 }}>
@@ -8798,6 +8927,8 @@ const NOTI_DESTINO = {
   resultado_cargado: "calendario",
   partido_agregado: "calendario",
   formacion_confirmada: "equipos",
+  convocatoria: "hoy",
+  convocatoria_baja: "equipos",
   sesion_planificada: "sesion",
   video_partido: "veo",
   informe_partido: "reportes",
