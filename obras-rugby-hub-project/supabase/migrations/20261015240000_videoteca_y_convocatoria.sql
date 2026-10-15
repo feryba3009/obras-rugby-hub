@@ -25,3 +25,22 @@ begin
 end;
 $$;
 revoke execute on function public.sync_partidos_liga() from public, anon, authenticated;
+
+-- 3) La obligación de subir videos corre desde que el club empezó a usar la videoteca, no para partidos anteriores.
+alter table public.torneos add column if not exists videoteca_desde date;
+
+create or replace function public.videos_vencidos(p_club uuid, p_torneo uuid)
+returns integer language sql stable security definer set search_path to 'public' as $function$
+  select count(*)::int
+  from public.partidos_liga pl
+  join public.torneos t on t.id = pl.torneo_id
+  where pl.torneo_id = p_torneo
+    and pl.estado = 'Jugado'
+    and p_club in (pl.local_club_id, pl.visitante_club_id)
+    and pl.fecha >= coalesce(t.videoteca_desde, '-infinity'::date)
+    and public.plazo_video(pl.fecha) < current_date
+    and not exists (select 1 from public.videos_partido v where v.partido_liga_id = pl.id and v.club_id = p_club)
+$function$;
+
+update public.torneos set videoteca_desde = date '2026-10-15'
+ where temporada = '2026' and division = 'Desarrollo' and videoteca_desde is null;
