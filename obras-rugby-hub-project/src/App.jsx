@@ -2055,6 +2055,14 @@ function TiraSemana({ dia, onDia, habilitado, marcado }) {
   );
 }
 
+// Plan vigente del club (lo que se ve en Gimnasio, en Inicio y en "Tu semana"). Arranca con el de base.
+let PLAN_GYM = PLAN_GYM_INICIAL;
+async function cargarPlanGym() {
+  const { data, error } = await supabase.from("plan_gimnasio_club").select("plan").maybeSingle();
+  if (error) { console.error("Error cargando el plan de gimnasio:", error); return; }
+  if (data?.plan && typeof data.plan === "object") PLAN_GYM = { ...PLAN_GYM_INICIAL, ...data.plan };
+}
+
 function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDeleteEjercicio, onAddEjercicio, onDeleteBloque }) {
   return (
     <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 14, borderLeft: "4px solid var(--h-club)" }}>
@@ -2133,7 +2141,21 @@ function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDele
 }
 
 function GimnasioPage({ perfil }) {
-  const [plan, setPlan] = useState(PLAN_GYM_INICIAL);
+  const [plan, setPlan] = useState(PLAN_GYM);
+  const puedeEditarGym = puedeGestionar(perfil);
+  const [guardandoGym, setGuardandoGym] = useState(false);
+  const [avisoGym, setAvisoGym] = useState("");
+  useEffect(() => { cargarPlanGym().then(() => setPlan(PLAN_GYM)); }, []);
+  async function guardarPlan() {
+    setGuardandoGym(true);
+    const { error } = await supabase.from("plan_gimnasio_club").upsert({ plan, updated_at: new Date().toISOString() }, { onConflict: "club_id" });
+    setGuardandoGym(false);
+    if (error) { console.error("Error guardando el plan:", error); setAvisoGym("No se pudo guardar. Probá de nuevo."); return; }
+    PLAN_GYM = plan;
+    setEditMode(false);
+    setAvisoGym("Plan guardado. Ya lo ve todo el plantel.");
+    setTimeout(() => setAvisoGym(""), 3000);
+  }
   // Abre en el día de gimnasio de hoy si corresponde (lunes, miércoles o viernes).
   const [dia, setDia] = useState(() => {
     const hoy = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date().getDay()];
@@ -2184,13 +2206,13 @@ function GimnasioPage({ perfil }) {
           <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Gimnasio</div>
           <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>{fechaDiaSemana(dia)} · {bloques.reduce((n, b) => n + b.ejercicios.length, 0)} ejercicios</div>
         </div>
-        {editMode ? (
-          <button
-            onClick={() => setEditMode(false)}
-            style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}
-          >
-            Guardar cambios
-          </button>
+        {puedeEditarGym && (editMode ? (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => { setPlan(PLAN_GYM); setEditMode(false); }} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>Cancelar</button>
+            <button onClick={guardarPlan} disabled={guardandoGym} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
+              {guardandoGym ? "Guardando…" : "Guardar cambios"}
+            </button>
+          </div>
         ) : (
           <button
             onClick={() => setEditMode(true)}
@@ -2198,8 +2220,9 @@ function GimnasioPage({ perfil }) {
           >
             Editar
           </button>
-        )}
+        ))}
       </div>
+      {avisoGym && <div style={{ fontSize: 13, color: avisoGym.startsWith("No") ? "var(--h-error)" : "var(--h-ok)", marginBottom: 10 }}>{avisoGym}</div>}
 
       <TiraSemana dia={dia} onDia={setDia} habilitado={(d) => DIAS_GYM.includes(d)} />
 
@@ -8138,6 +8161,133 @@ function Placeholder({ label }) {
   );
 }
 
+// "Tu semana": lo que le toca al jugador de lunes a domingo y qué ya hizo (wellness, gimnasio, práctica, partido).
+const DIAS_ORDEN = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+function TuSemana({ perfil, onNavigate }) {
+  const yoDb = perfil?.jugador_id;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const lunes = new Date(hoy); lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+  const dias = DIAS_ORDEN.map((nombre, i) => { const f = new Date(lunes); f.setDate(lunes.getDate() + i); return { nombre, f, iso: f.toLocaleDateString("sv-SE") }; });
+  const hoyIdx = (hoy.getDay() + 6) % 7;
+  const [sel, setSel] = useState(hoyIdx);
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    if (!yoDb) return;
+    const L = dias[0].iso, D = dias[6].iso;
+    Promise.all([
+      supabase.from("wellness_respuestas").select("fecha, estres, sueno, doms, fatiga, escala").eq("jugador_id", yoDb).gte("fecha", L).lte("fecha", D),
+      supabase.from("registros_gimnasio").select("fecha").eq("jugador_id", yoDb).gte("fecha", L).lte("fecha", D),
+      supabase.from("asistencias").select("fecha, presente").eq("jugador_id", yoDb).gte("fecha", L).lte("fecha", D),
+    ]).then(([w, g, a]) => setD({
+      well: Object.fromEntries((w.data || []).map((r) => [r.fecha, pctWellness(r)])),
+      gym: new Set((g.data || []).map((r) => r.fecha)),
+      asis: Object.fromEntries((a.data || []).map((r) => [r.fecha, r.presente])),
+    }));
+  }, [yoDb]);
+  if (!yoDb) return null;
+
+  const grupo = calcularGrupos().grupo[yoDb] || 1;
+  const mia = miConvocatoria(perfil);
+  const partidoDia = (x) => {
+    if (mia && mia.partido?.date && fechaDesdeDisplay(mia.partido.date)?.toDateString() === x.f.toDateString()) return mia;
+    return null;
+  };
+  const practica = (x) => SESIONES[x.nombre]?.[`grupo${grupo}`] || [];
+  const gym = (x) => (DIAS_GYM.includes(x.nombre) ? PLAN_GYM[x.nombre] || [] : []);
+
+  // Cuentas de la semana (hasta hoy)
+  const pasados = dias.slice(0, hoyIdx + 1);
+  const wHechos = d ? pasados.filter((x) => d.well[x.iso] !== undefined).length : 0;
+  const gymDias = pasados.filter((x) => gym(x).length);
+  const gymHechos = d ? gymDias.filter((x) => d.gym.has(x.iso)).length : 0;
+  const pracDias = pasados.filter((x) => practica(x).length);
+  const pracHechas = d ? pracDias.filter((x) => d.asis[x.iso] === true).length : 0;
+
+  const x = dias[sel];
+  const esPasado = sel < hoyIdx, esHoy = sel === hoyIdx;
+  const pr = practica(x), gy = gym(x), pa = partidoDia(x);
+  const w = d?.well[x.iso];
+  const fila = { display: "flex", gap: 12, alignItems: "flex-start", padding: "10px 0", borderTop: "1px solid var(--h-borde)" };
+  const icono = (n) => <span style={{ width: 34, height: 34, borderRadius: 10, background: "var(--h-acento-suave)", color: "var(--h-club-tinta)", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icono nombre={n} size={18} /></span>;
+  const ok = (t) => <span style={{ color: "var(--h-ok)", fontWeight: 700 }}>✓ {t}</span>;
+  const falta = (t) => <span style={{ color: "var(--h-error)", fontWeight: 700 }}>{t}</span>;
+  const irBtn = (t, k) => <button onClick={() => onNavigate(k)} style={{ ...pillButton, fontSize: 12.5, padding: "6px 12px", background: "var(--h-club)", color: "var(--h-club-txt)", border: "none", marginTop: 6 }}>{t}</button>;
+
+  return (
+    <div style={{ ...cardStyle, padding: "16px 16px 8px", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>Tu semana</span>
+        {d && (
+          <span style={{ fontSize: 12.5, color: "var(--h-sub)" }}>
+            Wellness {wHechos}/{pasados.length}{gymDias.length ? ` · Gimnasio ${gymHechos}/${gymDias.length}` : ""}{pracDias.length ? ` · Prácticas ${pracHechas}/${pracDias.length}` : ""}
+          </span>
+        )}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+        {dias.map((y, i) => {
+          const marcas = [practica(y).length ? "P" : null, gym(y).length ? "G" : null, partidoDia(y) ? "⚑" : null].filter(Boolean);
+          const activo = sel === i;
+          const wOk = d && d.well[y.iso] !== undefined;
+          return (
+            <button key={y.iso} onClick={() => setSel(i)} aria-pressed={activo} aria-label={y.nombre}
+              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "7px 0 6px", borderRadius: 12, border: i === hoyIdx && !activo ? "1px solid var(--h-club)" : "1px solid transparent", cursor: "pointer", background: activo ? "var(--h-club)" : "transparent", color: activo ? "var(--h-club-txt)" : "var(--h-texto)", opacity: i < hoyIdx && !activo ? 0.75 : 1 }}>
+              <span style={{ fontSize: 11, fontWeight: 600 }}>{y.nombre.charAt(0)}</span>
+              <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--h-titulo)", lineHeight: 1.1 }}>{y.f.getDate()}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, minHeight: 13, letterSpacing: 1 }}>{marcas.join("")}</span>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: wOk ? (activo ? "var(--h-club-txt)" : "var(--h-ok)") : "transparent" }} />
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--h-sub)", margin: "6px 2px 4px" }}>P práctica · G gimnasio · ⚑ partido · el punto verde es el wellness cargado</div>
+
+      <div style={{ marginTop: 6 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: "var(--h-texto)", padding: "6px 0" }}>{esHoy ? "Hoy" : x.nombre} {x.f.getDate()}/{x.f.getMonth() + 1}</div>
+        {pa && (
+          <div style={fila}>
+            {icono("equipos")}
+            <div style={{ fontSize: 14, color: "var(--h-texto)" }}>
+              <b>Partido: {pa.cat} {pa.partido.cond === "Local" ? "vs" : "en"} {pa.partido.rival}</b>
+              <div style={{ color: "var(--h-sub)" }}>Camiseta {pa.slot.numero}{pa.slot.puesto ? ` · ${pa.slot.puesto}` : ""}</div>
+            </div>
+          </div>
+        )}
+        {pr.length > 0 && (
+          <div style={fila}>
+            {icono("sesion")}
+            <div style={{ fontSize: 14, color: "var(--h-texto)", flex: 1 }}>
+              <b>Práctica · Grupo {grupo}</b> <span style={{ color: "var(--h-sub)" }}>{pr.reduce((a, f) => a + minutosBloque(f), 0)} min</span>
+              <div style={{ color: "var(--h-sub)" }}>{pr.map((f) => f.c).filter(Boolean).join(" · ")}</div>
+              {esPasado && d && (d.asis[x.iso] === true ? ok("Fuiste") : d.asis[x.iso] === false ? falta("Faltaste") : null)}
+              {esHoy && irBtn("Ver la práctica", "sesion")}
+            </div>
+          </div>
+        )}
+        {gy.length > 0 && (
+          <div style={fila}>
+            {icono("gimnasio")}
+            <div style={{ fontSize: 14, color: "var(--h-texto)", flex: 1 }}>
+              <b>Gimnasio</b> <span style={{ color: "var(--h-sub)" }}>{gy.reduce((a, b) => a + b.ejercicios.length, 0)} ejercicios</span>
+              <div style={{ color: "var(--h-sub)" }}>{gy.map((b) => b.titulo).join(" · ")}</div>
+              {d && (esPasado || esHoy) && (d.gym.has(x.iso) ? ok("Registraste tus cargas") : esPasado ? falta("No registraste cargas") : irBtn("Registrar mis cargas", "gimnasio"))}
+            </div>
+          </div>
+        )}
+        <div style={fila}>
+          {icono("wellness")}
+          <div style={{ fontSize: 14, color: "var(--h-texto)", flex: 1 }}>
+            <b>Wellness</b>
+            <div>
+              {!d ? "…" : w !== undefined ? ok(`Cargado · ${w}%`) : esPasado ? falta("No lo cargaste") : esHoy ? <>{<span style={{ color: "var(--h-sub)" }}>Todavía no lo cargaste.</span>} {irBtn("Cargar wellness", "wellness")}</> : <span style={{ color: "var(--h-sub)" }}>Se carga ese día.</span>}
+            </div>
+          </div>
+        </div>
+        {!pa && !pr.length && !gy.length && <div style={{ fontSize: 13, color: "var(--h-sub)", padding: "4px 0 8px" }}>Día libre: solo el wellness.</div>}
+      </div>
+    </div>
+  );
+}
+
 function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista, perfil }) {
   // El aviso de "Activá las notificaciones" solo aparece si este celular/compu todavía no las tiene
   // activadas y no se cerró antes. Una vez activadas (o cerrado el aviso), no vuelve a salir.
@@ -8258,7 +8408,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const esJugador = perfil?.rol === "Jugador";
   const yaHizoWellness = esJugador && alertasHoy.respuestas.some((x) => x.jugadorId === perfil?.jugador_id);
   const diaHoy = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date().getDay()];
-  const gymHoy = PLAN_GYM_INICIAL[diaHoy];
+  const gymHoy = PLAN_GYM[diaHoy];
   const proximoGym = DIAS_GYM.find((d) => ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].indexOf(d) > ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].indexOf(diaHoy)) || DIAS_GYM[0];
   const practicaHoy = SESIONES[diaHoy];
   const miGrupoPractica = esJugador && perfil?.jugador_id ? calcularGrupos().grupo[perfil.jugador_id] || 1 : 1;
@@ -8358,9 +8508,10 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
       </div>
 
       {convocatoria && <TarjetaConvocatoria perfil={perfil} onNavigate={onNavigate} />}
+      {esJugador && <TuSemana perfil={perfil} onNavigate={onNavigate} />}
 
-      {/* Lo de todos los días: wellness, gimnasio y práctica, a un toque */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 14 }}>
+      {/* Lo de todos los días: wellness, gimnasio y práctica, a un toque (el jugador lo tiene en "Tu semana") */}
+      {!esJugador && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 14 }}>
         <AccesoDiario icono="wellness" titulo="Wellness" linea={lineaWellness} estado={estadoWellness} onClick={() => onNavigate("wellness")} />
         <AccesoDiario
           icono="gimnasio"
@@ -8376,7 +8527,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
           estado={bloquesPractica.length ? { texto: `${bloquesPractica.reduce((a, f) => a + minutosBloque(f), 0)} min`, fondo: "var(--h-acento-suave)", color: "var(--h-club-tinta)" } : null}
           onClick={() => onNavigate("sesion")}
         />
-      </div>
+      </div>}
 
       {/* Estado del plantel en una sola barra */}
       {staff && totalPlantel > 0 && (
@@ -8893,7 +9044,7 @@ async function cargarEvaluaciones() {
 }
 
 async function cargarTodo() {
-  await Promise.all([cargarJugadores(), cargarCalendario(), cargarFormaciones(), cargarEscudos(), cargarConfig(), cargarEvaluaciones(), cargarSesiones(), cargarGruposPractica()]);
+  await Promise.all([cargarJugadores(), cargarCalendario(), cargarFormaciones(), cargarEscudos(), cargarConfig(), cargarEvaluaciones(), cargarSesiones(), cargarGruposPractica(), cargarPlanGym()]);
 }
 
 function PantallaCarga() {
