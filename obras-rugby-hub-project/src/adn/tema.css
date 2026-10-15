@@ -1,4 +1,4 @@
-/* Tema del Hub (identidad ADN Sports). Claro por defecto; oscuro azul noche como opción.
+/* Tema de la app (identidad ADN Sports). Claro por defecto; oscuro grafito neutro como opción.
    Los colores de toda la app salen de estas variables. --h-club lo pisa cada club con su color. */
 :root {
   --h-club: #1FA37A;
@@ -15,9 +15,9 @@
   color-scheme: light;
 }
 :root[data-tema="oscuro"] {
-  --h-fondo: #0B1118; --h-campo: #0E1620; --h-panel: #121B25; --h-panel2: #172230;
-  --h-borde: #213042; --h-borde2: #2C3D52;
-  --h-texto: #F4F2EE; --h-texto2: #C9D0D8; --h-sub: #8E9AA6; --h-sub2: #66727E;
+  --h-fondo: #141413; --h-campo: #191918; --h-panel: #1F1F1D; --h-panel2: #282826;
+  --h-borde: #33322F; --h-borde2: #43423E;
+  --h-texto: #F4F2EE; --h-texto2: #D3D0C9; --h-sub: #A09C93; --h-sub2: #7A766E;
   --h-acento: #3CC193; --h-acento-suave: #12302A;
   --h-ok: #4FC38A; --h-ok-suave: #10261C;
   --h-alerta: #F2B33D; --h-alerta-suave: #2A220A;

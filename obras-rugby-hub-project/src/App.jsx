@@ -34,9 +34,8 @@ const NAV = [
     group: "Jugadores",
     items: [
       { key: "plantel-completo", label: "Plantel", icono: "plantel" },
-      { key: "disponibilidad", label: "Disponibles", icono: "disponibilidad" },
+      { key: "disponibilidad", label: "Estado del plantel", icono: "disponibilidad" },
       { key: "evaluaciones", label: "Tests físicos", icono: "evaluaciones" },
-      { key: "rtp", label: "Lesiones", icono: "rtp" },
     ],
   },
   {
@@ -47,7 +46,7 @@ const NAV = [
     ],
   },
   {
-    group: "Análisis",
+    group: "Rendimiento",
     items: [
       { key: "reportes", label: "Estadísticas", icono: "reportes" },
       { key: "veo", label: "Análisis de video", icono: "analisis" },
@@ -261,7 +260,7 @@ async function guardarResultadoPartido(partidoId, gf, gc) {
     console.error("Error guardando resultado:", error);
     return false;
   }
-  crearNotificacion("resultado_cargado", `🏉 Resultado cargado: Obras ${gf}-${gc}`, null);
+  crearNotificacion("resultado_cargado", `Resultado cargado: Obras ${gf}-${gc}`, null);
   if (data?.categoria_id) await recalcularPosicionObras(data.categoria_id);
   return true;
 }
@@ -329,7 +328,7 @@ async function agregarPartido({ categoriaNombre, fechaNumero, fecha, rivalNombre
     console.error("Error agregando partido:", error);
     return false;
   }
-  crearNotificacion("partido_agregado", `📅 Nuevo partido agendado: ${categoriaNombre} vs ${rivalNombre}.`, null);
+  crearNotificacion("partido_agregado", `Nuevo partido agendado: ${categoriaNombre} vs ${rivalNombre}.`, null);
   return true;
 }
 
@@ -843,7 +842,7 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
       else setGc((v) => v + pts);
     }
     const detalle = tipo === "Try" ? (convierte ? "convertido" : "sin convertir") : convierte ? "convertido" : "errado";
-    log(`${equipo === "Obras" ? "🟡" : "⚫"} ${equipo}: ${tipo} ${detalle} (${pts} pts)`, { puntos: pts, equipo });
+    log(`${equipo}: ${tipo} ${detalle} (${pts} pts)`, { puntos: pts, equipo });
     setPendienteConversion(null);
   }
 
@@ -854,17 +853,17 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
     if (nuevaCantidad >= 2) {
       setTiemposAfuera((prev) => ({ ...prev, [jugador]: 1200 })); // 20 min
       setExpulsados((prev) => new Set(prev).add(jugador));
-      log(`🟨🟨 ${jugador}: segunda amarilla — 20 min y no vuelve a entrar`, { tarjetaJugador: jugador, tarjetaTipo: "amarilla", segundaAmarilla: true });
+      log(`${jugador}: segunda amarilla — 20 min y no vuelve a entrar`, { tarjetaJugador: jugador, tarjetaTipo: "amarilla", segundaAmarilla: true });
     } else {
       setTiemposAfuera((prev) => ({ ...prev, [jugador]: 600 })); // 10 min
-      log(`🟨 ${jugador}: amarilla — 10 min afuera`, { tarjetaJugador: jugador, tarjetaTipo: "amarilla" });
+      log(`${jugador}: amarilla — 10 min afuera`, { tarjetaJugador: jugador, tarjetaTipo: "amarilla" });
     }
     setPidiendoJugador(null);
   }
 
   function aplicarRoja(jugador) {
     setExpulsados((prev) => new Set(prev).add(jugador));
-    log(`🟥 ${jugador}: roja — no vuelve a entrar`, { tarjetaJugador: jugador, tarjetaTipo: "roja" });
+    log(`${jugador}: roja — no vuelve a entrar`, { tarjetaJugador: jugador, tarjetaTipo: "roja" });
     setPidiendoJugador(null);
   }
 
@@ -887,7 +886,7 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
     const { error } = await supabase.from("partidos").update({ informe }).eq("id", partido.id);
 
     if (!error) {
-      crearNotificacion("informe_partido", `📈 Partido terminado: ${categoria} vs ${partido.rival} (${gf}-${gc}).`, null, perfil?.id);
+      crearNotificacion("informe_partido", `Partido terminado: ${categoria} vs ${partido.rival} (${gf}-${gc}).`, null, perfil?.id);
     }
     await cargarCalendario(); // así el partido pasa de "Próximo" a jugado y Home refleja el nuevo estado al toque
     setGuardando(false);
@@ -918,7 +917,7 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
             onClick={() => setCorriendo((v) => !v)}
             style={{ ...pillButton, background: corriendo ? "var(--h-error-suave)" : "var(--h-ok)", color: corriendo ? "var(--h-error)" : "var(--h-panel)", border: "none" }}
           >
-            {corriendo ? "⏸ Frenar" : "▶ Reanudar"}
+            {corriendo ? "Frenar" : "▶ Reanudar"}
           </button>
           <button onClick={reiniciarReloj} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
             ↺ Reiniciar
@@ -981,8 +980,7 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
           etiqueta={pidiendoJugador.equipo === "Rival" ? (j) => j.slice(prefijoRival.length) : undefined}
           expulsados={expulsados}
           titulo={
-            (pidiendoJugador.tipo === "amarilla" ? "🟨 " : "🟥 ") +
-            (pidiendoJugador.equipo === "Rival"
+                        (pidiendoJugador.equipo === "Rival"
               ? `¿Qué número de ${partido.rival} recibe la ${pidiendoJugador.tipo}?`
               : `¿Quién de Obras recibe la ${pidiendoJugador.tipo}?`)
           }
@@ -1026,10 +1024,10 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
                 <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 4 }}>{nombre}</div>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={() => setPidiendoJugador({ tipo: "amarilla", equipo })} style={{ ...pillButton, flex: 1, background: "var(--h-alerta-suave)", border: "none", color: "var(--h-alerta)" }}>
-                    🟨 Amarilla
+                    <span style={{ display: "inline-block", width: 10, height: 14, borderRadius: 2, background: "#E2B93B", marginRight: 6, verticalAlign: "-2px" }} />Amarilla
                   </button>
                   <button onClick={() => setPidiendoJugador({ tipo: "roja", equipo })} style={{ ...pillButton, flex: 1, background: "var(--h-error-suave)", border: "none", color: "var(--h-error)" }}>
-                    🟥 Roja
+                    <span style={{ display: "inline-block", width: 10, height: 14, borderRadius: 2, background: "#D64545", marginRight: 6, verticalAlign: "-2px" }} />Roja
                   </button>
                 </div>
               </div>
@@ -1060,7 +1058,7 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
       </div>
 
       <button onClick={finalizarPartido} disabled={guardando} style={{ ...buttonStyle, width: "100%", background: "var(--h-error)", color: "var(--h-panel)" }}>
-        {guardando ? "Guardando…" : "🏁 Finalizar partido y subir resultado"}
+        {guardando ? "Guardando…" : "Finalizar partido y subir resultado"}
       </button>
     </div>
   );
@@ -1162,7 +1160,7 @@ function CalendarioPage({ perfil }) {
                 disabled={sincronizando}
                 style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}
               >
-                {sincronizando ? "Actualizando…" : "🔄 Actualizar desde URBA"}
+                {sincronizando ? "Actualizando…" : "Actualizar desde URBA"}
               </button>
               <button onClick={() => setAgregando(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}>
                 + Agregar partido
@@ -1544,7 +1542,7 @@ function AsistenciaPanel({ perfil }) {
         onClick={() => setAbierto(true)}
         style={{ ...pillButton, marginBottom: 20, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}
       >
-        ✅ Cargar asistencia de hoy
+         Cargar asistencia de hoy
       </button>
     );
   }
@@ -1679,7 +1677,7 @@ function PanelGrupos({ onCambio }) {
   if (!abierto) {
     return (
       <button onClick={() => setAbierto(true)} style={{ ...pillButton, marginBottom: 16, marginLeft: 8, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}>
-        👥 Quién está en cada grupo
+         Quién está en cada grupo
       </button>
     );
   }
@@ -1730,7 +1728,7 @@ function PanelGrupos({ onCambio }) {
                     background: aMano[j.dbId] ? "var(--h-acento-suave)" : "transparent", color: "var(--h-texto2)",
                   }}
                 >
-                  {j.id}{aMano[j.dbId] ? " ✋" : ""}
+                  {j.id}{aMano[j.dbId] ? " " : ""}
                 </button>
               ))}
             </div>
@@ -1739,7 +1737,7 @@ function PanelGrupos({ onCambio }) {
       </div>
       {Object.keys(config.ajustes || {}).length > 0 && (
         <button onClick={() => aplicar({ ...config, ajustes: {} })} style={{ ...pillButton, marginTop: 12, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
-          Volver a armarlos solos (sacar los ✋)
+          Volver a armarlos solos (sacar los )
         </button>
       )}
     </div>
@@ -1845,7 +1843,7 @@ function SesionPage({ perfil }) {
                 </button>
                 {!vacia && (
                   <button
-                    onClick={() => crearNotificacion("sesion_planificada", `🏉 Práctica del ${dia.toLowerCase()} lista — revisala.`, null, perfil?.id)}
+                    onClick={() => crearNotificacion("sesion_planificada", `Práctica del ${dia.toLowerCase()} lista — revisala.`, null, perfil?.id)}
                     style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}
                   >
                     Avisar al staff
@@ -3032,7 +3030,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
                 disabled={subiendoFoto}
                 style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontSize: 11.5, cursor: "pointer", padding: 0, marginTop: 4 }}
               >
-                {subiendoFoto ? "Subiendo…" : "🖼 Cambiar foto"}
+                {subiendoFoto ? "Subiendo…" : "Cambiar foto"}
               </button>
             </>
           )}
@@ -3128,7 +3126,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
               <div style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 10 }}>ESTADO MÉDICO</div>
               {jugador.estado === "Lesionado" ? (
                 <>
-                  <div style={{ fontSize: 13, color: "var(--h-error)", fontWeight: 600, marginBottom: 6 }}>🩹 Lesionado · {jugador.zona}</div>
+                  <div style={{ fontSize: 13, color: "var(--h-error)", fontWeight: 600, marginBottom: 6 }}>Lesionado · {jugador.zona}</div>
                   {lesionActiva ? (
                     <div style={{ fontSize: 12, color: "var(--h-texto2)", marginBottom: 10, lineHeight: 1.5 }}>
                       {lesionActiva.descripcion && <div>{lesionActiva.descripcion}</div>}
@@ -3190,7 +3188,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
                   onClick={() => setMostrarFormLesion(true)}
                   style={{ ...pillButton, background: "transparent", border: "1px dashed var(--h-error)", color: "var(--h-error)", fontSize: 12 }}
                 >
-                  🩹 Informar lesión
+                   Informar lesión
                 </button>
               )}
             </div>
@@ -3720,7 +3718,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
     const { error } = await supabase.from("partidos").update({ informe }).eq("id", partido.id);
     if (!error) {
       partido.informe = informe;
-      crearNotificacion("informe_partido", `🔍 Análisis de video listo: ${categoria} vs ${partido.rival}.`, null, perfil?.id);
+      crearNotificacion("informe_partido", `Análisis de video listo: ${categoria} vs ${partido.rival}.`, null, perfil?.id);
       setMsg("✓ Guardado. Ya se ve en Análisis de video y en Estadísticas.");
     } else {
       setMsg("No se pudo guardar. Probá de nuevo.");
@@ -3827,7 +3825,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
           background: enJuego ? "var(--h-ok)" : "var(--h-error)", color: "#fff", letterSpacing: 0.3,
         }}
       >
-        {enJuego ? `▶  EN JUEGO · ${formatoRelojMMSS(tiempoSecuenciaActual)} — tocá al cortarse` : "⏸  PELOTA PARADA — tocá cuando se reanude"}
+        {enJuego ? `▶  EN JUEGO · ${formatoRelojMMSS(tiempoSecuenciaActual)} — tocá al cortarse` : "PELOTA PARADA — tocá cuando se reanude"}
       </button>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -3898,7 +3896,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
       {!isMobile && (
         <div>
           <button onClick={() => setVerAtajos((v) => !v)} style={{ background: "none", border: "none", color: "var(--h-sub)", fontSize: 12.5, cursor: "pointer", padding: 0 }}>
-            ⌨️ {verAtajos ? "Ocultar atajos de teclado" : "Ver atajos de teclado"}
+             {verAtajos ? "Ocultar atajos de teclado" : "Ver atajos de teclado"}
           </button>
           {verAtajos && (
             <div style={{ ...panelStyle, padding: "10px 14px", fontSize: 12, color: "var(--h-sub)", lineHeight: 1.8, marginTop: 6 }}>
@@ -4108,7 +4106,7 @@ function FilaJugadorAnalisis({ slot, datos, onCambiar, abierto, onAbrir }) {
               color: d.esPateador ? "var(--h-acento)" : "var(--h-sub)",
             }}
           >
-            🦶 {d.esPateador ? "Es pateador" : "Marcar como pateador"}
+             {d.esPateador ? "Es pateador" : "Marcar como pateador"}
           </button>
           {d.esPateador && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
@@ -4184,7 +4182,7 @@ function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
       </div>
 
       <button onClick={guardarTodo} disabled={guardando} style={{ ...buttonStyle, background: "var(--h-acento)", color: "var(--h-panel)", fontWeight: 700 }}>
-        {guardando ? "Guardando…" : "💾 Guardar análisis individual"}
+        {guardando ? "Guardando…" : "Guardar análisis individual"}
       </button>
       {msg && <div style={{ fontSize: 11.5, color: "var(--h-ok)", textAlign: "center", marginTop: 8 }}>{msg}</div>}
     </div>
@@ -4276,7 +4274,7 @@ function VeoPage({ perfil }) {
       partido.veoLink = linkInput;
       setEditandoLink(false);
       forzar((n) => n + 1);
-      crearNotificacion("video_partido", `🎥 Video de ${categoria} vs ${partido.rival} ya está disponible.`, null, perfil?.id);
+      crearNotificacion("video_partido", `Video de ${categoria} vs ${partido.rival} ya está disponible.`, null, perfil?.id);
     }
   }
 
@@ -4302,7 +4300,7 @@ function VeoPage({ perfil }) {
       setTextoTrys("");
       forzar((n) => n + 1);
       setMsgImport(`✓ ${nuevos.length} trys importados desde VEO.`);
-      crearNotificacion("informe_partido", `📈 Trys importados desde VEO: ${categoria} vs ${partido.rival}.`, null, perfil?.id);
+      crearNotificacion("informe_partido", `Trys importados desde VEO: ${categoria} vs ${partido.rival}.`, null, perfil?.id);
     } else {
       setMsgImport("No se pudo guardar. Probá de nuevo.");
     }
@@ -4372,13 +4370,13 @@ function VeoPage({ perfil }) {
                   onClick={() => setModoAnalisis("general")}
                   style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)", fontSize: 11.5 }}
                 >
-                  🔍 Análisis general
+                   Análisis general
                 </button>
                 <button
                   onClick={() => setModoAnalisis("individual")}
                   style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)", fontSize: 11.5 }}
                 >
-                  🔍 Análisis individual
+                   Análisis individual
                 </button>
                 <button
                   onClick={() => {
@@ -4428,7 +4426,7 @@ function VeoPage({ perfil }) {
         <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500 }}>Trys del partido</div>
         {esEntrenador(perfil) && !importandoTrys && (
           <button onClick={() => setImportandoTrys(true)} style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontSize: 11.5, cursor: "pointer" }}>
-            📋 Importar desde VEO
+             Importar desde VEO
           </button>
         )}
       </div>
@@ -4500,118 +4498,6 @@ function tipoLesion(zona) {
   if (!zona) return "—";
   if (["Rodilla", "Tobillo", "Hombro"].some((z) => zona.includes(z))) return "Articular / ligamentaria";
   return "Muscular";
-}
-
-function RtpPage() {
-  const [lesionesReales, setLesionesReales] = useState({});
-
-  useEffect(() => {
-    supabase
-      .from("lesiones")
-      .select("*, jugadores(nombre)")
-      .eq("activa", true)
-      .then(({ data }) => {
-        const porNombre = {};
-        (data || []).forEach((l) => {
-          const nombre = l.jugadores?.nombre;
-          if (nombre) porNombre[nombre] = l;
-        });
-        setLesionesReales(porNombre);
-      });
-  }, []);
-
-  const lesionadosActuales = POOL.filter((j) => j.estado === "Lesionado").map((j) => ({
-    ...j,
-    tipo: tipoLesion(j.zona),
-    lesionReal: lesionesReales[j.id] || null,
-  }));
-
-  const historialCompleto = POOL.flatMap((j) => j.historial.map((h) => ({ jugador: j.id, texto: h })));
-  const totalLesiones = historialCompleto.length + lesionadosActuales.length;
-  const recurrentes = POOL.filter((j) => j.historial.length > 0 && j.estado === "Lesionado").length;
-  const pctRecurrentes = lesionadosActuales.length
-    ? Math.round((recurrentes / lesionadosActuales.length) * 100)
-    : 0;
-
-  const zonaCount = {};
-  [...lesionadosActuales.map((j) => j.zona), ...historialCompleto.map((h) => h.texto)].forEach((texto) => {
-    ["Rodilla", "Tobillo", "Hombro", "Muslo", "Isquiotibial"].forEach((zona) => {
-      if (texto && texto.includes(zona)) zonaCount[zona] = (zonaCount[zona] || 0) + 1;
-    });
-  });
-  const maxZona = Math.max(1, ...Object.values(zonaCount));
-
-  return (
-    <div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Lesiones</div>
-        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>Lesiones actuales cruzadas con el historial médico</div>
-      </div>
-
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
-        <StatCard label="Lesionados hoy" value={lesionadosActuales.length} tone="danger" />
-        <StatCard label="Lesiones registradas (total)" value={totalLesiones} tone="warn" />
-        <StatCard label="% recurrentes" value={pctRecurrentes + "%"} tone="warn" />
-      </div>
-
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500, marginBottom: 12 }}>
-          Lesionados actuales · {lesionadosActuales.length}
-        </div>
-        <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 860 }}>
-            <thead>
-              <tr style={{ color: "var(--h-sub)", textAlign: "left" }}>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Puesto</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Zona</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Tipo</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Rehabilitación</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Vuelta estimada</th>
-                <th style={{ fontWeight: 400, padding: "8px 10px" }}>Antecedentes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lesionadosActuales.map((j) => (
-                <tr key={j.id} style={{ borderTop: "1px solid var(--h-borde)" }}>
-                  <td style={{ padding: "9px 10px", color: "var(--h-texto)", fontWeight: 500, whiteSpace: "nowrap" }}>{j.id}</td>
-                  <td style={{ padding: "9px 10px", color: "var(--h-sub)" }}>{j.posicionIdeal}</td>
-                  <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.zona}</td>
-                  <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.tipo}</td>
-                  <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>
-                    {j.lesionReal?.semanas_estimadas ? `${j.lesionReal.semanas_estimadas} semanas` : "—"}
-                  </td>
-                  <td style={{ padding: "9px 10px", color: "var(--h-acento)" }}>{j.lesionReal?.fecha_vuelta_estimada || "—"}</td>
-                  <td style={{ padding: "9px 10px", color: "var(--h-sub2)", fontSize: 11.5 }}>
-                    {j.historial.length > 0 ? j.historial.join(" · ") : "Sin antecedentes"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {Object.keys(zonaCount).length > 0 && (
-        <div>
-          <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500, marginBottom: 12 }}>Vigilancia · por zona</div>
-          <div style={{ ...cardStyle, padding: "16px 18px" }}>
-            {Object.entries(zonaCount)
-              .sort((a, b) => b[1] - a[1])
-              .map(([zona, count]) => (
-                <div key={zona} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
-                  <span style={{ fontSize: 12, color: "var(--h-texto2)", width: 90, flexShrink: 0 }}>{zona}</span>
-                  <div style={{ flex: 1, background: "var(--h-panel2)", borderRadius: 4, height: 10, overflow: "hidden" }}>
-                    <div style={{ width: (count / maxZona) * 100 + "%", background: "var(--h-error)", height: "100%" }} />
-                  </div>
-                  <span style={{ fontSize: 12, color: "var(--h-texto)", width: 20, textAlign: "right" }}>{count}</span>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
 }
 
 // Informe de partido — estadísticas de equipo y por jugador, inspirado en la planilla real del club.
@@ -4934,7 +4820,7 @@ function InformePartidoPage({ perfil }) {
       partido.informe = borrador;
       setEditando(false);
       forzar((n) => n + 1);
-      crearNotificacion("informe_partido", `📈 Informe de partido ${categoria} vs ${partido.rival} cargado.`, null, perfil?.id);
+      crearNotificacion("informe_partido", `Informe de partido ${categoria} vs ${partido.rival} cargado.`, null, perfil?.id);
     } else {
       console.error("Error guardando informe:", error);
     }
@@ -5272,9 +5158,8 @@ function ReportesPage({ perfil }) {
     { key: "temporada", label: "Temporada" },
     { key: "partido", label: "Partido" },
     { key: "individual", label: "Jugador" },
-    { key: "rtp", label: "Lesiones" },
   ];
-  const Componente = { temporada: TemporadaPage, rtp: RtpPage, individual: ReporteIndividualPage, partido: InformePartidoPage }[vista];
+  const Componente = { temporada: TemporadaPage, individual: ReporteIndividualPage, partido: InformePartidoPage }[vista];
   return (
     <div>
       <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 12 }}>Estadísticas</div>
@@ -5574,7 +5459,7 @@ async function reportarLesion({ jugadorId, zona, descripcion, semanas, creadoPor
     return null;
   }
   await supabase.from("jugadores").update({ estado: "Lesionado", zona }).eq("id", jugadorId);
-  crearNotificacion("lesion_reportada", `🩹 Nueva lesión reportada: ${zona}.`, ["Cuerpo técnico", "Manager"], creadoPor);
+  crearNotificacion("lesion_reportada", `Nueva lesión reportada: ${zona}.`, ["Cuerpo técnico", "Manager"], creadoPor);
   return fechaVuelta;
 }
 
@@ -5687,11 +5572,12 @@ async function cargarWellnessHistorial(dias = 15) {
       }
       return false;
     }).map((it) => it.label);
+    const FRASES = { Estrés: "más estresado", Sueño: "durmió peor", "Dolor muscular": "con más dolor muscular", Cansancio: "más cansado" };
     let motivo = null;
-    if (r.estado_entrenamiento === "Lesión") motivo = "Marcó lesión";
-    else if (base !== null && pct <= base - 15) motivo = `${base - pct} puntos por debajo de su promedio`;
-    else if (base === null && pct < 40) motivo = "Wellness bajo";
-    else if (bajos.length) motivo = `Bajo en ${bajos.join(" y ").toLowerCase()}`;
+    if (r.estado_entrenamiento === "Lesión") motivo = "Avisó que está lesionado";
+    else if (bajos.length) motivo = (bajos.map((b) => FRASES[b] || b.toLowerCase()).join(", ") + (previas.length >= 3 ? " que de costumbre" : "")).replace(/^./, (c) => c.toUpperCase());
+    else if (base !== null && pct <= base - 15) motivo = "Llega peor que de costumbre";
+    else if (base === null && pct < 40) motivo = "Llega con poca energía";
     return {
       jugadorId: r.jugador_id, nombre: r.jugadores?.nombre || "—", pct, base, bajos, motivo,
       estado: r.estado_entrenamiento, observaciones: r.observaciones, fila: r,
@@ -5699,6 +5585,21 @@ async function cargarWellnessHistorial(dias = 15) {
     };
   });
   return { hoy: hoyLista, porJugador };
+}
+
+function AnilloAvance({ hecho, total, size = 64 }) {
+  const r = (size - 8) / 2, c = 2 * Math.PI * r;
+  const frac = total ? Math.min(1, hecho / total) : 0;
+  return (
+    <svg width={size} height={size} role="img" aria-label={`${hecho} de ${total}`}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--h-borde)" strokeWidth="7" />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--h-club)" strokeWidth="7" strokeLinecap="round"
+        strokeDasharray={`${c * frac} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+      <text x="50%" y="54%" textAnchor="middle" fontSize="15" fontWeight="800" fill="var(--h-texto)" fontFamily="Barlow Condensed, Arial, sans-serif">
+        {total ? Math.round(frac * 100) : 0}%
+      </text>
+    </svg>
+  );
 }
 
 function MiniBarras({ puntos, alto = 40 }) {
@@ -5716,9 +5617,9 @@ function textoVentana(v) {
   if (!v) return { abierta: false, texto: "No se pudo leer el horario de hoy." };
   if (!v.abre) return { abierta: false, texto: "Hoy no hay carga de wellness." };
   const ahora = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Argentina/Buenos_Aires" });
-  if (v.abierta) return { abierta: true, texto: `🟢 Abierta hasta las ${v.cierra}.` };
-  if (ahora < v.abre) return { abierta: false, texto: `⚪ Hoy se abre a las ${v.abre} y cierra a las ${v.cierra}.` };
-  return { abierta: false, texto: `⚪ Hoy cerró a las ${v.cierra}. Mañana se vuelve a abrir.` };
+  if (v.abierta) return { abierta: true, texto: `Abierta hasta las ${v.cierra}.` };
+  if (ahora < v.abre) return { abierta: false, texto: `Hoy se abre a las ${v.abre} y cierra a las ${v.cierra}.` };
+  return { abierta: false, texto: `Hoy cerró a las ${v.cierra}. Mañana se vuelve a abrir.` };
 }
 
 function FormularioWellness({ jugadorDbId, onEnviado }) {
@@ -5837,7 +5738,7 @@ function EditorHorariosWellness() {
   if (!abierto) {
     return (
       <button onClick={() => setAbierto(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)", marginTop: 20 }}>
-        🕒 Horarios de carga
+         Horarios de carga
       </button>
     );
   }
@@ -5947,7 +5848,7 @@ function WellnessPage({ perfil }) {
   const promedio = datos.hoy.length ? Math.round(datos.hoy.reduce((a, x) => a + x.pct, 0) / datos.hoy.length) : null;
 
   async function recordar() {
-    await crearNotificacion("wellness_recordatorio", "⏰ Todavía no cargaste tu wellness de hoy. ¡Es un minuto!", ["Jugador"], perfil?.id, faltan.map((j) => j.dbId));
+    await crearNotificacion("wellness_recordatorio", "Todavía no cargaste tu wellness de hoy. ¡Es un minuto!", ["Jugador"], perfil?.id, faltan.map((j) => j.dbId));
     setRecordado(`Aviso enviado a ${faltan.length}.`);
   }
 
@@ -5987,15 +5888,19 @@ function WellnessPage({ perfil }) {
       {titulo("Se abre y se cierra solo. Tocá un jugador para ver cómo viene.")}
       {franja}
 
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
-        <StatCard label="Respondieron" value={`${datos.hoy.length}${POOL.length ? ` de ${POOL.length}` : ""}`} tone="ok" />
-        <StatCard label="Promedio del plantel" value={promedio === null ? "—" : `${promedio}%`} tone="ok" />
-        <StatCard label="Para mirar" value={aMirar.length} tone={aMirar.length ? "warn" : "ok"} />
+      <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 20, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+        <AnilloAvance hecho={datos.hoy.length} total={POOL.length} />
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ fontSize: 15, color: "var(--h-texto)" }}><b>{datos.hoy.length}</b>{POOL.length ? ` de ${POOL.length}` : ""} ya contaron cómo llegan</div>
+          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
+            {promedio === null ? "Todavía nadie respondió." : `El plantel llega al ${promedio}%`}{aMirar.length ? ` · ${aMirar.length} para cuidar` : ""}
+          </div>
+        </div>
       </div>
 
       {aMirar.length > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", marginBottom: 10 }}>Para mirar</div>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", marginBottom: 10 }}>Para cuidar</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 10 }}>
             {aMirar.map((x) => <TarjetaJugador key={x.jugadorId} x={x} alerta />)}
           </div>
@@ -6292,11 +6197,11 @@ function EquiposPage({ perfil }) {
     const cuando = partido ? ` (${partido.date})` : "";
     const convocados = lineup.filter((s) => s.jugadorId).map((s) => ({ s, j: POOL.find((p) => p.id === s.jugadorId) })).filter((x) => x.j?.dbId);
     await Promise.all(convocados.map(({ s, j }) =>
-      crearNotificacion("convocatoria", `🏉 Estás convocado a ${cat}${rival}${cuando}, camiseta ${s.numero}.`, ["Jugador"], perfil?.id, [j.dbId])
+      crearNotificacion("convocatoria", `Estás convocado a ${cat}${rival}${cuando}, camiseta ${s.numero}.`, ["Jugador"], perfil?.id, [j.dbId])
     ));
-    crearNotificacion("formacion_confirmada", `🛡️ Equipo de ${cat}${rival} publicado.`, ["Cuerpo técnico", "Manager", "Cuerpo médico"], perfil?.id);
+    crearNotificacion("formacion_confirmada", `Equipo de ${cat}${rival} publicado.`, ["Cuerpo técnico", "Manager", "Cuerpo médico"], perfil?.id);
     setEditMode(false);
-    setAviso(`Publicado. Les llegó el aviso a ${convocados.length} convocados.`);
+    setAviso(`Listo: ${convocados.length} jugadores recibieron su camiseta en el celular.`);
     setTimeout(() => setAviso(""), 4000);
   }
 
@@ -6348,7 +6253,7 @@ function EquiposPage({ perfil }) {
           {partido && <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Fecha {partido.fecha} · {partido.date} · {partido.cond}</div>}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {faltan.length === 0 && <button onClick={compartir} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}>Compartir imagen</button>}
+          {faltan.length === 0 && <button onClick={compartir} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}>Mandar al grupo</button>}
           {staff && !editMode && <button onClick={() => setEditMode(true)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}>Editar</button>}
           {staff && editMode && (
             <>
@@ -6356,10 +6261,10 @@ function EquiposPage({ perfil }) {
               <button
                 onClick={publicar}
                 disabled={faltan.length > 0}
-                title={faltan.length ? "Primero completá de la 1 a la 15" : "Avisar a los convocados"}
+                title={faltan.length ? "Primero completá de la 1 a la 15" : "Les llega un aviso a cada convocado con su camiseta"}
                 style={{ ...pillButton, border: "none", background: faltan.length ? "var(--h-borde2)" : "var(--h-acento)", color: faltan.length ? "var(--h-sub2)" : "var(--h-panel)", cursor: faltan.length ? "not-allowed" : "pointer" }}
               >
-                Publicar equipo
+                Avisar a los convocados
               </button>
             </>
           )}
@@ -6421,119 +6326,135 @@ function EquiposPage({ perfil }) {
   );
 }
 
-function DisponibilidadPage() {
-  const [tab, setTab] = useState("Todos");
+// Estado del plantel: quién está para jugar, quién vuelve de una lesión y cuánto le falta,
+// quién está en recuperación y quién no está habilitado. Todo en una sola vista.
+function EstadoPlantelPage() {
+  const [filtro, setFiltro] = useState("Todos");
+  const [lesiones, setLesiones] = useState({});
+  useEffect(() => {
+    supabase.from("lesiones").select("*, jugadores(nombre)").eq("activa", true).then(({ data }) => {
+      const m = {};
+      (data || []).forEach((l) => { if (l.jugadores?.nombre) m[l.jugadores.nombre] = l; });
+      setLesiones(m);
+    });
+  }, []);
 
-  const idsEnCategoria = (cat) => new Set(LINEUPS_INICIALES[cat].map((s) => s.jugadorId));
-  const jugadores =
-    tab === "Todos"
-      ? POOL
-      : POOL.filter((j) => idsEnCategoria(tab).has(j.id));
+  const enCat = (cat) => new Set((LINEUPS_INICIALES[cat] || []).map((s) => s.jugadorId));
+  const jugadores = filtro === "Todos" ? POOL : POOL.filter((j) => enCat(filtro).has(j.id));
+  const por = (e) => jugadores.filter((j) => disponibilidadReal(j) === e);
+  const disp = por("Disponible"), les = por("Lesionado"), vig = por("A vigilar"), sinHab = por("No habilitado");
+  const total = jugadores.length;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const aFecha = (d) => (d && DBDATE_RE.test(d) ? new Date(d + "T00:00:00") : null);
 
-  const disponibles = jugadores.filter((j) => disponibilidadReal(j) === "Disponible");
-  const lesionados = jugadores.filter((j) => disponibilidadReal(j) === "Lesionado");
-  const aVigilar = jugadores.filter((j) => disponibilidadReal(j) === "A vigilar");
-  const noHabilitados = jugadores.filter((j) => disponibilidadReal(j) === "No habilitado");
+  const Seccion = ({ titulo, color, cantidad, children }) => cantidad > 0 && (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ width: 10, height: 10, borderRadius: 2, background: color }} />
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>{titulo}</span>
+        <span style={{ fontSize: 14, color: "var(--h-sub)" }}>{cantidad}</span>
+      </div>
+      {children}
+    </div>
+  );
+
+  const zonas = {};
+  POOL.forEach((j) => {
+    [j.zona, ...(j.historial || [])].forEach((t) => {
+      ["Rodilla", "Tobillo", "Hombro", "Muslo", "Isquiotibial", "Cadera", "Espalda", "Cabeza"].forEach((z) => { if (t && t.includes(z)) zonas[z] = (zonas[z] || 0) + 1; });
+    });
+  });
 
   return (
     <div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Disponibles</div>
-        <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 2 }}>Combina el estado físico (Return to Play) y la habilitación médica de cada jugador.</div>
-      </div>
-
-      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+      <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 12 }}>Estado del plantel</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
         {["Todos", "Superior", "Intermedia"].map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            style={{
-              ...pillButton,
-              border: "1px solid " + (tab === t ? "var(--h-acento)" : "var(--h-borde2)"),
-              background: tab === t ? "var(--h-acento-suave)" : "transparent",
-              color: tab === t ? "var(--h-acento)" : "var(--h-texto2)",
-            }}
-          >
-            {t}
-          </button>
+          <button key={t} onClick={() => setFiltro(t)} style={{ ...pillButton, fontWeight: 700, border: "1px solid " + (filtro === t ? "var(--h-acento)" : "var(--h-borde2)"), background: filtro === t ? "var(--h-acento-suave)" : "transparent", color: filtro === t ? "var(--h-acento)" : "var(--h-texto2)" }}>{t}</button>
         ))}
       </div>
 
-      <div style={{ display: "flex", gap: 14, marginBottom: 24, flexWrap: "wrap" }}>
-        <StatCard label="Disponibles" value={disponibles.length} tone="ok" />
-        <StatCard label="Lesionados" value={lesionados.length} tone="danger" />
-        <StatCard label="A vigilar" value={aVigilar.length} tone="warn" />
-        <StatCard label="No habilitados" value={noHabilitados.length} tone="warn" />
+      <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 20 }}>
+        <div style={{ fontSize: 15, color: "var(--h-texto)", marginBottom: 8 }}><b style={{ fontFamily: "var(--h-titulo)", fontSize: 26 }}>{disp.length}</b> de {total} para jugar</div>
+        <div style={{ display: "flex", height: 12, borderRadius: 6, overflow: "hidden", background: "var(--h-borde)" }} aria-hidden="true">
+          <span style={{ flex: disp.length, background: "var(--h-ok)" }} />
+          <span style={{ flex: vig.length + sinHab.length, background: "var(--h-alerta)" }} />
+          <span style={{ flex: les.length, background: "var(--h-error)" }} />
+        </div>
       </div>
 
-      {(lesionados.length > 0 || aVigilar.length > 0 || noHabilitados.length > 0) && (
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500, marginBottom: 12 }}>A gestionar</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-            {lesionados.map((j) => (
-              <div key={j.id} style={{ ...cardStyle, borderLeft: "3px solid var(--h-error)", padding: "10px 14px", minWidth: 220 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500 }}>{j.id}</span>
-                  <span style={{ ...tagStyle, background: "var(--h-error-suave)", color: "var(--h-error)" }}>Lesionado</span>
-                </div>
-                <div style={{ fontSize: 11, color: "var(--h-sub)", marginTop: 4 }}>
-                  {j.puestoHabitual} · {j.zona}
-                </div>
+      <Seccion titulo="Volviendo de una lesión" color="var(--h-error)" cantidad={les.length}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+          {les.map((j) => {
+            const l = lesiones[j.id];
+            const ini = aFecha(l?.fecha_lesion), fin = aFecha(l?.fecha_vuelta_estimada);
+            const pct = ini && fin && fin > ini ? Math.max(0, Math.min(100, Math.round(((hoy - ini) / (fin - ini)) * 100))) : null;
+            const semanas = fin ? Math.max(0, Math.ceil((fin - hoy) / (7 * 86400000))) : null;
+            return (
+              <div key={j.id} style={{ ...cardStyle, padding: "12px 14px" }}>
+                <div style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 14.5 }}>{j.id}</div>
+                <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 2 }}>{[j.posicionIdeal, j.zona, tipoLesion(j.zona) !== "—" ? tipoLesion(j.zona) : null].filter(Boolean).join(" · ")}</div>
+                {pct !== null ? (
+                  <>
+                    <div style={{ height: 8, borderRadius: 4, background: "var(--h-borde)", overflow: "hidden", margin: "10px 0 4px" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: "var(--h-club)" }} />
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "var(--h-texto2)" }}>
+                      {semanas === 0 ? "Ya debería estar por volver" : `Le faltan ${semanas} ${semanas === 1 ? "semana" : "semanas"}`} · vuelve aprox. el {dbDateToDisplay(l.fecha_vuelta_estimada)}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 12.5, color: "var(--h-sub2)", marginTop: 8 }}>Sin fecha estimada de vuelta.</div>
+                )}
+                {j.historial?.length > 0 && <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginTop: 6 }}>Antes: {j.historial.join(" · ")}</div>}
               </div>
-            ))}
-            {aVigilar.map((j) => (
-              <div key={j.id} style={{ ...cardStyle, borderLeft: "3px solid var(--h-acento)", padding: "10px 14px", minWidth: 220 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500 }}>{j.id}</span>
-                  <span style={{ ...tagStyle, background: "var(--h-alerta-suave)", color: "var(--h-alerta)" }}>A vigilar</span>
-                </div>
-                <div style={{ fontSize: 11, color: "var(--h-sub)", marginTop: 4 }}>
-                  {j.puestoHabitual} · {j.zona}
-                </div>
-              </div>
-            ))}
-            {noHabilitados.map((j) => (
-              <div key={j.id} style={{ ...cardStyle, borderLeft: "3px solid var(--h-acento)", padding: "10px 14px", minWidth: 220 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500 }}>{j.id}</span>
-                  <span style={{ ...tagStyle, background: "var(--h-alerta-suave)", color: "var(--h-alerta)" }}>No habilitado</span>
-                </div>
-                <div style={{ fontSize: 11, color: "var(--h-sub)", marginTop: 4 }}>
-                  {j.puestoHabitual} · apto {j.apto?.toLowerCase() || "pendiente"}
-                </div>
-              </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
-      )}
+      </Seccion>
 
-      <div>
-        <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500, marginBottom: 12 }}>
-          Disponibles · {disponibles.length}
+      <Seccion titulo="En recuperación" color="var(--h-alerta)" cantidad={vig.length}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {vig.map((j) => <span key={j.id} style={{ ...tagStyle, borderRadius: 999, padding: "6px 12px", fontSize: 13, background: "var(--h-alerta-suave)", color: "var(--h-texto)" }}>{j.id}{j.zona ? ` · ${j.zona}` : ""}</span>)}
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-          {disponibles.map((j) => (
-            <div key={j.id} style={{ ...cardStyle, padding: "8px 12px", minWidth: 190 }}>
-              <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500 }}>{j.id}</div>
-              <div style={{ fontSize: 11, color: "var(--h-sub)" }}>{j.puestoHabitual}</div>
+      </Seccion>
+
+      <Seccion titulo="Sin habilitar" color="var(--h-sub)" cantidad={sinHab.length}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {sinHab.map((j) => <span key={j.id} style={{ ...tagStyle, borderRadius: 999, padding: "6px 12px", fontSize: 13, background: "var(--h-panel2)", color: "var(--h-texto)" }}>{j.id} · apto {j.apto?.toLowerCase() || "pendiente"}</span>)}
+        </div>
+      </Seccion>
+
+      <Seccion titulo="Para jugar" color="var(--h-ok)" cantidad={disp.length}>
+        {Object.entries(disp.reduce((acc, j) => { const k = j.posicionIdeal || "Sin puesto"; (acc[k] = acc[k] || []).push(j); return acc; }, {}))
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([puesto, js]) => (
+            <div key={puesto} style={{ display: "flex", gap: 10, padding: "8px 0", borderTop: "1px solid var(--h-borde)", flexWrap: "wrap", alignItems: "baseline" }}>
+              <span style={{ width: 130, flexShrink: 0, fontSize: 12.5, color: "var(--h-sub)", fontWeight: 700 }}>{puesto} · {js.length}</span>
+              <span style={{ flex: 1, fontSize: 13.5, color: "var(--h-texto)", lineHeight: 1.6 }}>{js.map((j) => j.id).join(" · ")}</span>
             </div>
           ))}
+      </Seccion>
+
+      {Object.keys(zonas).length > 0 && (
+        <div style={{ fontSize: 12.5, color: "var(--h-sub)" }}>
+          Zonas que más se repiten: {Object.entries(zonas).sort((a, b) => b[1] - a[1]).map(([z, n]) => `${z} (${n})`).join(" · ")}
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
 const CONFIG_TABS = [
-  { key: "perfil", label: "Perfil", icon: "👤" },
-  { key: "cuenta", label: "Cuenta y seguridad", icon: "🔒" },
-  { key: "staff", label: "Staff y usuarios", icon: "👥", admin: true },
-  { key: "escudos", label: "Escudos de rivales", icon: "🛡️", admin: true },
-  { key: "apariencia", label: "Apariencia y preferencias", icon: "🎨" },
-  { key: "instalar", label: "Instalar la app", icon: "📲" },
-  { key: "evaluaciones-cfg", label: "Evaluaciones del jugador", icon: "📊", admin: true },
-  { key: "metricas", label: "Métricas", icon: "📈", admin: true },
-  { key: "notificaciones", label: "Notificaciones", icon: "🔔" },
+  { key: "perfil", label: "Perfil", icon: "" },
+  { key: "cuenta", label: "Cuenta y seguridad", icon: "" },
+  { key: "staff", label: "Staff y usuarios", icon: "", admin: true },
+  { key: "escudos", label: "Escudos de rivales", icon: "", admin: true },
+  { key: "apariencia", label: "Apariencia y preferencias", icon: "" },
+  { key: "instalar", label: "Instalar la app", icon: "" },
+  { key: "evaluaciones-cfg", label: "Evaluaciones del jugador", icon: "", admin: true },
+  { key: "metricas", label: "Métricas", icon: "", admin: true },
+  { key: "notificaciones", label: "Notificaciones", icon: "" },
 ];
 
 function ToggleRow({ label, checked, onChange }) {
@@ -6673,7 +6594,7 @@ function PanelPerfil({ perfil }) {
           disabled={subiendo}
           style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}
         >
-          🖼 {subiendo ? "Subiendo…" : "Cambiar foto"}
+           {subiendo ? "Subiendo…" : "Cambiar foto"}
         </button>
       </div>
 
@@ -6743,7 +6664,7 @@ const INVITE_LINK = "https://obrasrugbyhub.app/invitacion";
 
 function textoInvitacion() {
   return (
-    "🏉 ¡Sumate al plantel de Obras Rugby!\n\n" +
+    "¡Sumate al plantel de Obras Rugby!\n\n" +
     "Registrate en ADN Obras, la app del club, para cargar tus datos (altura, peso, posición) y quedar disponible para Superior e Intermedia:\n" +
     INVITE_LINK +
     "\n\n" +
@@ -6921,7 +6842,7 @@ function BotonFotoStaff({ perfilId, onSubido }) {
         disabled={subiendo}
         style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)", fontSize: 11.5 }}
       >
-        {subiendo ? "Subiendo…" : "🖼 Foto"}
+        {subiendo ? "Subiendo…" : "Foto"}
       </button>
     </>
   );
@@ -7078,7 +6999,7 @@ function PanelStaff({ perfil }) {
               onClick={compartirWhatsapp}
               style={{ ...buttonStyle, width: "auto", padding: "9px 18px", marginTop: 0, background: "#25D366", color: "var(--h-fondo)" }}
             >
-              📲 Compartir por WhatsApp
+               Compartir por WhatsApp
             </button>
             <button
               onClick={copiar}
@@ -7104,9 +7025,9 @@ function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantall
     { key: "Menú lateral", titulo: "Menú lateral", desc: "Siempre al costado, como en la compu" },
   ];
   const paginasInicio = [
-    { key: "hoy", label: "📅 Inicio" },
-    { key: "calendario", label: "🏆 Agenda" },
-    { key: "equipos", label: "🛡️ Equipo del partido" },
+    { key: "hoy", label: "Inicio" },
+    { key: "calendario", label: "Agenda" },
+    { key: "equipos", label: "Equipo del partido" },
   ];
   return (
     <div>
@@ -7143,7 +7064,7 @@ function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantall
         La pantalla que se abre al entrar a la app. Se aplica la próxima vez que inicies sesión.
       </div>
 
-      <div style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600, marginBottom: 4 }}>📱 Posición del menú (en el celular)</div>
+      <div style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600, marginBottom: 4 }}>Posición del menú (en el celular)</div>
       <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 14 }}>
         Cómo aparece el menú en el teléfono. En la computadora siempre va al costado.
       </div>
@@ -7174,14 +7095,14 @@ function PanelApariencia({ menuPref, setMenuPref, temaPref, setTemaPref, pantall
 function PanelInstalar() {
   return (
     <div>
-      <ConfigTitulo>📲 Instalar la app</ConfigTitulo>
+      <ConfigTitulo>Instalar la app</ConfigTitulo>
       <div style={{ fontSize: 13, color: "var(--h-texto2)", marginBottom: 20, lineHeight: 1.6 }}>
         ADN Obras se instala en el celular como cualquier app: ícono en la pantalla de inicio y pantalla completa,
         sin la barra del navegador. No ocupa casi nada y se actualiza sola.
       </div>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         <div style={{ ...cardStyle, padding: "18px", flex: "1 1 280px" }}>
-          <div style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600, marginBottom: 10 }}>🤖 Android</div>
+          <div style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600, marginBottom: 10 }}>Android</div>
           <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 10 }}>Con Chrome abierto en la app:</div>
           <button style={{ ...buttonStyle, width: "auto", padding: "9px 18px", marginTop: 0, marginBottom: 14 }}>⬇ Instalar ahora</button>
           <ol style={{ fontSize: 12.5, color: "var(--h-texto2)", paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
@@ -7191,7 +7112,7 @@ function PanelInstalar() {
           </ol>
         </div>
         <div style={{ ...cardStyle, padding: "18px", flex: "1 1 280px" }}>
-          <div style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600, marginBottom: 10 }}>🍎 iPhone / iPad</div>
+          <div style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600, marginBottom: 10 }}>iPhone / iPad</div>
           <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 10 }}>Tiene que ser con Safari (en iPhone la opción no existe en Chrome):</div>
           <ol style={{ fontSize: 12.5, color: "var(--h-texto2)", paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
             <li>Tocá Compartir ⬆ (abajo, en el centro).</li>
@@ -7201,7 +7122,7 @@ function PanelInstalar() {
         </div>
       </div>
       <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginTop: 16 }}>
-        💡 Después de instalarla, abrila siempre desde el ícono del club — así vas y volvés entre pantallas como en
+         Después de instalarla, abrila siempre desde el ícono del club — así vas y volvés entre pantallas como en
         cualquier app. Para recibir avisos con la app cerrada, activá las Notificaciones.
       </div>
     </div>
@@ -7310,13 +7231,13 @@ function PanelNotificaciones({ perfil }) {
 
   return (
     <div>
-      <ConfigTitulo>🔔 Notificaciones</ConfigTitulo>
+      <ConfigTitulo>Notificaciones</ConfigTitulo>
       <div style={{ fontSize: 13, color: "var(--h-texto2)", marginBottom: 18, lineHeight: 1.6 }}>
         Recibí avisos de la app en el celular <b>aunque no lo tengas abierto</b> (alertas de carga, wellness pendiente,
         RTP, etc.). Hay que permitirlo una sola vez en este dispositivo.
       </div>
       <div style={{ ...cardStyle, padding: "18px" }}>
-        <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 600, marginBottom: 6 }}>🔔 Notificaciones en este dispositivo</div>
+        <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 600, marginBottom: 6 }}>Notificaciones en este dispositivo</div>
         <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 14 }}>
           {activadas ? "Activadas en este dispositivo." : "Todavía no están activadas en este dispositivo."}
         </div>
@@ -7326,7 +7247,7 @@ function PanelNotificaciones({ perfil }) {
           disabled={cargando || activadas}
           style={{ ...buttonStyle, width: "auto", padding: "9px 18px", marginTop: 0 }}
         >
-          🔔 {activadas ? "Notificaciones activadas" : cargando ? "Activando…" : "Activar notificaciones"}
+           {activadas ? "Notificaciones activadas" : cargando ? "Activando…" : "Activar notificaciones"}
         </button>
       </div>
     </div>
@@ -7404,7 +7325,7 @@ function ConfiguracionPage({ menuPref, setMenuPref, temaPref, setTemaPref, panta
               cursor: "pointer", background: "transparent", color: "var(--h-error)",
             }}
           >
-            🚪 Cerrar sesión
+             Cerrar sesión
           </button>
         </div>
 
@@ -7608,7 +7529,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
             style={{ ...cardStyle, maxWidth: 380, padding: "22px 24px", border: "1px solid var(--h-acento)" }}
           >
             <div style={{ fontSize: 12, color: "var(--h-acento)", fontWeight: 600, marginBottom: 8, letterSpacing: 0.5 }}>
-              🔔 ÚLTIMA NOVEDAD
+               ÚLTIMA NOVEDAD
             </div>
             <div style={{ fontSize: 14, color: "var(--h-texto)", marginBottom: 4 }}>{novedad.mensaje}</div>
             <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 16 }}>{tiempoRelativo(novedad.created_at)}</div>
@@ -7632,14 +7553,12 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
         />
       )}
 
-      {/* Saludo en una línea */}
+      {/* Encabezado: la fecha y el club, sin saludo */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <Shield size={36} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, lineHeight: 1.05, color: "var(--h-texto)" }}>
-            Hola, {perfil?.nombre?.split(" ")[0] || "de nuevo"}
-          </div>
-          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2, textTransform: "capitalize" }}>{fechaCorta}</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-club-tinta)", textTransform: "uppercase", letterSpacing: "0.12em" }}>{saludoHora()}{perfil?.nombre ? `, ${perfil.nombre.split(" ")[0]}` : ""}</div>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, lineHeight: 1.05, color: "var(--h-texto)", textTransform: "capitalize" }}>{fechaCorta}</div>
         </div>
       </div>
 
@@ -7649,13 +7568,13 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
           style={{ ...cardStyle, width: "100%", textAlign: "left", cursor: "pointer", padding: "14px 16px", marginBottom: 12, background: "var(--h-club)", color: "var(--h-club-txt)", border: "none", fontFamily: "var(--h-texto-fuente)" }}
         >
           <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85, textTransform: "uppercase", letterSpacing: "0.1em" }}>Tu convocatoria</div>
-          <div style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{convocatoria.mensaje.replace(/^🏉\s*/, "")}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{convocatoria.mensaje}</div>
           <div style={{ fontSize: 12.5, opacity: 0.85, marginTop: 4 }}>Ver el equipo →</div>
         </button>
       )}
 
-      {/* Lo de todos los días: wellness y gimnasio, a un toque */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10, marginBottom: 14 }}>
+      {/* Lo de todos los días: wellness, gimnasio y práctica, a un toque */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 14 }}>
         <AccesoDiario icono="wellness" titulo="Wellness" linea={lineaWellness} estado={estadoWellness} onClick={() => onNavigate("wellness")} />
         <AccesoDiario
           icono="gimnasio"
@@ -7664,62 +7583,61 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
           estado={gymHoy ? { texto: esJugador ? "Registrar cargas" : "Ver plan", fondo: "var(--h-acento-suave)", color: "var(--h-club-tinta)" } : null}
           onClick={() => onNavigate("gimnasio")}
         />
+        <AccesoDiario
+          icono="sesion"
+          titulo={esJugador ? `Tu práctica · Grupo ${miGrupoPractica}` : "Práctica"}
+          linea={bloquesPractica.length ? bloquesPractica.map((f) => (f.c || "").charAt(0) + (f.c || "").slice(1).toLowerCase()).join(" · ") : "Hoy no hay práctica en cancha."}
+          estado={bloquesPractica.length ? { texto: `${bloquesPractica.reduce((a, f) => a + minutosBloque(f), 0)} min`, fondo: "var(--h-acento-suave)", color: "var(--h-club-tinta)" } : null}
+          onClick={() => onNavigate("sesion")}
+        />
       </div>
 
-      {/* Números rápidos del plantel */}
-      {staff && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
-          {[
-            ["Disponibles", disponibles, "var(--h-ok)", "disponibilidad"],
-            ["A vigilar", aVigilarRtp + noHabilitados, "var(--h-alerta)", "disponibilidad"],
-            ["Lesionados", lesionados, "var(--h-error)", "rtp"],
-          ].map(([l, v, c, destino]) => (
-            <button
-              key={l}
-              onClick={() => onNavigate(destino)}
-              style={{ ...tarjeta, margin: 0, padding: "12px 14px", textAlign: "left", cursor: "pointer", fontFamily: "var(--h-texto-fuente)" }}
-            >
-              <div style={{ fontFamily: "var(--h-titulo)", fontSize: 28, fontWeight: 800, color: c, lineHeight: 1 }}>{v}</div>
-              <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 4 }}>{l}</div>
-            </button>
-          ))}
-        </div>
+      {/* Estado del plantel en una sola barra */}
+      {staff && totalPlantel > 0 && (
+        <button
+          onClick={() => onNavigate("disponibilidad")}
+          style={{ ...tarjeta, width: "100%", textAlign: "left", cursor: "pointer", marginBottom: 14, fontFamily: "var(--h-texto-fuente)" }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 14.5, color: "var(--h-texto)" }}>
+              <b style={{ fontFamily: "var(--h-titulo)", fontSize: 22 }}>{disponibles}</b> de {totalPlantel} para jugar
+            </span>
+            <span style={{ fontSize: 12.5, color: "var(--h-sub)" }}>Ver el plantel →</span>
+          </div>
+          <div style={{ display: "flex", height: 10, borderRadius: 5, overflow: "hidden", background: "var(--h-borde)" }} aria-hidden="true">
+            <span style={{ flex: disponibles, background: "var(--h-ok)" }} />
+            <span style={{ flex: aVigilarRtp + noHabilitados, background: "var(--h-alerta)" }} />
+            <span style={{ flex: lesionados, background: "var(--h-error)" }} />
+          </div>
+          {(aVigilarRtp + noHabilitados + lesionados) > 0 && (
+            <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 6 }}>
+              {[lesionados ? `${lesionados} con lesión` : null, aVigilarRtp ? `${aVigilarRtp} en recuperación` : null, noHabilitados ? `${noHabilitados} sin habilitar` : null].filter(Boolean).join(" · ")}
+            </div>
+          )}
+        </button>
       )}
 
       <CaminoAlPartido proximo={proximo} onNavigate={onNavigate} />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
-        {staff && (
+        {staff && (aMirarWellness.length > 0 || aVigilarNombres.length > 0) && (
           <div style={tarjeta}>
-            <EncabezadoTarjeta titulo="Alertas" />
-            {aMirarWellness.length === 0 && aVigilarNombres.length === 0 ? (
-              <div style={{ fontSize: 13, color: "var(--h-ok)", fontWeight: 600 }}>Todo en orden.</div>
-            ) : (
-              <>
-                {aMirarWellness.map((a) => (
-                  <FilaAlerta key={"w" + a.nombre} nombre={a.nombre} texto={`Wellness ${a.pct}%`} color="var(--h-error)" fondo="var(--h-error-suave)" onClick={() => onNavigate("wellness")} />
-                ))}
-                {aVigilarNombres.slice(0, 6).map((a) => (
-                  <FilaAlerta key={"r" + a.nombre} nombre={a.nombre} texto={a.estado} color={a.estado === "Lesionado" ? "var(--h-error)" : "var(--h-alerta)"} fondo={a.estado === "Lesionado" ? "var(--h-error-suave)" : "var(--h-alerta-suave, var(--h-acento-suave))"} onClick={() => onNavigate("rtp")} />
-                ))}
-              </>
-            )}
+            <EncabezadoTarjeta titulo="Para cuidar hoy" />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {aMirarWellness.map((a) => (
+                <button key={"w" + a.nombre} onClick={() => onNavigate("wellness")} title={a.motivo} style={{ ...pillButton, background: "var(--h-panel2)", border: "1px solid var(--h-borde)", color: "var(--h-texto)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: colorPct(a.pct) }} />{a.nombre}
+                </button>
+              ))}
+              {aVigilarNombres.slice(0, 8).map((a) => (
+                <button key={"r" + a.nombre} onClick={() => onNavigate("disponibilidad")} title={a.estado} style={{ ...pillButton, background: "var(--h-panel2)", border: "1px solid var(--h-borde)", color: "var(--h-texto)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: a.estado === "Lesionado" ? "var(--h-error)" : "var(--h-alerta)" }} />{a.nombre}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 8 }}>Círculo: cómo llegó hoy (wellness) · Cuadrado: lesión o recuperación.</div>
           </div>
         )}
-
-        <div style={tarjeta}>
-          <EncabezadoTarjeta titulo={esJugador ? `Tu práctica · Grupo ${miGrupoPractica}` : "Práctica de hoy · Grupo 1"} accion={staff ? (practicaHoy ? "Ver" : "Cargar") : practicaHoy ? "Ver" : undefined} onAccion={() => onNavigate("sesion")} />
-          {bloquesPractica.length ? (
-            bloquesPractica.slice(0, 5).map((f, i) => (
-              <div key={i} style={{ display: "flex", gap: 10, padding: "7px 0", borderTop: i ? "1px solid var(--h-borde)" : "none", fontSize: 13.5 }}>
-                <span style={{ width: 34, color: "var(--h-sub)", flexShrink: 0 }}>{f.t}</span>
-                <span style={{ color: "var(--h-texto)", fontWeight: 500, textTransform: "capitalize" }}>{(f.c || "").toLowerCase()}</span>
-              </div>
-            ))
-          ) : (
-            <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Hoy no hay práctica cargada.</div>
-          )}
-        </div>
 
         <div style={tarjeta}>
           <EncabezadoTarjeta titulo="Últimos resultados" accion="Agenda" onAccion={() => onNavigate("calendario")} />
@@ -7742,6 +7660,11 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
       </div>
     </div>
   );
+}
+
+function saludoHora() {
+  const h = Number(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", hour12: false, timeZone: "America/Argentina/Buenos_Aires" }));
+  return h < 13 ? "Buen día" : h < 20 ? "Buenas tardes" : "Buenas noches";
 }
 
 function FilaAlerta({ nombre, texto, color, fondo, onClick }) {
@@ -8220,7 +8143,6 @@ class ErrorBoundary extends React.Component {
             textAlign: "center",
           }}
         >
-          <span style={{ fontSize: 28 }}>⚠️</span>
           <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 500 }}>Esta pantalla tuvo un problema.</div>
           <div style={{ fontSize: 12, color: "var(--h-sub)", maxWidth: 420 }}>
             El resto de la app sigue funcionando. Si podés, abrí la consola del navegador (F12), copiá el error en
@@ -8295,7 +8217,6 @@ export default function AppRoot() {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--h-fondo)", padding: 24 }}>
         <div style={{ ...cardStyle, maxWidth: 380, padding: "28px 26px", textAlign: "center" }}>
-          <div style={{ fontSize: 28, marginBottom: 10 }}>🚫</div>
           <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 600, marginBottom: 8 }}>Tu acceso está bloqueado</div>
           <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 18 }}>
             Hablá con el cuerpo técnico o el manager del club si creés que es un error.
@@ -8314,7 +8235,6 @@ export default function AppRoot() {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--h-fondo)", padding: 24 }}>
         <div style={{ ...cardStyle, maxWidth: 380, padding: "28px 26px", textAlign: "center" }}>
-          <div style={{ fontSize: 28, marginBottom: 10 }}>⏳</div>
           <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 600, marginBottom: 8 }}>Cuenta pendiente de aprobación</div>
           <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 18 }}>
             Ya confirmaste tu email — ahora falta que el manager del club apruebe tu cuenta desde su panel. Te
@@ -8452,7 +8372,7 @@ const NOTI_DESTINO = {
   sesion_planificada: "sesion",
   video_partido: "veo",
   informe_partido: "reportes",
-  lesion_reportada: "rtp",
+  lesion_reportada: "disponibilidad",
   sync_urba: "calendario",
 };
 
@@ -8669,7 +8589,7 @@ function ObrasHub({ perfil }) {
         ) : active === "equipos" ? (
           <EquiposPage perfil={perfil} />
         ) : active === "disponibilidad" ? (
-          <DisponibilidadPage />
+          <EstadoPlantelPage />
         ) : active === "evaluaciones" ? (
           <EvaluacionesPage perfil={perfil} />
         ) : active === "veo" ? (
@@ -8677,7 +8597,7 @@ function ObrasHub({ perfil }) {
         ) : active === "wellness" ? (
           <WellnessPage perfil={perfil} />
         ) : active === "rtp" ? (
-          <RtpPage />
+          <EstadoPlantelPage />
         ) : active === "reportes" ? (
           <ReportesPage perfil={perfil} />
         ) : active === "videoteca" ? (
