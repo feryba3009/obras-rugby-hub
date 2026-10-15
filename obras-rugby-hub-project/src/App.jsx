@@ -2918,6 +2918,80 @@ function ultimaEvaluacion(jugadorId) {
 }
 
 
+// Rendimiento del jugador en los partidos: sale de las planillas que carga el staff mirando el video.
+function RendimientoJugador({ jugador }) {
+  const [planillas, setPlanillas] = useState(null);
+  const [wellness, setWellness] = useState([]);
+  useEffect(() => {
+    if (!jugador?.dbId) { setPlanillas([]); return; }
+    let vivo = true;
+    setPlanillas(null);
+    supabase.from("analisis_individual_partido").select("*").eq("jugador_id", jugador.dbId).then(({ data }) => vivo && setPlanillas(data || []));
+    cargarWellnessHistorial(30).then((d) => vivo && setWellness((d.porJugador[jugador.dbId] || []).map((x) => ({ fecha: x.fecha, pct: pctWellness(x) }))));
+    return () => { vivo = false; };
+  }, [jugador?.dbId]);
+
+  const partidos = Object.fromEntries([...(FIXTURE.superior || []), ...(FIXTURE.intermedia || [])].map((pt) => [pt.id, pt]));
+  const n = (r, k) => r[k] || 0;
+  const tacklesDe = (r) => n(r, "tackle_hecho") + n(r, "tackle_positivo") + n(r, "tackle_errado");
+  const penalesDe = (r) => n(r, "penal_en_contra_ruck") + n(r, "penal_en_contra_maul") + n(r, "penal_en_contra_juego") + n(r, "penal_en_contra_inconducta");
+  const lista = (planillas || [])
+    .map((r) => ({ r, pt: partidos[r.partido_id] }))
+    .sort((a, b) => (b.pt?.fecha || 0) - (a.pt?.fecha || 0));
+  const suma = (f) => lista.reduce((a, { r }) => a + f(r), 0);
+  const tackles = suma(tacklesDe), errados = suma((r) => n(r, "tackle_errado"));
+  const efectividad = tackles ? Math.round(((tackles - errados) / tackles) * 100) : null;
+  const tries = suma((r) => n(r, "quiebre_con_try"));
+  const quiebres = tries + suma((r) => n(r, "quiebre_sin_try"));
+  const penales = suma(penalesDe);
+  const promW = wellness.length ? Math.round(wellness.reduce((a, x) => a + x.pct, 0) / wellness.length) : null;
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ ...cardStyle, padding: "18px" }}>
+        {planillas === null ? (
+          <div style={{ fontSize: 13.5, color: "var(--h-sub)" }}>Cargando…</div>
+        ) : lista.length === 0 ? (
+          <div style={{ fontSize: 13.5, color: "var(--h-sub)", lineHeight: 1.5 }}>
+            Todavía no hay partidos analizados para {jugador.id}. Aparecen acá cuando el staff completa la planilla individual en Estadísticas › Partido.
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 15, color: "var(--h-texto)", lineHeight: 1.55, marginBottom: 14 }}>
+              En <b>{lista.length} {lista.length === 1 ? "partido" : "partidos"}</b> hizo <b>{tackles} tackles</b>
+              {efectividad !== null && <> ({efectividad}% efectivos)</>}, <b>{quiebres} {quiebres === 1 ? "quiebre" : "quiebres"}</b>
+              {tries > 0 && <> que terminaron en <b>{tries} {tries === 1 ? "try" : "tries"}</b></>} y le cobraron <b>{penales} {penales === 1 ? "penal" : "penales"}</b> en contra.
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--h-sub)", marginBottom: 4 }}>Partido por partido</div>
+            {lista.map(({ r, pt }) => (
+              <div key={r.id} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "10px 0", borderTop: "1px solid var(--h-borde)", flexWrap: "wrap" }}>
+                <span style={{ flex: "1 1 160px", fontSize: 14, color: "var(--h-texto)" }}>
+                  {pt ? <>Fecha {pt.fecha} · {pt.cond === "Local" ? "vs" : "en"} {pt.rival}</> : "Partido"}
+                  {pt && pt.gf != null && <span style={{ color: "var(--h-sub)", fontSize: 12.5 }}> · {pt.gf}-{pt.gc}</span>}
+                </span>
+                <span style={{ fontSize: 13, color: "var(--h-texto2)" }}>
+                  {tacklesDe(r)} tackles{n(r, "tackle_errado") ? ` (${n(r, "tackle_errado")} errados)` : ""} · {n(r, "quiebre_con_try") + n(r, "quiebre_sin_try")} quiebres · {penalesDe(r)} penales
+                </span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+      <div style={{ ...cardStyle, padding: "18px" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--h-texto)", marginBottom: 8 }}>Cómo llega · wellness del último mes</div>
+        {wellness.length ? (
+          <>
+            <MiniBarras puntos={wellness} alto={56} />
+            <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 6 }}>Promedio {promW}% en {wellness.length} respuestas.</div>
+          </>
+        ) : (
+          <div style={{ fontSize: 13.5, color: "var(--h-sub)" }}>No cargó wellness en el último mes.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemoveHistorial, ocultarVolver, perfil, textoVolver = "Volver al plantel" }) {
   const [editPos, setEditPos] = useState(false);
   const [nuevaLesion, setNuevaLesion] = useState("");
@@ -3000,7 +3074,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
     if (m[clave] == null || !vals.length) return null;
     return { lugar: vals.indexOf(m[clave]) + 1, de: vals.length };
   }
-  const TABS_FICHA = [["puestos", "Puestos"], ["salud", "Salud"], ["fisico", "Tests físicos"]];
+  const TABS_FICHA = [["puestos", "Puestos"], ["rendimiento", "Rendimiento"], ["salud", "Salud"], ["fisico", "Tests físicos"]];
 
   return (
     <div>
@@ -3047,7 +3121,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
         </div>
       </div>
 
-      <div role="tablist" style={{ display: "flex", gap: 22, borderBottom: "1px solid var(--h-borde)", marginBottom: 16 }}>
+      <div role="tablist" style={{ display: "flex", gap: 22, overflowX: "auto", borderBottom: "1px solid var(--h-borde)", marginBottom: 16 }}>
         {TABS_FICHA.map(([k, l]) => (
           <button
             key={k}
@@ -3113,6 +3187,8 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
           </div>
         </div>
       )}
+
+      {tab === "rendimiento" && <RendimientoJugador jugador={jugador} />}
 
       {tab === "salud" && (
         <div style={{ ...cardStyle, padding: "18px" }}>
@@ -5330,33 +5406,6 @@ function ReporteIndividualPage({ perfil }) {
           <div style={{ fontSize: 13, color: "var(--h-sub)" }}>{jugador.posicionIdeal || "Sin puesto"}{jugador.altura ? ` · ${jugador.altura} cm` : ""}{jugador.peso ? ` · ${jugador.peso} kg` : ""}</div>
         </div>
         <span style={{ ...tagStyle, borderRadius: 999, fontWeight: 700, background: "var(--h-acento-suave)", color: COLOR_ESTADO[estado] || "var(--h-texto)" }}>● {estado}</span>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, marginBottom: 14 }}>
-        <div style={{ ...cardStyle, padding: "14px 16px" }}>
-          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>En la temporada</div>
-          {planillas === null ? (
-            <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Cargando…</div>
-          ) : planillas.length === 0 ? (
-            <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay planillas de partido cargadas para él.</div>
-          ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-              {[["Partidos", tot.partidos], ["Tackles", tot.tackles], ["Tackles positivos", tot.positivos], ["Quiebres", tot.quiebres], ["Penales", tot.penales]].map(([l, v]) => (
-                <div key={l}>
-                  <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1 }}>{v}</div>
-                  <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 3 }}>{l}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div style={{ ...cardStyle, padding: "14px 16px" }}>
-          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Wellness · últimas semanas</div>
-          <MiniBarras puntos={wellness} alto={56} />
-          {wellness.length > 0 && (
-            <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 6 }}>Promedio: {Math.round(wellness.reduce((a, x) => a + x.pct, 0) / wellness.length)}% · {wellness.length} respuestas</div>
-          )}
-        </div>
       </div>
 
       <FichaJugador
