@@ -1391,39 +1391,29 @@ const DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sáb
 // Plan base de Obras: se entrena en cancha martes y jueves (el gimnasio va aparte, lunes, miércoles y viernes).
 const SESIONES_INICIALES = {
   Martes: {
-    fecha: "01/09/2026",
-    semana: "SEMANA 27 · MARTES",
     grupo1: [
-      { t: "45'", c: "GIMNASIO", e: "", s: "GYM" },
-      { t: "10'", c: "ACTIVACIÓN + FÍSICO", e: "", s: "CANCHA 2" },
-      { t: "25'", c: "UNIDADES SEPARADAS", e: "Scrum · Lanzamientos backs", s: "CANCHA 1" },
-      { t: "7'", c: "RHIE", e: "", s: "CANCHA 1" },
-      { t: "7'", c: "FÍSICO TÉCNICO", e: "Tackle: lluvia de escudos. 3' tackle · 30\" pausa · 3' doble tackle", s: "CANCHA 1" },
-      { t: "20'", c: "JUEGO COMPLETO", e: "Simil partido. Salidas, line, scrum todos los sectores de la cancha", s: "CANCHA 1" },
+      { t: "15'", c: "Entrada en calor con pelota", e: "Rondos de pase en grupos de 6", s: "Cancha 1", k: "fisico" },
+      { t: "20'", c: "Forwards y backs por separado", e: "Forwards: empuje y salto · Backs: líneas de ataque", s: "Cancha 1", k: "tecnico" },
+      { t: "15'", c: "Contacto", e: "Tackle y ruck, de a dos", s: "Cancha 1", k: "tecnico" },
+      { t: "25'", c: "Juego reducido", e: "10 contra 10 en media cancha", s: "Cancha 1", k: "juego" },
     ],
     grupo2: [
-      { t: "45'", c: "GIMNASIO", e: "", s: "GYM" },
-      { t: "10'", c: "ACTIVACIÓN + FÍSICO", e: "", s: "CANCHA 2" },
-      { t: "25'", c: "UNIDADES SEPARADAS", e: "Scrum · Lanzamientos backs", s: "CANCHA 2" },
-      { t: "7'", c: "RHIE", e: "", s: "CANCHA 2" },
-      { t: "7'", c: "FÍSICO TÉCNICO", e: "Tackle: lluvia de escudos. 3' tackle · 30\" pausa · 3' doble tackle", s: "CANCHA 2" },
-      { t: "20'", c: "JUEGO COMPLETO", e: "Simil partido, line, scrum todos los sectores de la cancha", s: "CANCHA 2" },
+      { t: "15'", c: "Entrada en calor con pelota", e: "Rondos de pase en grupos de 6", s: "Cancha 2", k: "fisico" },
+      { t: "20'", c: "Forwards y backs por separado", e: "Forwards: empuje y salto · Backs: líneas de ataque", s: "Cancha 2", k: "tecnico" },
+      { t: "15'", c: "Contacto", e: "Tackle y ruck, de a dos", s: "Cancha 2", k: "tecnico" },
+      { t: "25'", c: "Juego reducido", e: "10 contra 10 en media cancha", s: "Cancha 2", k: "juego" },
     ],
   },
   Jueves: {
-    fecha: "03/09/2026",
-    semana: "SEMANA 27 · JUEVES",
     grupo1: [
-      { t: "15'", c: "ACTIVACIÓN", e: "", s: "CANCHA 1" },
-      { t: "20'", c: "ATAQUE ESTRUCTURADO", e: "Fases 1 a 3, ancho de cancha", s: "CANCHA 1" },
-      { t: "20'", c: "DEFENSA", e: "Línea + rush defense", s: "CANCHA 1" },
-      { t: "15'", c: "BALÓN PARADO", e: "Line y scrum", s: "CANCHA 1" },
+      { t: "15'", c: "Entrada en calor", e: "Movilidad y pasadas", s: "Cancha 1", k: "fisico" },
+      { t: "25'", c: "Plan de juego del sábado", e: "Ataque y defensa contra el rival", s: "Cancha 1", k: "tactico" },
+      { t: "15'", c: "Pelota detenida", e: "Lines, scrums y salidas", s: "Cancha 1", k: "tecnico" },
     ],
     grupo2: [
-      { t: "15'", c: "ACTIVACIÓN", e: "", s: "CANCHA 2" },
-      { t: "20'", c: "ATAQUE ESTRUCTURADO", e: "Fases 1 a 3, ancho de cancha", s: "CANCHA 2" },
-      { t: "20'", c: "DEFENSA", e: "Línea + rush defense", s: "CANCHA 2" },
-      { t: "15'", c: "BALÓN PARADO", e: "Line y scrum", s: "CANCHA 2" },
+      { t: "15'", c: "Entrada en calor", e: "Movilidad y pasadas", s: "Cancha 2", k: "fisico" },
+      { t: "25'", c: "Plan de juego del sábado", e: "Ataque y defensa contra el rival", s: "Cancha 2", k: "tactico" },
+      { t: "15'", c: "Pelota detenida", e: "Lines, scrums y salidas", s: "Cancha 2", k: "tecnico" },
     ],
   },
 };
@@ -1919,26 +1909,12 @@ function SesionPage({ perfil }) {
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-        {DIAS_SEMANA.map((d) => {
-          const tiene = (sesiones[d]?.grupo1?.length || 0) + (sesiones[d]?.grupo2?.length || 0) > 0;
-          return (
-            <button
-              key={d}
-              onClick={() => { setDia(d); setEditMode(false); }}
-              style={{
-                ...pillButton,
-                border: "1px solid " + (dia === d ? "var(--h-acento)" : "var(--h-borde2)"),
-                background: dia === d ? "var(--h-acento-suave)" : "transparent",
-                color: dia === d ? "var(--h-acento)" : tiene ? "var(--h-texto2)" : "var(--h-sub2)",
-                fontWeight: tiene ? 600 : 400,
-              }}
-            >
-              {d.slice(0, 3)}
-            </button>
-          );
-        })}
-      </div>
+      <TiraSemana
+        dia={dia}
+        onDia={(d) => { setDia(d); setEditMode(false); }}
+        habilitado={(d) => DIAS_SEMANA.includes(d) && (puedeEditar || (sesiones[d]?.grupo1?.length || 0) + (sesiones[d]?.grupo2?.length || 0) > 0)}
+        marcado={(d) => (sesiones[d]?.grupo1?.length || 0) + (sesiones[d]?.grupo2?.length || 0) > 0}
+      />
 
       {tiposUsados.length > 0 && (
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14, fontSize: 12, color: "var(--h-sub)" }}>
@@ -1978,79 +1954,89 @@ const DIAS_GYM = ["Lunes", "Miércoles", "Viernes"];
 
 const PLAN_GYM_INICIAL = {
   Lunes: [
-    {
-      titulo: "MOVILIDAD",
-      ejercicios: [
-        { nombre: "Rodillo en tejido blando", detalle: "Cuádriceps, isquios, dorsal", valor: "5'" },
-        { nombre: "90/90 cadera", detalle: "", valor: "8 c/lado" },
-        { nombre: "Movilidad de tobillo", detalle: "Dorsiflexión contra pared", valor: "8 c/u" },
-      ],
-    },
-    {
-      titulo: "FUERZA — TREN INFERIOR",
-      ejercicios: [
-        { nombre: "Sentadilla trasera", detalle: "", valor: "4x6" },
-        { nombre: "Peso muerto rumano", detalle: "", valor: "3x8" },
-        { nombre: "Zancada búlgara", detalle: "c/pierna", valor: "3x8" },
-        { nombre: "Hip thrust", detalle: "", valor: "3x10" },
-      ],
-    },
-    {
-      titulo: "CORE",
-      ejercicios: [
-        { nombre: "Plancha frontal", detalle: "", valor: "3x40\"" },
-        { nombre: "Pallof press", detalle: "", valor: "3x10 c/lado" },
-      ],
-    },
+    { titulo: "Entrada en calor", ejercicios: [
+      { nombre: "Bicicleta", detalle: "Ritmo suave", valor: "6'" },
+      { nombre: "Saltos a la soga", detalle: "", valor: "3x30\"" },
+    ] },
+    { titulo: "Trabajo principal", ejercicios: [
+      { nombre: "Sentadilla trasera", detalle: "", valor: "4x6" },
+      { nombre: "Peso muerto rumano", detalle: "", valor: "3x8" },
+      { nombre: "Estocada con mancuernas", detalle: "c/pierna", valor: "3x8" },
+    ] },
+    { titulo: "Complementos", ejercicios: [
+      { nombre: "Hip thrust", detalle: "", valor: "3x10" },
+      { nombre: "Pallof press", detalle: "c/lado", valor: "3x10" },
+    ] },
   ],
   Miércoles: [
-    {
-      titulo: "MOVILIDAD",
-      ejercicios: [
-        { nombre: "Rodillo en tejido blando", detalle: "Pectoral, dorsal", valor: "5'" },
-        { nombre: "Movilidad torácica", detalle: "Apertura con rotación", valor: "8 c/lado" },
-      ],
-    },
-    {
-      titulo: "FUERZA — TREN SUPERIOR",
-      ejercicios: [
-        { nombre: "Press banca", detalle: "", valor: "4x6" },
-        { nombre: "Remo con barra", detalle: "", valor: "4x8" },
-        { nombre: "Press militar", detalle: "", valor: "3x8" },
-        { nombre: "Dominadas", detalle: "asistidas si hace falta", valor: "3xmáx" },
-      ],
-    },
-    {
-      titulo: "ACCESORIOS",
-      ejercicios: [
-        { nombre: "Curl femoral nórdico", detalle: "", valor: "3x6" },
-        { nombre: "Face pull", detalle: "", valor: "3x12" },
-      ],
-    },
+    { titulo: "Entrada en calor", ejercicios: [
+      { nombre: "Remo ergómetro", detalle: "", valor: "5'" },
+      { nombre: "Rotaciones con banda", detalle: "Hombros", valor: "2x12" },
+    ] },
+    { titulo: "Trabajo principal", ejercicios: [
+      { nombre: "Press banca", detalle: "", valor: "4x6" },
+      { nombre: "Remo con barra", detalle: "", valor: "4x8" },
+      { nombre: "Press militar", detalle: "", valor: "3x8" },
+      { nombre: "Dominadas", detalle: "Con ayuda si hace falta", valor: "3xmáx" },
+    ] },
+    { titulo: "Complementos", ejercicios: [
+      { nombre: "Curl femoral nórdico", detalle: "", valor: "3x6" },
+      { nombre: "Face pull", detalle: "", valor: "3x12" },
+    ] },
   ],
   Viernes: [
-    {
-      titulo: "MOVILIDAD",
-      ejercicios: [
-        { nombre: "Activación general", detalle: "Sin sobrecarga, previo a MD-1", valor: "8'" },
-      ],
-    },
-    {
-      titulo: "POTENCIA",
-      ejercicios: [
-        { nombre: "Salto al cajón", detalle: "", valor: "4x4" },
-        { nombre: "Arrancada de potencia", detalle: "Carga liviana, técnica", valor: "4x3" },
-      ],
-    },
-    {
-      titulo: "CORE",
-      ejercicios: [
-        { nombre: "Dead bug", detalle: "", valor: "3x10 c/lado" },
-        { nombre: "Plancha lateral", detalle: "", valor: "3x30\" c/lado" },
-      ],
-    },
+    { titulo: "Entrada en calor", ejercicios: [
+      { nombre: "Trote y skipping", detalle: "Liviano, se juega mañana", valor: "8'" },
+    ] },
+    { titulo: "Trabajo principal", ejercicios: [
+      { nombre: "Salto al cajón", detalle: "", valor: "4x4" },
+      { nombre: "Cargada de potencia", detalle: "Poco peso, buena técnica", valor: "4x3" },
+    ] },
+    { titulo: "Complementos", ejercicios: [
+      { nombre: "Dead bug", detalle: "c/lado", valor: "3x10" },
+      { nombre: "Plancha lateral", detalle: "c/lado", valor: "3x30\"" },
+    ] },
   ],
 };
+
+// Tira de la semana (lunes a domingo) con el número de día. Solo se pueden tocar los días que tienen algo.
+function TiraSemana({ dia, onDia, habilitado, marcado }) {
+  const orden = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const hoy = new Date();
+  const lunes = new Date(hoy);
+  lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 18, maxWidth: 460 }}>
+      {orden.map((d, i) => {
+        const f = new Date(lunes);
+        f.setDate(lunes.getDate() + i);
+        const esHoy = f.toDateString() === hoy.toDateString();
+        const ok = habilitado(d);
+        const sel = dia === d;
+        return (
+          <button
+            key={d}
+            onClick={() => ok && onDia(d)}
+            disabled={!ok}
+            aria-pressed={sel}
+            aria-label={d}
+            style={{
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "7px 0 6px",
+              borderRadius: 12, border: "none", cursor: ok ? "pointer" : "default",
+              background: sel ? "var(--h-club)" : "transparent",
+              color: sel ? "var(--h-club-txt)" : ok ? "var(--h-texto)" : "var(--h-sub2)",
+              opacity: ok ? 1 : 0.55,
+            }}
+          >
+            <span style={{ fontSize: 11, fontWeight: 600 }}>{d.charAt(0)}</span>
+            <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--h-titulo)", lineHeight: 1.1 }}>{f.getDate()}</span>
+            <span style={{ width: 5, height: 5, borderRadius: "50%", background: esHoy ? (sel ? "var(--h-club-txt)" : "var(--h-club)") : marcado?.(d) && !sel ? "var(--h-borde2)" : "transparent" }} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDeleteEjercicio, onAddEjercicio, onDeleteBloque }) {
   return (
@@ -2063,7 +2049,7 @@ function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDele
             onChange={(e) => onChangeTitulo(e.target.value)}
           />
         ) : (
-          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, color: "var(--h-texto)", fontWeight: 800 }}>{(bloque.titulo || "").charAt(0) + (bloque.titulo || "").slice(1).toLowerCase()}</div>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, color: "var(--h-texto)", fontWeight: 800 }}>{bloque.titulo}</div>
         )}
         {editMode && (
           <button
@@ -2171,7 +2157,7 @@ function GimnasioPage({ perfil }) {
     setPlan((prev) => ({ ...prev, [dia]: prev[dia].filter((_, i) => i !== bi) }));
   }
   function addBloque() {
-    setPlan((prev) => ({ ...prev, [dia]: [...prev[dia], { titulo: "NUEVO BLOQUE", ejercicios: [] }] }));
+    setPlan((prev) => ({ ...prev, [dia]: [...prev[dia], { titulo: "Nuevo bloque", ejercicios: [] }] }));
   }
 
   return (
@@ -2179,7 +2165,7 @@ function GimnasioPage({ perfil }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
           <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Gimnasio</div>
-          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>3 estímulos por semana</div>
+          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>{fechaDiaSemana(dia)} · {bloques.reduce((n, b) => n + b.ejercicios.length, 0)} ejercicios</div>
         </div>
         {editMode ? (
           <button
@@ -2198,22 +2184,7 @@ function GimnasioPage({ perfil }) {
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
-        {DIAS_GYM.map((d) => (
-          <button
-            key={d}
-            onClick={() => setDia(d)}
-            style={{
-              ...pillButton,
-              border: "1px solid " + (dia === d ? "var(--h-acento)" : "var(--h-borde2)"),
-              background: dia === d ? "var(--h-acento-suave)" : "transparent",
-              color: dia === d ? "var(--h-acento)" : "var(--h-texto2)",
-            }}
-          >
-            {d}
-          </button>
-        ))}
-      </div>
+      <TiraSemana dia={dia} onDia={setDia} habilitado={(d) => DIAS_GYM.includes(d)} />
 
       {bloques.map((b, bi) => (
         <BloqueGym
@@ -3017,11 +2988,19 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
 
   const evalu = ultimaEvaluacion(jugador.id);
   const m = evalu || {};
-  const valoresNorm = Object.entries(METRICAS_RANGOS).map(([clave, { rango }]) => {
-    const [a, b] = rango;
-    return Math.min(1, Math.max(0, ((m[clave] ?? a) - a) / (b - a)));
-  });
-  const aptoTono = jugador.apto === "Apto" ? "ok" : jugador.apto === "Pendiente" ? "warn" : "danger";
+  const [tab, setTab] = useState("puestos");
+  const aptoColor = jugador.apto === "Apto" ? "var(--h-ok)" : jugador.apto === "Pendiente" ? "var(--h-alerta)" : "var(--h-error)";
+  const datos = [
+    jugador.altura ? `${(jugador.altura / 100).toFixed(2).replace(".", ",")} m` : null,
+    jugador.peso ? `${jugador.peso} kg` : null,
+  ].filter(Boolean);
+  // Lugar del jugador en el plantel para cada test (1 = el mejor).
+  function lugarEnPlantel(clave) {
+    const vals = Object.values(EVALUACIONES_REALES).map((e) => e?.[clave]).filter((v) => typeof v === "number").sort((a, b) => b - a);
+    if (m[clave] == null || !vals.length) return null;
+    return { lugar: vals.indexOf(m[clave]) + 1, de: vals.length };
+  }
+  const TABS_FICHA = [["puestos", "Puestos"], ["salud", "Salud"], ["fisico", "Tests físicos"]];
 
   return (
     <div>
@@ -3030,24 +3009,36 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
           onClick={onVolver}
           style={{ background: "transparent", border: "none", color: "var(--h-acento)", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}
         >
-          ← Plantel completo
+          ← Volver al plantel
         </button>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
-        <AvatarPlaceholder size={52} foto={jugador.foto} />
-        <div>
-          <div style={{ fontSize: 20, color: "var(--h-texto)", fontWeight: 600, fontFamily: "var(--h-titulo)" }}>{jugador.id}</div>
-          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
-            {jugador.posicionIdeal} · {estadoMedicoTexto(jugador)}
+      <div style={{ ...cardStyle, padding: 0, overflow: "hidden", marginBottom: 18 }}>
+        <div style={{ background: "var(--h-club)", color: "var(--h-club-txt)", padding: "18px 18px 16px", display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ borderRadius: "50%", border: "3px solid var(--h-club-txt)", lineHeight: 0 }}>
+            <AvatarPlaceholder size={64} foto={jugador.foto} />
           </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 24, fontWeight: 800, fontFamily: "var(--h-titulo)", lineHeight: 1.1 }}>{jugador.id}</div>
+            <div style={{ fontSize: 14, opacity: 0.9, marginTop: 3 }}>{jugador.posicionIdeal}</div>
+          </div>
+        </div>
+        <div style={{ padding: "12px 18px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px 14px", fontSize: 13.5, color: "var(--h-texto)" }}>
+          {datos.map((d) => <span key={d}>{d}</span>)}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: aptoColor }} />
+            Ficha médica: {(jugador.apto || "pendiente").toLowerCase()}
+          </span>
+          <span style={{ color: "var(--h-sub)" }}>
+            Vino a {asistencia ? `${asistencia.presentes} de ${asistencia.total}` : "…"} prácticas en {TEMPORADA_ACTIVA}
+          </span>
           {perfil?.rol === "Manager" && (
             <>
               <input ref={inputFotoRef} type="file" accept="image/*" onChange={elegirFoto} style={{ display: "none" }} />
               <button
                 onClick={() => inputFotoRef.current?.click()}
                 disabled={subiendoFoto}
-                style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontSize: 11.5, cursor: "pointer", padding: 0, marginTop: 4 }}
+                style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontSize: 12.5, cursor: "pointer", padding: 0, marginLeft: "auto" }}
               >
                 {subiendoFoto ? "Subiendo…" : "Cambiar foto"}
               </button>
@@ -3056,68 +3047,36 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
-        <StatCard label="Altura" value={jugador.altura + " cm"} tone="ok" />
-        <StatCard label="Peso" value={jugador.peso + " kg"} tone="ok" />
-        <StatCard label="Apto" value={jugador.apto} tone={aptoTono} />
-        <StatCard
-          label={`Asistencia · temp. ${TEMPORADA_ACTIVA}`}
-          value={asistencia ? `${asistencia.presentes}/${asistencia.total}` : "…"}
-          tone="ok"
-        />
+      <div role="tablist" style={{ display: "flex", gap: 22, borderBottom: "1px solid var(--h-borde)", marginBottom: 16 }}>
+        {TABS_FICHA.map(([k, l]) => (
+          <button
+            key={k}
+            role="tab"
+            aria-selected={tab === k}
+            onClick={() => setTab(k)}
+            style={{ background: "transparent", border: "none", borderBottom: "3px solid " + (tab === k ? "var(--h-club)" : "transparent"), padding: "8px 0", marginBottom: -1, fontSize: 14.5, fontWeight: tab === k ? 700 : 500, color: tab === k ? "var(--h-texto)" : "var(--h-sub)", cursor: "pointer" }}
+          >
+            {l}
+          </button>
+        ))}
       </div>
 
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        <div style={{ ...cardStyle, padding: "18px", flex: "1 1 260px", display: "flex", flexDirection: "column", alignItems: "center" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", width: "100%", marginBottom: 8 }}>
-            <span style={{ fontFamily: "var(--h-titulo)", fontSize: 18, fontWeight: 800, color: "var(--h-texto)" }}>Perfil físico</span>
-            {evalu && <span style={{ fontSize: 11, color: "var(--h-sub2)" }}>Último test: {evalu.fecha}</span>}
-          </div>
-          {!evalu ? (
-            <div style={{ fontSize: 13, color: "var(--h-sub)", padding: "30px 10px", textAlign: "center" }}>Todavía no tiene evaluaciones físicas cargadas.</div>
-          ) : (<>
-          <div style={{ width: "100%", display: "grid", gap: 12 }}>
-            {Object.entries(METRICAS_RANGOS).map(([clave, { rango, unidad, nombre }], i) => {
-              const vals = Object.values(EVALUACIONES_REALES).map((e) => e?.[clave]).filter((v) => typeof v === "number");
-              const prom = vals.length ? vals.reduce((a2, v) => a2 + v, 0) / vals.length : null;
-              const pos = (v) => `${Math.min(100, Math.max(0, ((v - rango[0]) / (rango[1] - rango[0])) * 100))}%`;
-              const sobre = prom !== null && m[clave] != null ? m[clave] >= prom : null;
-              return (
-                <div key={clave}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
-                    <span style={{ color: "var(--h-texto)", fontWeight: 600 }}>{nombre}</span>
-                    <span style={{ color: "var(--h-texto)" }}><b>{m[clave] ?? "—"}</b> <span style={{ color: "var(--h-sub)" }}>{unidad}</span></span>
-                  </div>
-                  <div style={{ position: "relative", height: 10, borderRadius: 5, background: "var(--h-borde)" }}>
-                    {m[clave] != null && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: pos(m[clave]), borderRadius: 5, background: sobre === false ? "var(--h-alerta)" : "var(--h-club)" }} />}
-                    {prom !== null && <span title={`Promedio del plantel: ${Math.round(prom * 100) / 100} ${unidad}`} style={{ position: "absolute", left: pos(prom), top: -3, width: 2, height: 16, background: "var(--h-texto)" }} />}
-                  </div>
-                </div>
-              );
-            })}
-            <div style={{ fontSize: 11.5, color: "var(--h-sub)" }}>La rayita vertical es el promedio del plantel.</div>
-          </div>
-          <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginTop: 10, textAlign: "center" }}>
-            Valores tomados de la última evaluación física cargada por el preparador físico.
-          </div>
-          </>)}
-        </div>
-
-        <div style={{ ...cardStyle, padding: "18px", flex: "1 1 260px" }}>
+      {tab === "puestos" && (
+        <div style={{ ...cardStyle, padding: "18px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <span style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5 }}>POSICIONES</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: "var(--h-texto)" }}>Dónde puede jugar</span>
             <button
               onClick={() => setEditPos((v) => !v)}
-              style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontSize: 11.5, cursor: "pointer", padding: 0 }}
+              style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontSize: 12.5, cursor: "pointer", padding: 0 }}
             >
               {editPos ? "Listo" : "Editar"}
             </button>
           </div>
           <div style={{ fontSize: 13, color: "var(--h-texto)", marginBottom: 6 }}>
-            Ideal: <span style={{ color: "var(--h-sub)" }}>{jugador.posicionIdeal}</span>
+            Su puesto: <span style={{ color: "var(--h-sub)" }}>{jugador.posicionIdeal}</span>
           </div>
           <div style={{ fontSize: 13, color: "var(--h-texto)", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
-            Alternativa:
+            También:
             {editPos ? (
               <select
                 value={jugador.posicionAlternativa}
@@ -3135,7 +3094,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
             )}
           </div>
           <div style={{ fontSize: 13, color: "var(--h-texto)", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
-            Emergencia:
+            Si hace falta:
             {editPos ? (
               <select
                 value={jugador.posicionEmergencia}
@@ -3152,10 +3111,14 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
               <span style={{ color: "var(--h-sub)" }}>{jugador.posicionEmergencia}</span>
             )}
           </div>
+        </div>
+      )}
 
+      {tab === "salud" && (
+        <div style={{ ...cardStyle, padding: "18px" }}>
           {perfil?.rol === "Cuerpo médico" && (
             <div style={{ marginBottom: 16, padding: "12px", background: "var(--h-campo)", borderRadius: 8, border: "1px solid var(--h-borde2)" }}>
-              <div style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 10 }}>ESTADO MÉDICO</div>
+              <div style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 10 }}>Lesión actual</div>
               {jugador.estado === "Lesionado" ? (
                 <>
                   <div style={{ fontSize: 13, color: "var(--h-error)", fontWeight: 600, marginBottom: 6 }}>Lesionado · {jugador.zona}</div>
@@ -3226,7 +3189,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
             </div>
           )}
 
-          <div style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 8 }}>HISTORIAL MÉDICO</div>
+          <div style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 8 }}>Antecedentes</div>
           {jugador.historial.length > 0 ? (
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {jugador.historial.map((h, i) => (
@@ -3268,7 +3231,33 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
             corregir entradas desde acá.
           </div>
         </div>
-      </div>
+      )}
+
+      {tab === "fisico" && (
+        <div style={{ ...cardStyle, padding: "18px" }}>
+          {!evalu ? (
+            <div style={{ fontSize: 13.5, color: "var(--h-sub)", padding: "20px 4px" }}>Todavía no tiene tests físicos cargados.</div>
+          ) : (
+            <>
+              <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 12 }}>Medido el {evalu.fecha}. El número de la derecha es su lugar dentro del plantel.</div>
+              {Object.entries(METRICAS_RANGOS).map(([clave, { unidad, nombre }]) => {
+                const l = lugarEnPlantel(clave);
+                return (
+                  <div key={clave} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: "1px solid var(--h-borde)" }}>
+                    <span style={{ flex: 1, fontSize: 14, color: "var(--h-texto)" }}>{nombre}</span>
+                    <span style={{ fontSize: 14, color: "var(--h-texto)", minWidth: 90, textAlign: "right" }}>
+                      {m[clave] ?? "—"} <span style={{ color: "var(--h-sub)", fontSize: 12 }}>{m[clave] != null ? unidad : ""}</span>
+                    </span>
+                    <span style={{ minWidth: 64, textAlign: "right", fontSize: 13, fontWeight: 700, color: l && l.lugar <= Math.ceil(l.de / 3) ? "var(--h-ok)" : "var(--h-texto2)" }}>
+                      {l ? `${l.lugar}.º de ${l.de}` : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -5599,7 +5588,7 @@ function EvaluacionesPage({ perfil }) {
           <thead>
             <tr style={{ color: "var(--h-sub)", textAlign: "left" }}>
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Jugador</th>
-              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Último test</th>
+              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Medido el</th>
               {Object.entries(METRICAS_RANGOS).map(([clave, { unidad }]) => (
                 <th key={clave} style={{ fontWeight: 400, padding: "8px 10px" }}>
                   {nombreMetrica(clave)} ({unidad})
@@ -5629,8 +5618,7 @@ function EvaluacionesPage({ perfil }) {
   );
 }
 
-// Wellness — encuesta diaria que completa cada jugador (estrés, sueño, DOMS y fatiga, 1 a 7).
-// El readiness es la suma de los cuatro valores, sobre 28.
+// Wellness — encuesta diaria que completa cada jugador (cinco preguntas con escala de cinco colores).
 
 // Fecha de hoy en Argentina (no en UTC: a la noche UTC ya es "mañana").
 function hoyISO() {
