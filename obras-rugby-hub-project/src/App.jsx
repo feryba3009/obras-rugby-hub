@@ -2114,7 +2114,7 @@ const PLAN_GYM_INICIAL = {
       { nombre: "Bicicleta", detalle: "Ritmo suave", valor: "6'" },
       { nombre: "Saltos a la soga", detalle: "", valor: "3x30\"" },
     ] },
-    { titulo: "Trabajo principal", ejercicios: [
+    { titulo: "Trabajo principal", descanso: "2'", ejercicios: [
       { nombre: "Sentadilla trasera", detalle: "", valor: "4x6" },
       { nombre: "Peso muerto rumano", detalle: "", valor: "3x8" },
       { nombre: "Estocada con mancuernas", detalle: "c/pierna", valor: "3x8" },
@@ -2129,7 +2129,7 @@ const PLAN_GYM_INICIAL = {
       { nombre: "Remo ergómetro", detalle: "", valor: "5'" },
       { nombre: "Rotaciones con banda", detalle: "Hombros", valor: "2x12" },
     ] },
-    { titulo: "Trabajo principal", ejercicios: [
+    { titulo: "Trabajo principal", descanso: "2'", ejercicios: [
       { nombre: "Press banca", detalle: "", valor: "4x6" },
       { nombre: "Remo con barra", detalle: "", valor: "4x8" },
       { nombre: "Press militar", detalle: "", valor: "3x8" },
@@ -2202,79 +2202,264 @@ async function cargarPlanGym() {
   if (data?.plan && typeof data.plan === "object") PLAN_GYM = { ...PLAN_GYM_INICIAL, ...data.plan };
 }
 
-function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDeleteEjercicio, onAddEjercicio, onDeleteBloque }) {
+// ── Videos de los ejercicios ──
+function idYoutube(url) {
+  const m = String(url || "").match(/(?:youtu\.be\/|[?&]v=|shorts\/|embed\/|live\/)([\w-]{11})/);
+  return m ? m[1] : null;
+}
+const busquedaVideo = (nombre) => `https://www.youtube.com/results?search_query=${encodeURIComponent(nombre + " ejercicio técnica")}`;
+function prescripcion(e) {
+  const m = String(e.valor || "").match(/^\s*(\d+)\s*x\s*(.+)$/i);
+  return m ? `${m[1]} × ${m[2].trim()}` : e.valor || "";
+}
+function seriesDe(e) {
+  const m = String(e.valor || "").match(/^(\d+)\s*x\s*(\d+)/i);
+  if (!m || /["'’”]/.test(String(e.valor))) return null; // los de tiempo no llevan peso
+  return { series: Math.min(10, Number(m[1])), reps: Number(m[2]) };
+}
+
+// Edición (solo staff): por ejercicio, nombre, series, detalle, link del video y superserie.
+function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeBloque, onChangeEjercicio, onDeleteEjercicio, onAddEjercicio, onDeleteBloque }) {
+  const campo = (lbl, el, flex) => (
+    <label style={{ display: "flex", flexDirection: "column", gap: 3, flex, minWidth: 0 }}>
+      <span style={{ fontSize: 11, color: "var(--h-sub2)" }}>{lbl}</span>
+      {el}
+    </label>
+  );
   return (
     <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 14, borderLeft: "4px solid var(--h-club)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        {editMode ? (
-          <input
-            style={{ ...editInputStyle, fontSize: 13, color: "var(--h-acento)", fontWeight: 600, letterSpacing: 0.4, maxWidth: 280 }}
-            value={bloque.titulo}
-            onChange={(e) => onChangeTitulo(e.target.value)}
-          />
-        ) : (
-          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, color: "var(--h-texto)", fontWeight: 800 }}>{bloque.titulo}</div>
-        )}
-        {editMode && (
-          <button
-            onClick={onDeleteBloque}
-            style={{ background: "transparent", border: "none", color: "var(--h-sub2)", cursor: "pointer", fontSize: 12 }}
-          >
-            Eliminar bloque
-          </button>
-        )}
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 12 }}>
+        {campo("Bloque", <input style={{ ...editInputStyle, fontWeight: 700 }} value={bloque.titulo} onChange={(e) => onChangeTitulo(e.target.value)} />, "2 1 200px")}
+        {campo("Pausa entre series", <input style={editInputStyle} value={bloque.descanso || ""} placeholder={"ej. 90\" o 2'"} onChange={(e) => onChangeBloque("descanso", e.target.value)} />, "1 1 120px")}
+        <button onClick={onDeleteBloque} style={{ background: "transparent", border: "none", color: "var(--h-sub2)", cursor: "pointer", fontSize: 12.5, padding: "8px 0" }}>Eliminar bloque</button>
       </div>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-        <thead>
-          <tr style={{ color: "var(--h-sub2)", textAlign: "left" }}>
-            <th style={{ fontWeight: 400, paddingBottom: 8 }}>Ejercicio</th>
-            <th style={{ fontWeight: 400, paddingBottom: 8 }}>Detalle</th>
-            <th style={{ fontWeight: 400, paddingBottom: 8, width: 100 }}>Series</th>
-            {editMode && <th style={{ width: 20 }} />}
-          </tr>
-        </thead>
-        <tbody>
-          {bloque.ejercicios.map((e, i) =>
-            editMode ? (
-              <tr key={i} style={{ borderTop: "1px solid var(--h-borde)" }}>
-                <td style={{ padding: "9px 8px 9px 0", verticalAlign: "top" }}>
-                  <input style={editInputStyle} value={e.nombre} onChange={(ev) => onChangeEjercicio(i, "nombre", ev.target.value)} />
-                </td>
-                <td style={{ padding: "9px 8px 9px 0", verticalAlign: "top" }}>
-                  <input style={editInputStyle} value={e.detalle} onChange={(ev) => onChangeEjercicio(i, "detalle", ev.target.value)} />
-                </td>
-                <td style={{ padding: "9px 8px 9px 0", verticalAlign: "top" }}>
-                  <input style={editInputStyle} value={e.valor} onChange={(ev) => onChangeEjercicio(i, "valor", ev.target.value)} />
-                </td>
-                <td style={{ padding: "9px 0", verticalAlign: "top" }}>
-                  <button
-                    onClick={() => onDeleteEjercicio(i)}
-                    style={{ background: "transparent", border: "none", color: "var(--h-sub2)", cursor: "pointer", fontSize: 14 }}
-                  >
-                    ×
-                  </button>
-                </td>
-              </tr>
-            ) : (
-              <tr key={i} style={{ borderTop: "1px solid var(--h-borde)" }}>
-                <td style={{ padding: "9px 8px 9px 0", color: "var(--h-texto)", fontWeight: 500, verticalAlign: "top" }}>{e.nombre}</td>
-                <td style={{ padding: "9px 8px 9px 0", color: "var(--h-sub)", verticalAlign: "top" }}>{e.detalle}</td>
-                <td style={{ padding: "9px 0", verticalAlign: "top" }}>
-                  <span style={tagStyle}>{e.valor}</span>
-                </td>
-              </tr>
-            )
+      {bloque.ejercicios.map((e, i) => (
+        <div key={i} style={{ borderTop: "1px solid var(--h-borde)", padding: "10px 0", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+          {campo("Ejercicio", <input style={editInputStyle} value={e.nombre} onChange={(ev) => onChangeEjercicio(i, "nombre", ev.target.value)} />, "2 1 180px")}
+          {campo("Series", <input style={editInputStyle} value={e.valor} placeholder="4x6" onChange={(ev) => onChangeEjercicio(i, "valor", ev.target.value)} />, "0 1 80px")}
+          {campo("Superserie", <input style={{ ...editInputStyle, textTransform: "uppercase" }} maxLength={1} value={e.grupo || ""} placeholder="A" onChange={(ev) => onChangeEjercicio(i, "grupo", ev.target.value.toUpperCase())} />, "0 1 70px")}
+          {campo("Detalle", <input style={editInputStyle} value={e.detalle} placeholder="RIR 2-3, c/pierna…" onChange={(ev) => onChangeEjercicio(i, "detalle", ev.target.value)} />, "2 1 160px")}
+          {campo("Link del video (YouTube)", <input style={editInputStyle} value={e.video || ""} placeholder="https://youtu.be/…" onChange={(ev) => onChangeEjercicio(i, "video", ev.target.value.trim())} />, "3 1 220px")}
+          <button onClick={() => onDeleteEjercicio(i)} aria-label="Quitar ejercicio" style={{ background: "transparent", border: "none", color: "var(--h-sub2)", cursor: "pointer", fontSize: 18, padding: "6px 4px" }}>×</button>
+        </div>
+      ))}
+      <button onClick={onAddEjercicio} style={{ ...pillButton, marginTop: 12, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)", width: "100%" }}>
+        + Agregar ejercicio
+      </button>
+    </div>
+  );
+}
+
+// Vista del plan: bloques plegables, cada ejercicio se toca para ver el video y cargar las series.
+function BloqueGymVista({ bloque, inicio, hechos, onAbrir }) {
+  const [abierto, setAbierto] = useState(true);
+  const total = bloque.ejercicios.length;
+  const listos = bloque.ejercicios.filter((e) => hechos.has(e.nombre)).length;
+  return (
+    <div style={{ ...cardStyle, padding: 0, marginBottom: 12, overflow: "hidden" }}>
+      <button
+        onClick={() => setAbierto((v) => !v)}
+        aria-expanded={abierto}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "var(--h-club)", color: "var(--h-club-txt)", border: "none", cursor: "pointer", textAlign: "left" }}
+      >
+        <span style={{ flex: 1, fontFamily: "var(--h-titulo)", fontSize: 18, fontWeight: 800 }}>{bloque.titulo}</span>
+        {listos > 0 && <span style={{ fontSize: 12.5, fontWeight: 700, opacity: 0.9 }}>{listos}/{total}</span>}
+        <span aria-hidden style={{ fontSize: 14, transform: abierto ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
+      </button>
+      {abierto && (
+        <div style={{ padding: "4px 0" }}>
+          {bloque.ejercicios.map((e, i) => {
+            const hecho = hechos.has(e.nombre);
+            const ultimo = i === total - 1;
+            return (
+              <button
+                key={i}
+                onClick={() => onAbrir(inicio + i)}
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left", position: "relative" }}
+              >
+                {!ultimo && <span aria-hidden style={{ position: "absolute", left: 35, top: 46, bottom: -10, width: 2, background: "var(--h-borde)" }} />}
+                <span style={{
+                  position: "relative", flexShrink: 0, width: 40, height: 40, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                  background: hecho ? "var(--h-ok)" : "var(--h-panel)", border: hecho ? "none" : "2px solid var(--h-borde2)",
+                  color: hecho ? "#fff" : "var(--h-sub)", fontSize: hecho ? 18 : 14, fontWeight: 800,
+                }}>
+                  {hecho ? "✓" : inicio + i + 1}
+                  {e.grupo && (
+                    <span style={{ position: "absolute", right: -4, bottom: -4, minWidth: 18, height: 18, borderRadius: 9, background: "var(--h-club)", color: "var(--h-club-txt)", fontSize: 10.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid var(--h-panel)" }}>{e.grupo}</span>
+                  )}
+                </span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: 15, fontWeight: 600, color: "var(--h-texto)" }}>{e.nombre || "(sin nombre)"}</span>
+                  <span style={{ display: "block", fontSize: 13, color: "var(--h-sub)", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {[prescripcion(e), e.detalle].filter(Boolean).join(" · ")}
+                  </span>
+                </span>
+                {e.video && <span aria-label="Tiene video" style={{ fontSize: 12, fontWeight: 700, color: "var(--h-club)", border: "1.5px solid var(--h-club)", borderRadius: 999, padding: "2px 8px" }}>▶ Video</span>}
+                <span aria-hidden style={{ color: "var(--h-sub2)", fontSize: 18 }}>›</span>
+              </button>
+            );
+          })}
+          {bloque.descanso && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 16px 12px", color: "var(--h-sub)", fontSize: 13.5 }}>
+              <span aria-hidden style={{ width: 40, textAlign: "center", fontSize: 18 }}>⏱</span>
+              Pausa de {bloque.descanso} entre series
+            </div>
           )}
-        </tbody>
-      </table>
-      {editMode && (
-        <button
-          onClick={onAddEjercicio}
-          style={{ ...pillButton, marginTop: 12, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)", width: "100%" }}
-        >
-          + Agregar ejercicio
-        </button>
+        </div>
       )}
+    </div>
+  );
+}
+
+// Pantalla de un ejercicio: video, indicación y tabla de series para cargar kilos y repeticiones.
+function EjercicioGym({ lista, idx, setIdx, onCerrar, jugadorId, dia, puedeEditar, onGuardado }) {
+  const item = lista[idx];
+  const e = item.ej;
+  const sr = seriesDe(e);
+  const vid = idYoutube(e.video);
+  const hoy = fechaHoyGym();
+  const [historial, setHistorial] = useState([]);
+  const [filas, setFilas] = useState([]);
+  const [msg, setMsg] = useState("");
+  const [guardando, setGuardando] = useState(false);
+
+  async function cargarHistorial() {
+    if (!jugadorId || !sr) { setHistorial([]); return; }
+    const { data } = await supabase.from("registros_gimnasio").select("fecha, serie, repeticiones, peso_kg")
+      .eq("jugador_id", jugadorId).eq("ejercicio", e.nombre).order("fecha", { ascending: false }).order("serie").limit(200);
+    setHistorial(data || []);
+  }
+  useEffect(() => {
+    setMsg("");
+    setFilas(sr ? Array.from({ length: sr.series }, () => ({ kg: "", reps: String(sr.reps) })) : []);
+    cargarHistorial();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx, jugadorId]);
+  useEffect(() => {
+    function tecla(ev) {
+      if (ev.key === "Escape") onCerrar();
+      if (ev.target?.tagName === "INPUT") return;
+      if (ev.key === "ArrowRight" && idx < lista.length - 1) setIdx(idx + 1);
+      if (ev.key === "ArrowLeft" && idx > 0) setIdx(idx - 1);
+    }
+    window.addEventListener("keydown", tecla);
+    const ov = document.body.style.overflow; document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", tecla); document.body.style.overflow = ov; };
+  }, [idx, lista.length]);
+
+  const deHoy = historial.filter((r) => r.fecha === hoy).sort((a, b) => a.serie - b.serie);
+  const fechaAnt = historial.find((r) => r.fecha < hoy)?.fecha;
+  const anterior = fechaAnt ? historial.filter((r) => r.fecha === fechaAnt).sort((a, b) => a.serie - b.serie) : [];
+  const mejor = Math.max(0, ...historial.map((r) => Number(r.peso_kg) || 0));
+
+  async function guardar() {
+    const nuevas = filas.map((f, i) => ({ ...f, i })).filter((f) => f.kg !== "")
+      .map((f) => ({ jugador_id: jugadorId, fecha: hoy, dia_plan: dia, ejercicio: e.nombre, serie: f.i + 1, repeticiones: Number(f.reps) || null, peso_kg: Number(String(f.kg).replace(",", ".")) }));
+    if (!nuevas.length) { setMsg("Anotá los kilos de al menos una serie."); return; }
+    if (nuevas.some((f) => !(f.peso_kg >= 0 && f.peso_kg <= 1000))) { setMsg("Revisá los kilos: números entre 0 y 1000."); return; }
+    setGuardando(true);
+    const { error } = await supabase.from("registros_gimnasio").insert(nuevas);
+    setGuardando(false);
+    if (error) { setMsg("No se pudo guardar. Probá de nuevo."); return; }
+    onGuardado(e.nombre);
+    if (idx < lista.length - 1) setIdx(idx + 1); else { await cargarHistorial(); setMsg("✓ Guardado. ¡Terminaste la sesión!"); }
+  }
+  async function corregir() {
+    await supabase.from("registros_gimnasio").delete().eq("jugador_id", jugadorId).eq("fecha", hoy).eq("ejercicio", e.nombre);
+    onGuardado(e.nombre, true);
+    cargarHistorial();
+  }
+
+  const celda = { ...inputStyle, padding: "12px 8px", fontSize: 17, fontWeight: 700, textAlign: "center", width: "100%", marginTop: 0 };
+  const navBtn = (lbl, onClick, dis, aria) => (
+    <button onClick={onClick} disabled={dis} aria-label={aria}
+      style={{ width: 52, height: 52, borderRadius: "50%", border: "1px solid var(--h-borde2)", background: "var(--h-panel)", color: dis ? "var(--h-sub2)" : "var(--h-texto)", fontSize: 20, cursor: dis ? "default" : "pointer", opacity: dis ? 0.5 : 1 }}>{lbl}</button>
+  );
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label={e.nombre} style={{ position: "fixed", inset: 0, zIndex: 120, background: "var(--h-fondo)", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid var(--h-borde)", background: "var(--h-panel)" }}>
+        <span style={{ flex: 1, fontSize: 13, color: "var(--h-sub)", fontWeight: 600 }}>{item.bloque} · {idx + 1} de {lista.length}</span>
+        <button onClick={onCerrar} aria-label="Cerrar" style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid var(--h-borde2)", background: "transparent", color: "var(--h-texto)", fontSize: 18, cursor: "pointer" }}>×</button>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "16px 16px 24px" }}>
+          {vid ? (
+            <div style={{ position: "relative", paddingTop: "56.25%", borderRadius: 14, overflow: "hidden", background: "#000", marginBottom: 16 }}>
+              <iframe
+                key={vid}
+                src={`https://www.youtube-nocookie.com/embed/${vid}?rel=0&playsinline=1&modestbranding=1`}
+                title={`Video: ${e.nombre}`}
+                allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                allowFullScreen
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }}
+              />
+            </div>
+          ) : (
+            <a href={e.video || busquedaVideo(e.nombre)} target="_blank" rel="noopener noreferrer"
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, minHeight: 120, borderRadius: 14, marginBottom: 16, textDecoration: "none", background: "var(--h-panel)", border: "1px dashed var(--h-borde2)", color: "var(--h-club)", fontWeight: 700, fontSize: 15, textAlign: "center", padding: 16 }}>
+              ▶ {e.video ? "Ver el video del ejercicio" : "Buscar un video del ejercicio"}
+            </a>
+          )}
+          {!e.video && puedeEditar && (
+            <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: -8, marginBottom: 14 }}>Para que se vea acá adentro, pegá el link de YouTube en Editar › Link del video.</div>
+          )}
+
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 28, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1.1 }}>{e.nombre}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+            {e.valor && <span style={{ ...tagStyle, fontSize: 14, padding: "4px 10px" }}>{prescripcion(e)}</span>}
+            {e.grupo && <span style={{ fontSize: 13, color: "var(--h-sub)" }}>Superserie {e.grupo}</span>}
+            {mejor > 0 && <span style={{ fontSize: 13, color: "var(--h-sub)" }}>Mejor marca: <b style={{ color: "var(--h-texto)" }}>{mejor} kg</b></span>}
+          </div>
+          {e.detalle && <div style={{ fontSize: 15, color: "var(--h-texto2)", marginTop: 10 }}>{e.detalle}</div>}
+
+          {sr && jugadorId && (
+            <div style={{ marginTop: 20 }}>
+              {deHoy.length ? (
+                <div style={{ ...cardStyle, padding: "14px 16px" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--h-ok)", marginBottom: 8 }}>✓ Cargado hoy</div>
+                  {deHoy.map((r) => (
+                    <div key={r.serie} style={{ display: "flex", justifyContent: "space-between", fontSize: 15, padding: "6px 0", borderTop: "1px solid var(--h-borde)", color: "var(--h-texto)" }}>
+                      <span>Serie {r.serie}</span><span><b>{Number(r.peso_kg)} kg</b> × {r.repeticiones ?? "–"}</span>
+                    </div>
+                  ))}
+                  <button onClick={corregir} style={{ background: "transparent", border: "none", color: "var(--h-sub)", fontSize: 13, textDecoration: "underline", cursor: "pointer", padding: "8px 0 0" }}>Corregir</button>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "56px 1fr 1fr", gap: 10, fontSize: 12, fontWeight: 700, color: "var(--h-sub)", textAlign: "center", marginBottom: 6 }}>
+                    <span>Serie</span><span>Kilos</span><span>Reps</span>
+                  </div>
+                  {filas.map((f, i) => (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "56px 1fr 1fr", gap: 10, alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ textAlign: "center", fontSize: 17, fontWeight: 800, color: "var(--h-texto)" }}>{i + 1}</span>
+                      <input type="number" inputMode="decimal" min="0" step="0.5" aria-label={`Serie ${i + 1}, kilos`}
+                        placeholder={anterior[i] ? String(Number(anterior[i].peso_kg)) : "kg"} value={f.kg}
+                        onChange={(ev) => setFilas((p) => p.map((x, j) => (j === i ? { ...x, kg: ev.target.value } : x)))} style={celda} />
+                      <input type="number" inputMode="numeric" min="0" step="1" aria-label={`Serie ${i + 1}, repeticiones`} value={f.reps}
+                        onChange={(ev) => setFilas((p) => p.map((x, j) => (j === i ? { ...x, reps: ev.target.value } : x)))} style={{ ...celda, color: "var(--h-texto2)" }} />
+                    </div>
+                  ))}
+                  {anterior.length > 0 && (
+                    <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 2 }}>
+                      La vez anterior ({fechaCorta(fechaAnt)}): {anterior.map((r) => `${Number(r.peso_kg)}×${r.repeticiones ?? "–"}`).join(" · ")}
+                    </div>
+                  )}
+                  <button onClick={guardar} disabled={guardando} style={{ ...buttonStyle, marginTop: 14 }}>
+                    {guardando ? "Guardando…" : idx < lista.length - 1 ? "Guardar y seguir" : "Guardar"}
+                  </button>
+                </>
+              )}
+              {msg && <div style={{ fontSize: 13.5, marginTop: 10, color: msg.startsWith("✓") ? "var(--h-ok)" : "var(--h-error)" }}>{msg}</div>}
+            </div>
+          )}
+        </div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "center", gap: 18, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", borderTop: "1px solid var(--h-borde)", background: "var(--h-panel)" }}>
+        {navBtn("←", () => setIdx(idx - 1), idx === 0, "Ejercicio anterior")}
+        {navBtn("×", onCerrar, false, "Cerrar")}
+        {navBtn("→", () => setIdx(idx + 1), idx === lista.length - 1, "Ejercicio siguiente")}
+      </div>
     </div>
   );
 }
@@ -2302,7 +2487,21 @@ function GimnasioPage({ perfil }) {
   });
   const [editMode, setEditMode] = useState(false);
   const bloques = plan[dia];
+  const jugadorPropio = perfil?.jugador_id || "";
+  const [abiertoIdx, setAbiertoIdx] = useState(null);
+  const [hechos, setHechos] = useState(new Set());
+  const [versionCargas, setVersionCargas] = useState(0);
+  const lista = bloques.flatMap((b) => b.ejercicios.map((ej) => ({ ej, bloque: b.titulo })));
+  useEffect(() => {
+    if (!jugadorPropio) return;
+    supabase.from("registros_gimnasio").select("ejercicio").eq("jugador_id", jugadorPropio).eq("fecha", fechaHoyGym())
+      .then(({ data }) => setHechos(new Set((data || []).map((r) => r.ejercicio))));
+  }, [jugadorPropio, versionCargas]);
+  useEffect(() => { setAbiertoIdx(null); }, [dia]);
 
+  function updateBloque(bi, field, value) {
+    setPlan((prev) => ({ ...prev, [dia]: prev[dia].map((b, i) => (i === bi ? { ...b, [field]: value } : b)) }));
+  }
   function updateTitulo(bi, value) {
     setPlan((prev) => {
       const next = prev[dia].map((b, i) => (i === bi ? { ...b, titulo: value } : b));
@@ -2365,12 +2564,39 @@ function GimnasioPage({ perfil }) {
 
       <TiraSemana dia={dia} onDia={setDia} habilitado={(d) => DIAS_GYM.includes(d)} />
 
-      {bloques.map((b, bi) => (
+      {!editMode && (
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: -6, marginBottom: 12 }}>
+          Tocá un ejercicio para ver el video{jugadorPropio ? " y anotar tus kilos" : ""}.
+        </div>
+      )}
+      {!editMode && bloques.map((b, bi) => (
+        <BloqueGymVista
+          key={dia + bi}
+          bloque={b}
+          inicio={bloques.slice(0, bi).reduce((n, x) => n + x.ejercicios.length, 0)}
+          hechos={hechos}
+          onAbrir={setAbiertoIdx}
+        />
+      ))}
+      {!editMode && abiertoIdx !== null && lista[abiertoIdx] && (
+        <EjercicioGym
+          lista={lista}
+          idx={abiertoIdx}
+          setIdx={setAbiertoIdx}
+          onCerrar={() => setAbiertoIdx(null)}
+          jugadorId={jugadorPropio}
+          dia={dia}
+          puedeEditar={puedeEditarGym}
+          onGuardado={() => setVersionCargas((v) => v + 1)}
+        />
+      )}
+      {editMode && bloques.map((b, bi) => (
         <BloqueGym
           key={bi}
           bloque={b}
           editMode={editMode}
           onChangeTitulo={(v) => updateTitulo(bi, v)}
+          onChangeBloque={(f, v) => updateBloque(bi, f, v)}
           onChangeEjercicio={(ei, field, v) => updateEjercicio(bi, ei, field, v)}
           onDeleteEjercicio={(ei) => deleteEjercicio(bi, ei)}
           onAddEjercicio={() => addEjercicio(bi)}
@@ -2387,7 +2613,7 @@ function GimnasioPage({ perfil }) {
         </button>
       )}
 
-      {!editMode && <RegistroCargas perfil={perfil} dia={dia} bloques={bloques} />}
+      {!editMode && <RegistroCargas key={versionCargas} perfil={perfil} dia={dia} bloques={bloques} />}
     </div>
   );
 }
@@ -2512,7 +2738,7 @@ function RegistroCargas({ perfil, dia, bloques }) {
         {staff ? "Cargas del plantel" : "Mis cargas"}
       </div>
       <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2, marginBottom: 14 }}>
-        {staff ? "Elegí un jugador para ver su progreso o cargar su sesión." : "Anotá el peso de cada serie. Tu preparador físico ve tu progreso."}
+        {staff ? "Elegí un jugador para ver su progreso o cargar su sesión." : "Tus kilos se anotan desde cada ejercicio. Tu preparador físico ve tu progreso."}
       </div>
 
       {staff && (
@@ -2524,6 +2750,7 @@ function RegistroCargas({ perfil, dia, bloques }) {
 
       {jugadorId && (
         <>
+          {staff && (
           <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 16 }}>
             <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 600, marginBottom: 4 }}>Cargas de hoy · plan del {dia.toLowerCase()}</div>
             {ejercicios.length === 0 ? (
@@ -2581,6 +2808,7 @@ function RegistroCargas({ perfil, dia, bloques }) {
               </div>
             )}
           </div>
+          )}
 
           <div style={{ ...cardStyle, padding: "16px 18px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
