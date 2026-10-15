@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "./adn/supabaseClient";
 import { CLUB_SLUG, useClub, iniciales } from "./adn/club";
-import VideotecaPage from "./adn/VideotecaPage";
+import VideotecaPage, { extraerYoutubeId } from "./adn/VideotecaPage";
 import FeedbackPage from "./adn/FeedbackPage";
 
 // Conexión a Supabase (proyecto "HUB RUGBY"). Vive en src/adn/supabaseClient.js; se re-exporta
@@ -3933,7 +3933,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
         <div>
           {partido.veoLink && (
             <a
-              href={partido.veoLink}
+              href={urlVideoVer(partido.veoLink)}
               target="_blank"
               rel="noreferrer"
               style={{
@@ -3941,7 +3941,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
                 background: "var(--h-acento-suave)", border: "1px solid var(--h-acento-suave)", borderRadius: 10, padding: "10px 14px", marginBottom: 16,
               }}
             >
-              ▶ Abrir el video en VEO (otra pestaña o app)
+              ▶ Abrir el video en YouTube
             </a>
           )}
           {statsResumen}
@@ -3953,7 +3953,7 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
             {partido.veoLink ? (
               <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "var(--h-panel)", border: "1px solid var(--h-borde)" }}>
                 <iframe
-                  src={partido.veoLink}
+                  src={urlVideoEmbebido(partido.veoLink)}
                   title="Video del partido"
                   allow="fullscreen"
                   style={{ width: "100%", height: "100%", border: "none" }}
@@ -3961,11 +3961,11 @@ function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
               </div>
             ) : (
               <div style={{ ...panelStyle, padding: 20, textAlign: "center", color: "var(--h-sub2)", fontSize: 12.5 }}>
-                No hay link de VEO cargado para este partido.
+                No hay video de YouTube cargado para este partido.
               </div>
             )}
             {partido.veoLink && (
-              <a href={partido.veoLink} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--h-sub2)", display: "block", marginTop: 6 }}>
+              <a href={urlVideoVer(partido.veoLink)} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--h-sub2)", display: "block", marginTop: 6 }}>
                 Si no carga acá, abrilo en una pestaña nueva ↗
               </a>
             )}
@@ -4204,7 +4204,7 @@ function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
         <div>
           {partido.veoLink && (
             <a
-              href={partido.veoLink}
+              href={urlVideoVer(partido.veoLink)}
               target="_blank"
               rel="noreferrer"
               style={{
@@ -4212,7 +4212,7 @@ function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
                 background: "var(--h-acento-suave)", border: "1px solid var(--h-acento-suave)", borderRadius: 10, padding: "10px 14px", marginBottom: 16,
               }}
             >
-              ▶ Abrir el video en VEO (otra pestaña o app)
+              ▶ Abrir el video en YouTube
             </a>
           )}
           {listaJugadores}
@@ -4222,15 +4222,15 @@ function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
           <div style={{ flex: "1 1 50%", minWidth: 0 }}>
             {partido.veoLink ? (
               <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "var(--h-panel)", border: "1px solid var(--h-borde)" }}>
-                <iframe src={partido.veoLink} title="Video del partido" allow="fullscreen" style={{ width: "100%", height: "100%", border: "none" }} />
+                <iframe src={urlVideoEmbebido(partido.veoLink)} title="Video del partido" allow="fullscreen" style={{ width: "100%", height: "100%", border: "none" }} />
               </div>
             ) : (
               <div style={{ background: "linear-gradient(180deg, var(--h-panel), var(--h-panel))", border: "1px solid var(--h-borde)", borderRadius: 14, padding: 20, textAlign: "center", color: "var(--h-sub2)", fontSize: 12.5 }}>
-                No hay link de VEO cargado para este partido.
+                No hay video de YouTube cargado para este partido.
               </div>
             )}
             {partido.veoLink && (
-              <a href={partido.veoLink} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--h-sub2)", display: "block", marginTop: 6 }}>
+              <a href={urlVideoVer(partido.veoLink)} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--h-sub2)", display: "block", marginTop: 6 }}>
                 Si no carga acá, abrilo en una pestaña nueva ↗
               </a>
             )}
@@ -4240,6 +4240,17 @@ function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
       )}
     </div>
   );
+}
+
+// Los videos de los partidos están en YouTube (igual que la videoteca).
+// Links viejos que no sean de YouTube se siguen abriendo tal cual.
+function urlVideoEmbebido(link) {
+  const id = extraerYoutubeId(link || "");
+  return id ? `https://www.youtube-nocookie.com/embed/${id}?rel=0` : link;
+}
+function urlVideoVer(link) {
+  const id = extraerYoutubeId(link || "");
+  return id ? `https://www.youtube.com/watch?v=${id}` : link;
 }
 
 function VeoPage({ perfil }) {
@@ -4269,9 +4280,16 @@ function VeoPage({ perfil }) {
   }
 
   async function guardarLink() {
-    const { error } = await supabase.from("partidos").update({ veo_link: linkInput }).eq("id", partido.id);
+    const id = extraerYoutubeId(linkInput);
+    if (!id) {
+      setMsgImport("Ese link no es de YouTube. Copiá el link del video (youtube.com o youtu.be).");
+      return;
+    }
+    const link = `https://youtu.be/${id}`;
+    const { error } = await supabase.from("partidos").update({ veo_link: link }).eq("id", partido.id);
     if (!error) {
-      partido.veoLink = linkInput;
+      setMsgImport("");
+      partido.veoLink = link;
       setEditandoLink(false);
       forzar((n) => n + 1);
       crearNotificacion("video_partido", `Video de ${categoria} vs ${partido.rival} ya está disponible.`, null, perfil?.id);
@@ -4299,8 +4317,8 @@ function VeoPage({ perfil }) {
       setImportandoTrys(false);
       setTextoTrys("");
       forzar((n) => n + 1);
-      setMsgImport(`✓ ${nuevos.length} trys importados desde VEO.`);
-      crearNotificacion("informe_partido", `Trys importados desde VEO: ${categoria} vs ${partido.rival}.`, null, perfil?.id);
+      setMsgImport(`✓ ${nuevos.length} tries cargados.`);
+      crearNotificacion("informe_partido", `Tries cargados: ${categoria} vs ${partido.rival}.`, null, perfil?.id);
     } else {
       setMsgImport("No se pudo guardar. Probá de nuevo.");
     }
@@ -4349,20 +4367,26 @@ function VeoPage({ perfil }) {
             <input
               value={linkInput}
               onChange={(e) => setLinkInput(e.target.value)}
-              placeholder="Pegá el link que exporta VEO para este partido"
+              placeholder="Pegá el link de YouTube del partido"
               style={{ ...editInputStyle, borderBottom: "1px solid var(--h-borde2)", width: 320 }}
             />
             <button onClick={guardarLink} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
               Guardar
             </button>
-            <button onClick={() => setEditandoLink(false)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
+            <button onClick={() => { setEditandoLink(false); setMsgImport(""); }} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
               Cancelar
             </button>
+            {msgImport && <div style={{ width: "100%", fontSize: 12.5, color: "var(--h-error)" }}>{msgImport}</div>}
           </div>
         ) : partido.veoLink ? (
           <div>
-            <a href={partido.veoLink} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: "var(--h-acento)" }}>
-              ▶ Ver video completo del partido
+            {extraerYoutubeId(partido.veoLink) ? (
+              <div style={{ position: "relative", width: "100%", maxWidth: 720, margin: "0 auto 8px", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "#000" }}>
+                <iframe src={urlVideoEmbebido(partido.veoLink)} title="Video del partido" allow="fullscreen; picture-in-picture" allowFullScreen style={{ width: "100%", height: "100%", border: "none" }} />
+              </div>
+            ) : null}
+            <a href={urlVideoVer(partido.veoLink)} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: "var(--h-acento)" }}>
+              Abrir en YouTube ↗
             </a>
             {esEntrenador(perfil) && (
               <div style={{ marginTop: 10, display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
@@ -4392,7 +4416,7 @@ function VeoPage({ perfil }) {
           </div>
         ) : (
           <div>
-            <div style={{ fontSize: 13, color: "var(--h-sub2)" }}>Todavía no se importó el video de este partido.</div>
+            <div style={{ fontSize: 13, color: "var(--h-sub2)" }}>Todavía no se cargó el video de este partido.</div>
             {esEntrenador(perfil) && (
               <button
                 onClick={() => {
@@ -4401,7 +4425,7 @@ function VeoPage({ perfil }) {
                 }}
                 style={{ ...pillButton, marginTop: 10, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}
               >
-                + Importar link de VEO
+                + Agregar link de YouTube
               </button>
             )}
           </div>
@@ -4426,20 +4450,20 @@ function VeoPage({ perfil }) {
         <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500 }}>Trys del partido</div>
         {esEntrenador(perfil) && !importandoTrys && (
           <button onClick={() => setImportandoTrys(true)} style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontSize: 11.5, cursor: "pointer" }}>
-             Importar desde VEO
+             Cargar tries con minuto
           </button>
         )}
       </div>
       <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginBottom: 12 }}>
         {trysVeo
-          ? "✓ Minutos reales, importados de la IA de VEO."
-          : "El minuto exacto solo está disponible en los tries cargados en vivo (Matchday) o importados de VEO."}
+          ? "✓ Minutos cargados a mano mirando el video."
+          : "El minuto exacto está en los tries cargados en vivo (Matchday) o cargados a mano mirando el video."}
       </div>
 
       {importandoTrys && (
         <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
           <div style={{ fontSize: 11.5, color: "var(--h-texto2)", marginBottom: 8 }}>
-            Una línea por try, copiando lo que ves en el panel de VEO. Escribí "Rival" en la línea si el try fue del
+            Una línea por try, con el minuto del video de YouTube. Escribí "Rival" en la línea si el try fue del
             otro equipo (si no dice nada, se toma como de Obras). Ejemplos:
           </div>
           <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginBottom: 10, fontFamily: "monospace" }}>
@@ -7764,7 +7788,7 @@ const ROLES_REGISTRO = ["Jugador", "Cuerpo técnico", "Manager", "Cuerpo médico
 function puedeGestionar(perfil) {
   return !!perfil && (perfil.rol === "Cuerpo técnico" || perfil.rol === "Manager");
 }
-// Trabajo técnico específico (formaciones, VEO, informe de partido): solo Cuerpo técnico.
+// Trabajo técnico específico (formaciones, análisis de video, informe de partido): solo Cuerpo técnico.
 function esEntrenador(perfil) {
   return !!perfil && perfil.rol === "Cuerpo técnico";
 }
