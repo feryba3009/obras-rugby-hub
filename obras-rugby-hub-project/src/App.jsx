@@ -2338,7 +2338,7 @@ function RegistroCargas({ perfil, dia, bloques }) {
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
                       <span style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600 }}>{e.nombre} <span style={tagStyle}>{e.valor}</span></span>
                       <span style={{ fontSize: 12, color: "var(--h-sub)" }}>
-                        {ult ? `Última vez (${fechaCorta(ult.fecha)}): ${ult.max} kg · ${ult.reps}` : "Primera vez"}{pr > 0 ? ` · Récord ${pr} kg` : ""}
+                        {ult ? `Última vez (${fechaCorta(ult.fecha)}): ${ult.max} kg · ${ult.reps}` : "Primera vez"}{pr > 0 ? ` · Mejor marca ${pr} kg` : ""}
                       </span>
                     </div>
                     {cargadoHoy.length ? (
@@ -2408,7 +2408,7 @@ function RegistroCargas({ perfil, dia, bloques }) {
                   ))}
                 </div>
                 <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 12, fontSize: 12.5, color: "var(--h-sub)" }}>
-                  <span>Récord: <b style={{ color: "var(--h-texto)" }}>{record(verEj)} kg</b></span>
+                  <span>Mejor marca: <b style={{ color: "var(--h-texto)" }}>{record(verEj)} kg</b></span>
                   {serie.length > 1 && (
                     <span>Cambio desde {fechaCorta(serie[0].fecha)}: <b style={{ color: serie[serie.length - 1].max >= serie[0].max ? "var(--h-ok)" : "var(--h-error)" }}>
                       {serie[serie.length - 1].max - serie[0].max >= 0 ? "+" : ""}{Math.round((serie[serie.length - 1].max - serie[0].max) * 10) / 10} kg</b></span>
@@ -7427,8 +7427,8 @@ function PanelNotificaciones({ perfil }) {
     <div>
       <ConfigTitulo>Notificaciones</ConfigTitulo>
       <div style={{ fontSize: 13, color: "var(--h-texto2)", marginBottom: 18, lineHeight: 1.6 }}>
-        Recibí avisos de la app en el celular <b>aunque no lo tengas abierto</b> (alertas de carga, wellness pendiente,
-        RTP, etc.). Hay que permitirlo una sola vez en este dispositivo.
+        Recibí avisos de la app en el celular <b>aunque no lo tengas abierto</b> (equipo del partido, wellness pendiente,
+        lesiones, etc.). Hay que permitirlo una sola vez en este dispositivo.
       </div>
       <div style={{ ...cardStyle, padding: "18px" }}>
         <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 600, marginBottom: 6 }}>Notificaciones en este dispositivo</div>
@@ -7692,7 +7692,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   else if (staff) {
     lineaWellness = `${alertasHoy.respuestas.length}${totalPlantel ? ` de ${totalPlantel}` : ""} respondieron hoy`;
     estadoWellness = aMirarWellness.length
-      ? { texto: `${aMirarWellness.length} para mirar`, fondo: "var(--h-error-suave)", color: "var(--h-error)" }
+      ? { texto: `${aMirarWellness.length} para cuidar`, fondo: "var(--h-error-suave)", color: "var(--h-error)" }
       : alertasHoy.respuestas.length ? { texto: "Todo bien", fondo: "var(--h-ok-suave, var(--h-acento-suave))", color: "var(--h-ok)" } : null;
   } else if (yaHizoWellness) {
     lineaWellness = "Ya lo cargaste hoy. ¡Gracias!";
@@ -7761,7 +7761,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
           onClick={() => onNavigate("equipos")}
           style={{ ...cardStyle, width: "100%", textAlign: "left", cursor: "pointer", padding: "14px 16px", marginBottom: 12, background: "var(--h-club)", color: "var(--h-club-txt)", border: "none", fontFamily: "var(--h-texto-fuente)" }}
         >
-          <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85, textTransform: "uppercase", letterSpacing: "0.1em" }}>Tu convocatoria</div>
+          <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85, textTransform: "uppercase", letterSpacing: "0.1em" }}>Estás en el equipo</div>
           <div style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{sinEmojis(convocatoria.mensaje)}</div>
           <div style={{ fontSize: 12.5, opacity: 0.85, marginTop: 4 }}>Ver el equipo →</div>
         </button>
