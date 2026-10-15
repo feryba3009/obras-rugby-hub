@@ -8874,7 +8874,7 @@ function LoginPage() {
       .then(({ data, error }) => {
         if (!error && data) {
           setJugadoresLista(data);
-          if (data.length) setJugadorId(data[0].nombre);
+          // Sin nombre elegido de entrada: así nadie se registra con el del primero de la lista por error.
         }
       });
   }, []);
@@ -8892,6 +8892,10 @@ function LoginPage() {
     setMensaje("");
     if (password !== password2) {
       setMensaje("Las contraseñas no coinciden.");
+      return;
+    }
+    if (rol === "Jugador" && !soyNuevo && !jugadorId) {
+      setMensaje("Elegí tu nombre en la lista (o tocá \"Soy nuevo\" si no estás).");
       return;
     }
     setCargando(true);
@@ -9053,7 +9057,8 @@ function LoginPage() {
                     <>
                       <label style={labelStyle}>Elegí tu nombre</label>
                       <select value={jugadorId} onChange={(e) => setJugadorId(e.target.value)} style={inputStyle}>
-                        {jugadoresLista.map((j) => (
+                        <option value="">Buscá tu nombre…</option>
+                        {[...jugadoresLista].sort((a, b) => a.nombre.localeCompare(b.nombre)).map((j) => (
                           <option key={j.id} value={j.nombre} style={{ background: "var(--h-campo)" }}>
                             {j.nombre}
                           </option>
