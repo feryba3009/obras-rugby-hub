@@ -251,8 +251,11 @@ async function cargarCalendario() {
         partidoLigaId: r.partido_liga_id,
       }));
 
+    // Solo los que todavía no se jugaron: uno "Próximo" con fecha pasada es un partido suspendido.
+    const hoyAR = new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
     PROXIMOS[claveCat] = partidosCat
-      .filter((r) => r.resultado === "Próximo")
+      .filter((r) => r.resultado === "Próximo" && (!r.fecha || r.fecha >= hoyAR))
+      .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)))
       .map((r) => ({
         id: r.id,
         fecha: r.fecha_numero,
