@@ -26,6 +26,6 @@
   color-scheme: dark;
 }
 html, body, #root { margin: 0; padding: 0; background: var(--h-fondo); color: var(--h-texto); min-height: 100vh; font-family: var(--h-texto-fuente); }
-.h-nav-btn:hover { background: var(--h-panel2) !important; }
+.h-nav-btn:not([aria-current="page"]):hover { background: var(--h-panel2) !important; }
 :root { --h-club-txt: #FFFFFF; --h-club-tinta: var(--h-club-oscuro, var(--h-club)); }
 :root[data-tema="oscuro"] { --h-club-tinta: var(--h-club); }

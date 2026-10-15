@@ -7470,7 +7470,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const bloquesPractica = practicaHoy ? practicaHoy[`grupo${miGrupoPractica}`] || [] : [];
   const aVigilarNombres = POOL.filter((j) => ["A vigilar", "Lesionado"].includes(disponibilidadReal(j))).map((j) => ({ nombre: j.id, estado: disponibilidadReal(j) }));
   const ultimos = fixture.filter((p) => p.res).slice(-3).reverse();
-  const fechaCorta = new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+  const fechaCorta = (() => { const f = new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" }); return f.charAt(0).toUpperCase() + f.slice(1); })();
   const totalPlantel = POOL.length;
 
   const tarjeta = { ...cardStyle, padding: "16px 18px" };
@@ -7531,7 +7531,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
             <div style={{ fontSize: 12, color: "var(--h-acento)", fontWeight: 600, marginBottom: 8, letterSpacing: 0.5 }}>
                ÚLTIMA NOVEDAD
             </div>
-            <div style={{ fontSize: 14, color: "var(--h-texto)", marginBottom: 4 }}>{novedad.mensaje}</div>
+            <div style={{ fontSize: 14, color: "var(--h-texto)", marginBottom: 4 }}>{sinEmojis(novedad.mensaje)}</div>
             <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 16 }}>{tiempoRelativo(novedad.created_at)}</div>
             <button
               onClick={() => setNovedadVista(true)}
@@ -7558,7 +7558,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
         <Shield size={36} />
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-club-tinta)", textTransform: "uppercase", letterSpacing: "0.12em" }}>{saludoHora()}{perfil?.nombre ? `, ${perfil.nombre.split(" ")[0]}` : ""}</div>
-          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, lineHeight: 1.05, color: "var(--h-texto)", textTransform: "capitalize" }}>{fechaCorta}</div>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, lineHeight: 1.05, color: "var(--h-texto)" }}>{fechaCorta}</div>
         </div>
       </div>
 
@@ -7568,7 +7568,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
           style={{ ...cardStyle, width: "100%", textAlign: "left", cursor: "pointer", padding: "14px 16px", marginBottom: 12, background: "var(--h-club)", color: "var(--h-club-txt)", border: "none", fontFamily: "var(--h-texto-fuente)" }}
         >
           <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85, textTransform: "uppercase", letterSpacing: "0.1em" }}>Tu convocatoria</div>
-          <div style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{convocatoria.mensaje}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{sinEmojis(convocatoria.mensaje)}</div>
           <div style={{ fontSize: 12.5, opacity: 0.85, marginTop: 4 }}>Ver el equipo →</div>
         </button>
       )}
@@ -7660,6 +7660,11 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
       </div>
     </div>
   );
+}
+
+// Los avisos viejos guardados en la base pueden traer emojis: se muestran sin ellos.
+function sinEmojis(t) {
+  return String(t || "").replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{2712}\u{2714}-\u{27BF}\u{231A}-\u{23FF}\u{2B50}\u{FE0F}\u{200D}]/gu, "").replace(/^\s+/, "");
 }
 
 function saludoHora() {
@@ -8457,7 +8462,7 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
                 background: "var(--h-acento-suave)",
               }}
             >
-              <div style={{ fontSize: 12.5, color: "var(--h-texto)" }}>{n.mensaje}</div>
+              <div style={{ fontSize: 12.5, color: "var(--h-texto)" }}>{sinEmojis(n.mensaje)}</div>
               <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginTop: 2 }}>{tiempoRelativo(n.created_at)}</div>
             </div>
           ))}
