@@ -659,7 +659,7 @@ function TablaFixture({ data, proximos, perfil }) {
   );
 }
 
-const HOY_FECHA = new Date(2026, 8, 6); // 06/09/2026
+const HOY_FECHA = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })();
 
 function diasDiferencia(dateStr) {
   const [d, m, y] = dateStr.split("/").map(Number);
@@ -1150,7 +1150,7 @@ function CalendarioPage({ perfil }) {
         <div>
           <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Agenda</div>
           <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
-            Fixture y posiciones · Desarrollo · URBA — datos reales (urba.org.ar)
+            La semana del plantel y todos los partidos del torneo.
           </div>
         </div>
         {puedeGestionar(perfil) && !agregando && (
@@ -1209,19 +1209,18 @@ function CalendarioPage({ perfil }) {
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+      <SemanaPlantel />
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
         {[
           { key: "superior", label: "Superior" },
           { key: "intermedia", label: "Intermedia" },
         ].map((t) => (
           <button
             key={t.key}
-            onClick={() => {
-              setCat(t.key);
-              setCargandoResultado(false);
-            }}
+            onClick={() => { setCat(t.key); setCargandoResultado(false); }}
             style={{
-              ...pillButton,
+              ...pillButton, fontWeight: 700,
               border: "1px solid " + (cat === t.key ? "var(--h-acento)" : "var(--h-borde2)"),
               background: cat === t.key ? "var(--h-acento-suave)" : "transparent",
               color: cat === t.key ? "var(--h-acento)" : "var(--h-texto2)",
@@ -1232,106 +1231,157 @@ function CalendarioPage({ perfil }) {
         ))}
       </div>
 
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 20 }}>
-        <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 300px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <span style={{ fontSize: 11, color: "var(--h-sub2)", letterSpacing: 0.5 }}>PRÓXIMO PARTIDO</span>
-            {proximo && puedeGestionar(perfil) && !cargandoResultado && (
-              <button
-                onClick={() => setCargandoResultado(true)}
-                style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontSize: 11.5, cursor: "pointer" }}
-              >
-                Cargar resultado
-              </button>
-            )}
-          </div>
-          {proximo ? (
-            <>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                <TeamBadge name={proximo.rival} size={22} />
-                <span style={{ fontSize: 16, color: "var(--h-texto)", fontWeight: 600 }}>{proximo.rival}</span>
-                <span style={{ ...tagStyle, background: "#0d2a3a", color: "#5fb0e0" }}>{etiquetaDias(proximo.date)}</span>
-              </div>
-              <div style={{ fontSize: 12, color: "var(--h-sub)" }}>
-                Fecha {proximo.fecha} · {proximo.cond} · {proximo.date}
-              </div>
-              {cargandoResultado && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
-                  <input
-                    value={gf}
-                    onChange={(e) => setGf(e.target.value.replace(/\D/g, ""))}
-                    placeholder="Obras"
-                    style={{ ...editInputStyle, width: 60, borderBottom: "1px solid var(--h-borde2)", textAlign: "center" }}
-                  />
-                  <span style={{ color: "var(--h-sub2)" }}>—</span>
-                  <input
-                    value={gc}
-                    onChange={(e) => setGc(e.target.value.replace(/\D/g, ""))}
-                    placeholder={proximo.rival}
-                    style={{ ...editInputStyle, width: 60, borderBottom: "1px solid var(--h-borde2)", textAlign: "center" }}
-                  />
-                  <button onClick={guardar} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none", fontSize: 12 }}>
-                    Guardar
-                  </button>
-                  <button
-                    onClick={() => setCargandoResultado(false)}
-                    style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)", fontSize: 12 }}
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              )}
-            </>
-          ) : (
-            <div style={{ fontSize: 12.5, color: "var(--h-sub2)" }}>Sin próximo partido confirmado.</div>
-          )}
-        </div>
-
-        <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 300px" }}>
-          <div style={{ fontSize: 11, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 10 }}>ÚLTIMO PARTIDO</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
-            <TeamBadge name={ultimo.rival} size={22} />
-            <span style={{ fontSize: 16, color: "var(--h-texto)", fontWeight: 600 }}>{ultimo.rival}</span>
-            <span style={{ ...tagStyle, ...resultTag(ultimo.res) }}>
-              {ultimo.res} {ultimo.gf}-{ultimo.gc}
-            </span>
-          </div>
-          <div style={{ fontSize: 12, color: "var(--h-sub)" }}>
-            Fecha {ultimo.fecha} · {ultimo.cond} · {ultimo.date} · {etiquetaDias(ultimo.date)}
-          </div>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
-        <StatCard label="Ganados" value={record.ganados} tone="ok" />
-        <StatCard label="Perdidos" value={record.perdidos} tone="danger" />
-        <StatCard label="Empatados" value={record.empatados} tone="warn" />
-        <StatCard label="Puntos a favor" value={record.favor} tone="ok" />
-        <StatCard label="Puntos en contra" value={record.contra} tone="danger" />
-        <StatCard label="Diferencia" value={(diferencia >= 0 ? "+" : "") + diferencia} tone={diferencia >= 0 ? "ok" : "danger"} />
-      </div>
-
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
-        <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 300px", minWidth: 0, overflowX: "auto" }}>
-          <div style={{ fontSize: 20, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 12 }}>Fixture</div>
-          <TablaFixture data={fixture} proximos={proximos} perfil={perfil} />
+        <div style={{ flex: "2 1 340px", minWidth: 0 }}>
+          {proximos.length > 0 && (
+            <>
+              <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Lo que viene</div>
+              <div style={{ display: "grid", gap: 8, marginBottom: 18 }}>
+                {proximos.map((p, i) => (
+                  <PartidoAgenda key={"p" + p.id} p={p} proximo destacado={i === 0} perfil={perfil} onGuardado={() => forceUpdate((n) => n + 1)} />
+                ))}
+              </div>
+            </>
+          )}
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Ya jugados</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {[...fixture].reverse().map((p) => (
+              <PartidoAgenda key={"j" + p.id} p={p} perfil={perfil} onGuardado={() => forceUpdate((n) => n + 1)} />
+            ))}
+            {fixture.length === 0 && <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay partidos jugados.</div>}
+          </div>
         </div>
 
-        <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 300px", minWidth: 0, overflowX: "auto" }}>
-          <div style={{ fontSize: 20, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 4 }}>Tabla de posiciones</div>
-          <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 12 }}>
-            Hasta fecha 17 · Berazategui-San José (fecha 17) postergado, por eso tienen un partido menos
-          </div>
-          <TablaPosiciones
-            data={POSICIONES[cat]}
-            perfil={perfil}
-            onGuardado={async () => {
-              await cargarCalendario();
-              forceUpdate((n) => n + 1);
-            }}
-          />
+        <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+          <DondeEstamos filas={POSICIONES[cat]} />
+          <details style={{ ...cardStyle, padding: "12px 14px", marginTop: 12 }}>
+            <summary style={{ cursor: "pointer", fontSize: 13.5, color: "var(--h-texto)", fontWeight: 600 }}>Tabla completa del torneo</summary>
+            <div style={{ overflowX: "auto", marginTop: 10 }}>
+              <TablaPosiciones
+                data={POSICIONES[cat]}
+                perfil={perfil}
+                onGuardado={async () => {
+                  await cargarCalendario();
+                  forceUpdate((n) => n + 1);
+                }}
+              />
+            </div>
+          </details>
         </div>
       </div>
+    </div>
+  );
+}
+
+// La semana del plantel: qué hay cada día (práctica en cancha, gimnasio, partido).
+function SemanaPlantel() {
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const lunes = new Date(hoy); lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+  const nombres = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const partidos = [...(PROXIMOS.superior || []), ...(PROXIMOS.intermedia || []), ...(FIXTURE.superior || []), ...(FIXTURE.intermedia || [])];
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6, marginBottom: 18 }}>
+      {nombres.map((n, i) => {
+        const d = new Date(lunes); d.setDate(lunes.getDate() + i);
+        const ddmm = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+        const esHoy = d.getTime() === hoy.getTime();
+        const cosas = [];
+        const pr = SESIONES[n];
+        if (pr && ((pr.grupo1 || []).length || (pr.grupo2 || []).length)) cosas.push({ t: "Cancha", c: "var(--h-club)" });
+        if (DIAS_GYM.includes(n)) cosas.push({ t: "Gimnasio", c: "#6B7785" });
+        if (partidos.some((p) => p.date === ddmm)) cosas.push({ t: "Partido", c: "var(--h-error)" });
+        return (
+          <div key={n} style={{ ...cardStyle, padding: "8px 6px", textAlign: "center", border: esHoy ? "2px solid var(--h-club)" : cardStyle.border }}>
+            <div style={{ fontSize: 11, color: "var(--h-sub)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{n.slice(0, 3)}</div>
+            <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)" }}>{d.getDate()}</div>
+            <div style={{ display: "grid", gap: 3, marginTop: 4 }}>
+              {cosas.map((x) => (
+                <span key={x.t} style={{ fontSize: 10.5, fontWeight: 700, color: "#fff", background: x.c, borderRadius: 4, padding: "1px 2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.t}</span>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Un partido en la agenda: día grande a la izquierda, rival y resultado.
+function PartidoAgenda({ p, proximo, destacado, perfil, onGuardado }) {
+  const [editando, setEditando] = useState(false);
+  const [gf, setGf] = useState("");
+  const [gc, setGc] = useState("");
+  const [d, m] = String(p.date || "").split("/");
+  const mes = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"][Number(m) - 1] || "";
+  const color = p.res === "Ganado" ? "var(--h-ok)" : p.res === "Perdido" ? "var(--h-error)" : "var(--h-sub)";
+  async function guardar() {
+    if (gf === "" || gc === "") return;
+    const ok = await guardarResultadoPartido(p.id, Number(gf), Number(gc));
+    if (ok) { await cargarCalendario(); setEditando(false); onGuardado(); }
+  }
+  return (
+    <div style={{ ...cardStyle, padding: "10px 12px", display: "flex", alignItems: "center", gap: 12, borderLeft: `4px solid ${proximo ? "var(--h-club)" : color}`, background: destacado ? "var(--h-acento-suave)" : cardStyle.background }}>
+      <div style={{ width: 44, textAlign: "center", flexShrink: 0 }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1 }}>{d}</div>
+        <div style={{ fontSize: 11, color: "var(--h-sub)", textTransform: "uppercase" }}>{mes}</div>
+      </div>
+      <TeamBadge name={p.rival} size={26} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--h-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.cond === "Local" ? "vs" : "en"} {p.rival}</div>
+        <div style={{ fontSize: 12, color: "var(--h-sub)" }}>Fecha {p.fecha} · {p.cond === "Local" ? "en casa" : "de visitante"}</div>
+      </div>
+      {editando ? (
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <input value={gf} onChange={(e) => setGf(e.target.value.replace(/\D/g, ""))} placeholder="Obras" style={{ ...editInputStyle, width: 44, textAlign: "center" }} />
+          <span style={{ color: "var(--h-sub2)" }}>-</span>
+          <input value={gc} onChange={(e) => setGc(e.target.value.replace(/\D/g, ""))} placeholder="Rival" style={{ ...editInputStyle, width: 44, textAlign: "center" }} />
+          <button onClick={guardar} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, cursor: "pointer" }}>OK</button>
+          <button onClick={() => setEditando(false)} aria-label="Cancelar" style={{ background: "none", border: "none", color: "var(--h-sub2)", cursor: "pointer" }}>×</button>
+        </span>
+      ) : proximo ? (
+        puedeGestionar(perfil) ? (
+          <button onClick={() => setEditando(true)} style={{ background: "none", border: "none", color: "var(--h-acento)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cargar resultado</button>
+        ) : null
+      ) : (
+        <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <b style={{ fontFamily: "var(--h-titulo)", fontSize: 19, color: "var(--h-texto)" }}>{p.gf}-{p.gc}</b>
+          <span style={{ width: 22, height: 22, borderRadius: "50%", background: color, color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{(p.res || "")[0]}</span>
+          {puedeGestionar(perfil) && <button onClick={() => setEditando(true)} aria-label="Corregir resultado" style={{ background: "none", border: "none", color: "var(--h-sub2)", fontSize: 12, cursor: "pointer" }}>Editar</button>}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// Dónde está el equipo en la tabla: el puesto grande y los equipos de alrededor.
+function DondeEstamos({ filas }) {
+  const orden = [...(filas || [])].sort((a, b) => (b.pts || 0) - (a.pts || 0) || (b.dif || 0) - (a.dif || 0));
+  const i = orden.findIndex((f) => f.equipo === "Obras Sanitarias");
+  if (i < 0) return <div style={{ ...cardStyle, padding: "14px 16px", fontSize: 13, color: "var(--h-sub)" }}>Todavía no está la tabla del torneo.</div>;
+  const desde = Math.max(0, Math.min(i - 2, orden.length - 5));
+  const vecinos = orden.slice(desde, desde + 5);
+  const nos = orden[i];
+  const arriba = i > 0 ? (orden[i - 1].pts || 0) - (nos.pts || 0) : null;
+  return (
+    <div style={{ ...cardStyle, padding: "14px 16px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 44, fontWeight: 800, color: "var(--h-club-tinta)", lineHeight: 1 }}>{i + 1}°</span>
+        <span style={{ fontSize: 13.5, color: "var(--h-texto2)" }}>de {orden.length} · {nos.pts} puntos</span>
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 10 }}>
+        {arriba === null ? "Primeros en el torneo." : arriba === 0 ? "Empatados en puntos con el de arriba." : `A ${arriba} ${arriba === 1 ? "punto" : "puntos"} del puesto de arriba.`}
+      </div>
+      {vecinos.map((f) => {
+        const pos = orden.indexOf(f) + 1;
+        const somos = f.equipo === "Obras Sanitarias";
+        return (
+          <div key={f.equipo} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 6px", borderRadius: 8, background: somos ? "var(--h-acento-suave)" : "transparent", fontSize: 13.5 }}>
+            <span style={{ width: 22, color: "var(--h-sub)", fontWeight: 700 }}>{pos}</span>
+            <span style={{ flex: 1, minWidth: 0, color: "var(--h-texto)", fontWeight: somos ? 800 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{somos ? "Obras" : f.equipo}</span>
+            <b style={{ color: "var(--h-texto)", fontFamily: "var(--h-titulo)", fontSize: 15 }}>{f.pts}</b>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2004,7 +2054,7 @@ const PLAN_GYM_INICIAL = {
 
 function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDeleteEjercicio, onAddEjercicio, onDeleteBloque }) {
   return (
-    <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 14 }}>
+    <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 14, borderLeft: "4px solid var(--h-club)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         {editMode ? (
           <input
@@ -2013,7 +2063,7 @@ function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeEjercicio, onDele
             onChange={(e) => onChangeTitulo(e.target.value)}
           />
         ) : (
-          <div style={{ fontSize: 13, color: "var(--h-acento)", fontWeight: 600, letterSpacing: 0.4 }}>{bloque.titulo}</div>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, color: "var(--h-texto)", fontWeight: 800 }}>{(bloque.titulo || "").charAt(0) + (bloque.titulo || "").slice(1).toLowerCase()}</div>
         )}
         {editMode && (
           <button
@@ -2879,13 +2929,15 @@ function estadoMedicoTexto(j) {
   return "Disponible";
 }
 
+// Tests físicos. La clave es la de la base; "nombre" es como se muestra en la app.
 const METRICAS_RANGOS = {
-  Potencia: { rango: [28, 42], unidad: "cm" },
-  Reactividad: { rango: [0.35, 0.55], unidad: "m" },
-  Fuerza: { rango: [2400, 3800], unidad: "N" },
-  Velocidad: { rango: [28, 34], unidad: "km/h" },
-  Resistencia: { rango: [16, 19.5], unidad: "km/h" },
+  Potencia: { rango: [28, 42], unidad: "cm", nombre: "Salto" },
+  Reactividad: { rango: [0.35, 0.55], unidad: "m", nombre: "Rebote" },
+  Fuerza: { rango: [2400, 3800], unidad: "N", nombre: "Fuerza" },
+  Velocidad: { rango: [28, 34], unidad: "km/h", nombre: "Velocidad máxima" },
+  Resistencia: { rango: [16, 19.5], unidad: "km/h", nombre: "Velocidad aeróbica" },
 };
+const nombreMetrica = (clave) => METRICAS_RANGOS[clave]?.nombre || clave;
 
 // Registro de evaluaciones físicas — lo carga el preparador físico cuando toma los tests.
 // La ficha del jugador y la pantalla de Evaluaciones muestran siempre el último test cargado;
@@ -2894,40 +2946,6 @@ function ultimaEvaluacion(jugadorId) {
   return EVALUACIONES_REALES[jugadorId] || null;
 }
 
-function RadarChart({ valores, etiquetas, size = 210 }) {
-  const center = size / 2;
-  const radius = size / 2 - 34;
-  const n = etiquetas.length;
-  const angulo = (i) => (Math.PI * 2 * i) / n - Math.PI / 2;
-  const punto = (i, r) => [center + r * Math.cos(angulo(i)), center + r * Math.sin(angulo(i))];
-  const poligono = valores.map((v, i) => punto(i, radius * v).join(",")).join(" ");
-  return (
-    <svg width={size} height={size}>
-      {[0.33, 0.66, 1].map((f) => (
-        <polygon
-          key={f}
-          points={etiquetas.map((_, i) => punto(i, radius * f).join(",")).join(" ")}
-          fill="none"
-          stroke="var(--h-borde)"
-          strokeWidth="1"
-        />
-      ))}
-      {etiquetas.map((_, i) => {
-        const [x, y] = punto(i, radius);
-        return <line key={i} x1={center} y1={center} x2={x} y2={y} stroke="var(--h-borde)" strokeWidth="1" />;
-      })}
-      <polygon points={poligono} fill="color-mix(in srgb, var(--h-acento) 20%, transparent)" stroke="var(--h-acento)" strokeWidth="1.5" />
-      {etiquetas.map((l, i) => {
-        const [x, y] = punto(i, radius + 20);
-        return (
-          <text key={l} x={x} y={y} fill="var(--h-sub)" fontSize="9.5" textAnchor="middle" dominantBaseline="middle">
-            {l}
-          </text>
-        );
-      })}
-    </svg>
-  );
-}
 
 function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemoveHistorial, ocultarVolver, perfil }) {
   const [editPos, setEditPos] = useState(false);
@@ -3052,19 +3070,32 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         <div style={{ ...cardStyle, padding: "18px", flex: "1 1 260px", display: "flex", flexDirection: "column", alignItems: "center" }}>
           <div style={{ display: "flex", justifyContent: "space-between", width: "100%", marginBottom: 8 }}>
-            <span style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5 }}>RADAR DE PERFIL</span>
+            <span style={{ fontFamily: "var(--h-titulo)", fontSize: 18, fontWeight: 800, color: "var(--h-texto)" }}>Perfil físico</span>
             {evalu && <span style={{ fontSize: 11, color: "var(--h-sub2)" }}>Último test: {evalu.fecha}</span>}
           </div>
           {!evalu ? (
             <div style={{ fontSize: 13, color: "var(--h-sub)", padding: "30px 10px", textAlign: "center" }}>Todavía no tiene evaluaciones físicas cargadas.</div>
           ) : (<>
-          <RadarChart valores={valoresNorm} etiquetas={Object.keys(METRICAS_RANGOS)} />
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, justifyContent: "center" }}>
-            {Object.entries(METRICAS_RANGOS).map(([clave, { unidad }]) => (
-              <span key={clave} style={{ fontSize: 11, color: "var(--h-sub)" }}>
-                {clave}: <span style={{ color: "var(--h-texto)", fontWeight: 500 }}>{m[clave]}</span> {unidad}
-              </span>
-            ))}
+          <div style={{ width: "100%", display: "grid", gap: 12 }}>
+            {Object.entries(METRICAS_RANGOS).map(([clave, { rango, unidad, nombre }], i) => {
+              const vals = Object.values(EVALUACIONES_REALES).map((e) => e?.[clave]).filter((v) => typeof v === "number");
+              const prom = vals.length ? vals.reduce((a2, v) => a2 + v, 0) / vals.length : null;
+              const pos = (v) => `${Math.min(100, Math.max(0, ((v - rango[0]) / (rango[1] - rango[0])) * 100))}%`;
+              const sobre = prom !== null && m[clave] != null ? m[clave] >= prom : null;
+              return (
+                <div key={clave}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+                    <span style={{ color: "var(--h-texto)", fontWeight: 600 }}>{nombre}</span>
+                    <span style={{ color: "var(--h-texto)" }}><b>{m[clave] ?? "—"}</b> <span style={{ color: "var(--h-sub)" }}>{unidad}</span></span>
+                  </div>
+                  <div style={{ position: "relative", height: 10, borderRadius: 5, background: "var(--h-borde)" }}>
+                    {m[clave] != null && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: pos(m[clave]), borderRadius: 5, background: sobre === false ? "var(--h-alerta)" : "var(--h-club)" }} />}
+                    {prom !== null && <span title={`Promedio del plantel: ${Math.round(prom * 100) / 100} ${unidad}`} style={{ position: "absolute", left: pos(prom), top: -3, width: 2, height: 16, background: "var(--h-texto)" }} />}
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{ fontSize: 11.5, color: "var(--h-sub)" }}>La rayita vertical es el promedio del plantel.</div>
           </div>
           <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginTop: 10, textAlign: "center" }}>
             Valores tomados de la última evaluación física cargada por el preparador físico.
@@ -4909,13 +4940,18 @@ function TemporadaPage() {
           <button key={c} onClick={() => setCategoria(c)} style={{ ...pillButton, fontWeight: 700, border: "1px solid " + (categoria === c ? "var(--h-acento)" : "var(--h-borde2)"), background: categoria === c ? "var(--h-acento-suave)" : "transparent", color: categoria === c ? "var(--h-acento)" : "var(--h-texto2)" }}>{c}</button>
         ))}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 14 }}>
-        {[["Ganados", g, "var(--h-ok)"], ["Empatados", e, "var(--h-sub)"], ["Perdidos", pe, "var(--h-error)"], ["Puntos a favor", pf, "var(--h-texto)"], ["Puntos en contra", pc, "var(--h-texto)"], ["Diferencia", (pf - pc > 0 ? "+" : "") + (pf - pc), pf >= pc ? "var(--h-ok)" : "var(--h-error)"]].map(([l, v, c]) => (
-          <div key={l} style={{ ...cardStyle, padding: "12px 14px" }}>
-            <div style={{ fontFamily: "var(--h-titulo)", fontSize: 28, fontWeight: 800, color: c, lineHeight: 1 }}>{v}</div>
-            <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 4 }}>{l}</div>
-          </div>
-        ))}
+      {/* La temporada en una línea: un punto por partido (verde ganó, rojo perdió, gris empató) */}
+      <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+        <div style={{ fontSize: 15, color: "var(--h-texto)", lineHeight: 1.5 }}>
+          <b style={{ fontFamily: "var(--h-titulo)", fontSize: 24 }}>{g}</b> ganados, <b style={{ fontFamily: "var(--h-titulo)", fontSize: 24 }}>{pe}</b> perdidos{e ? <> y <b style={{ fontFamily: "var(--h-titulo)", fontSize: 24 }}>{e}</b> {e === 1 ? "empate" : "empates"}</> : null}
+          <span style={{ color: "var(--h-sub)", fontSize: 13.5 }}> · {pf} hechos, {pc} recibidos ({pf - pc > 0 ? "+" : ""}{pf - pc})</span>
+        </div>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 10 }} aria-label="Resultados en orden">
+          {partidos.map((p, i) => (
+            <span key={i} title={`F${p.fecha} ${p.cond === "Local" ? "vs" : "en"} ${p.rival}: ${p.gf}-${p.gc}`}
+              style={{ width: 14, height: 14, borderRadius: "50%", background: p.res === "Ganado" ? "var(--h-ok)" : p.res === "Perdido" ? "var(--h-error)" : "var(--h-sub2)" }} />
+          ))}
+        </div>
       </div>
       <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
         <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Partido a partido</div>
@@ -5509,7 +5545,7 @@ function EvaluacionesPage({ perfil }) {
                 {Object.entries(METRICAS_RANGOS).map(([clave, { unidad }]) => (
                   <div key={clave}>
                     <label style={labelStyle}>
-                      {clave} ({unidad})
+                      {nombreMetrica(clave)} ({unidad})
                     </label>
                     <input
                       value={valores[clave]}
@@ -5530,7 +5566,7 @@ function EvaluacionesPage({ perfil }) {
           ) : (
             <>
               <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 8 }}>
-                Una línea por jugador: Nombre, Potencia, Reactividad, Fuerza, Velocidad, Resistencia
+                Una línea por jugador: Nombre, Salto, Rebote, Fuerza, Velocidad máxima, Velocidad aeróbica
               </div>
               <textarea
                 value={textoImport}
@@ -5566,7 +5602,7 @@ function EvaluacionesPage({ perfil }) {
               <th style={{ fontWeight: 400, padding: "8px 10px" }}>Último test</th>
               {Object.entries(METRICAS_RANGOS).map(([clave, { unidad }]) => (
                 <th key={clave} style={{ fontWeight: 400, padding: "8px 10px" }}>
-                  {clave} ({unidad})
+                  {nombreMetrica(clave)} ({unidad})
                 </th>
               ))}
             </tr>
@@ -7350,9 +7386,9 @@ function PanelMetricas() {
   const [config, setConfig] = useState(Object.fromEntries(Object.keys(METRICAS_RANGOS).map((k) => [k, true])));
   return (
     <div>
-      <ConfigTitulo sub="Qué cualidades físicas se muestran en el radar de perfil de cada jugador.">Métricas</ConfigTitulo>
+      <ConfigTitulo sub="Qué tests físicos se muestran en el perfil de cada jugador.">Métricas</ConfigTitulo>
       {Object.keys(config).map((k) => (
-        <ToggleRow key={k} label={k} checked={config[k]} onChange={() => setConfig((p) => ({ ...p, [k]: !p[k] }))} />
+        <ToggleRow key={k} label={nombreMetrica(k)} checked={config[k]} onChange={() => setConfig((p) => ({ ...p, [k]: !p[k] }))} />
       ))}
       <button style={{ ...buttonStyle, width: "auto", padding: "10px 22px", marginTop: 20 }}>Guardar cambios</button>
     </div>
