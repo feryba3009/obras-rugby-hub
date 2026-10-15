@@ -1573,20 +1573,135 @@ function GrupoTabla({ titulo, filas, editMode, onChange, onDelete, onAdd }) {
   );
 }
 
+// ───────── Confirmación de asistencia a la práctica ("Voy" / "No puedo") ─────────
+async function cargarRespuestasPractica(fecha) {
+  const { data, error } = await supabase.from("practica_respuestas").select("jugador_id, respuesta, motivo").eq("fecha", fecha);
+  if (error) { console.error("Error cargando confirmaciones de práctica:", error); return {}; }
+  return Object.fromEntries((data || []).map((r) => [r.jugador_id, r]));
+}
+async function responderPractica(fecha, jugadorDbId, respuesta, motivo) {
+  const { error } = await supabase.from("practica_respuestas").upsert(
+    { fecha, jugador_id: jugadorDbId, respuesta, motivo: motivo || null, updated_at: new Date().toISOString() },
+    { onConflict: "fecha,jugador_id" }
+  );
+  if (error) console.error("Error guardando la confirmación:", error);
+  return !error;
+}
+// Fecha ISO (de esta semana) del día de la semana elegido.
+function isoDiaSemana(dia) {
+  const orden = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const hoy = new Date();
+  const lunes = new Date(hoy);
+  lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+  const d = new Date(lunes);
+  d.setDate(lunes.getDate() + orden.indexOf(dia));
+  return d.toLocaleDateString("sv-SE");
+}
+
+// Lo que ve el jugador: "¿Venís?" con Voy / No puedo (y motivo).
+function ConfirmarPractica({ perfil, fecha, diaNombre, inicial, onCambio }) {
+  const [resp, setResp] = useState(inicial || null);
+  const [pidiendo, setPidiendo] = useState(false);
+  const [motivo, setMotivo] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  useEffect(() => { setResp(inicial || null); setPidiendo(false); }, [fecha, inicial?.respuesta]);
+  const yo = POOL.find((j) => j.dbId === perfil?.jugador_id);
+  async function responder(r, mot) {
+    setGuardando(true);
+    const ok = await responderPractica(fecha, perfil.jugador_id, r, mot);
+    setGuardando(false);
+    if (!ok) return;
+    const nuevo = { respuesta: r, motivo: mot || null };
+    if (r === "no_puedo") crearNotificacion("practica_baja", `${yo?.id || "Un jugador"} no viene a la práctica del ${diaNombre.toLowerCase()}${mot ? `: ${mot}` : ""}.`, ["Cuerpo técnico", "Manager"], perfil?.id);
+    else if (resp?.respuesta === "no_puedo") crearNotificacion("practica_baja", `${yo?.id || "Un jugador"} al final sí viene a la práctica del ${diaNombre.toLowerCase()}.`, ["Cuerpo técnico", "Manager"], perfil?.id);
+    setResp(nuevo); setPidiendo(false); onCambio?.(nuevo);
+  }
+  const b = (fuerte) => ({ ...pillButton, flex: 1, minHeight: 40, fontSize: 14, fontWeight: 800, border: "2px solid var(--h-club)", background: fuerte ? "var(--h-club)" : "transparent", color: fuerte ? "var(--h-club-txt)" : "var(--h-club-tinta)" });
+  if (pidiendo) return (
+    <div style={{ marginTop: 8 }}>
+      <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="¿Por qué? (opcional)" style={{ ...inputStyle, marginBottom: 8 }} autoFocus />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => setPidiendo(false)} style={b(false)}>Volver</button>
+        <button onClick={() => responder("no_puedo", motivo.trim())} disabled={guardando} style={b(true)}>{guardando ? "Avisando…" : "Avisar"}</button>
+      </div>
+    </div>
+  );
+  if (resp) return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
+      <span style={{ fontWeight: 700, color: resp.respuesta === "voy" ? "var(--h-ok)" : "var(--h-error)" }}>{resp.respuesta === "voy" ? "✓ Confirmaste que vas" : `Avisaste que no vas${resp.motivo ? ` (${resp.motivo})` : ""}`}</span>
+      <button onClick={() => (resp.respuesta === "voy" ? setPidiendo(true) : responder("voy"))} disabled={guardando} style={{ ...pillButton, fontSize: 12, padding: "5px 10px", background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}>
+        {resp.respuesta === "voy" ? "Al final no puedo" : "Al final sí voy"}
+      </button>
+    </div>
+  );
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--h-texto)", marginBottom: 6 }}>¿Venís?</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => responder("voy")} disabled={guardando} style={b(true)}>Voy</button>
+        <button onClick={() => setPidiendo(true)} disabled={guardando} style={b(false)}>No puedo</button>
+      </div>
+    </div>
+  );
+}
+
+// Lo que ve el staff en Práctica del día: quién viene, quién no y quién no respondió.
+function ConfirmacionesPractica({ dia, perfil }) {
+  const fecha = isoDiaSemana(dia);
+  const [resp, setResp] = useState(null);
+  const [aviso, setAviso] = useState("");
+  useEffect(() => { setResp(null); cargarRespuestasPractica(fecha).then(setResp); }, [fecha]);
+  if (!resp) return null;
+  const jugadores = POOL.filter((j) => j.dbId);
+  const vienen = jugadores.filter((j) => resp[j.dbId]?.respuesta === "voy");
+  const noVienen = jugadores.filter((j) => resp[j.dbId]?.respuesta === "no_puedo");
+  const faltan = jugadores.filter((j) => !resp[j.dbId]);
+  const hoyISOv = hoyISO();
+  async function recordar() {
+    await crearNotificacion("practica_confirmar", `Confirmá si venís a la práctica del ${dia.toLowerCase()}.`, ["Jugador"], perfil?.id, faltan.map((j) => j.dbId));
+    setAviso(`Listo: se le recordó a ${faltan.length} ${faltan.length === 1 ? "jugador" : "jugadores"}.`);
+    setTimeout(() => setAviso(""), 4000);
+  }
+  return (
+    <div style={{ ...cardStyle, padding: "12px 16px", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ flex: 1, fontSize: 14.5, color: "var(--h-texto)" }}>
+          Para el {dia.toLowerCase()}: <b style={{ color: "var(--h-ok)" }}>{vienen.length}</b> vienen · <b style={{ color: noVienen.length ? "var(--h-error)" : undefined }}>{noVienen.length}</b> no pueden · <b>{faltan.length}</b> sin responder
+        </span>
+        {fecha >= hoyISOv && faltan.length > 0 && (
+          <button onClick={recordar} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)", fontSize: 12.5 }}>Recordar a los que faltan</button>
+        )}
+      </div>
+      {aviso && <div style={{ fontSize: 12.5, color: "var(--h-ok)", marginTop: 6 }}>{aviso}</div>}
+      {noVienen.length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 13.5, color: "var(--h-texto)", lineHeight: 1.6 }}>
+          {noVienen.map((j) => <div key={j.dbId}><b style={{ color: "var(--h-error)" }}>✕</b> {j.id}{resp[j.dbId].motivo ? <span style={{ color: "var(--h-sub)" }}> · {resp[j.dbId].motivo}</span> : ""}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AsistenciaPanel({ perfil }) {
   const fecha = hoyISO();
   const [presentes, setPresentes] = useState({});
   const [cargando, setCargando] = useState(true);
   const [abierto, setAbierto] = useState(false);
+  const [avisos, setAvisos] = useState({});
 
   useEffect(() => {
     if (!abierto) return;
     setCargando(true);
-    cargarAsistenciaFecha(fecha).then((m) => {
+    Promise.all([cargarAsistenciaFecha(fecha), cargarRespuestasPractica(fecha)]).then(([m, r]) => {
       setPresentes(m);
+      setAvisos(r);
       setCargando(false);
     });
   }, [abierto]);
+  async function marcarConfirmados() {
+    const ids = Object.entries(avisos).filter(([id, r]) => r.respuesta === "voy" && presentes[id] === undefined).map(([id]) => id);
+    for (const id of ids) await marcar(id, true);
+  }
 
   async function marcar(jugadorDbId, presente) {
     setPresentes((prev) => ({ ...prev, [jugadorDbId]: presente }));
@@ -1619,6 +1734,11 @@ function AsistenciaPanel({ perfil }) {
       <div style={{ fontSize: 11, color: "var(--h-sub)", marginBottom: 12 }}>
         {cargando ? "Cargando…" : `${totalPresentes} presentes de ${totalMarcados} marcados · ${jugadoresOrdenados.length} en el plantel`}
       </div>
+      {!cargando && Object.values(avisos).some((r) => r.respuesta === "voy") && (
+        <button onClick={marcarConfirmados} style={{ ...pillButton, fontSize: 12, marginBottom: 10, background: "transparent", border: "1px solid var(--h-ok)", color: "var(--h-ok)" }}>
+          Marcar presentes a los que confirmaron
+        </button>
+      )}
       {!cargando && (
         <div style={{ maxHeight: 340, overflowY: "auto" }}>
           {jugadoresOrdenados.map((j) => {
@@ -1628,7 +1748,14 @@ function AsistenciaPanel({ perfil }) {
                 key={j.dbId}
                 style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 0", borderTop: "1px solid var(--h-borde)" }}
               >
-                <span style={{ fontSize: 12.5, color: "var(--h-texto2)" }}>{j.id}</span>
+                <span style={{ fontSize: 12.5, color: "var(--h-texto2)" }}>
+                  {j.id}
+                  {avisos[j.dbId] && (
+                    <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: avisos[j.dbId].respuesta === "voy" ? "var(--h-ok)" : "var(--h-error)" }}>
+                      {avisos[j.dbId].respuesta === "voy" ? "· confirmó" : `· avisó que no viene${avisos[j.dbId].motivo ? ` (${avisos[j.dbId].motivo})` : ""}`}
+                    </span>
+                  )}
+                </span>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button
                     onClick={() => marcar(j.dbId, true)}
@@ -1916,6 +2043,7 @@ function SesionPage({ perfil }) {
         )}
       </div>
 
+      {puedeEditar && !vacia && <ConfirmacionesPractica dia={dia} perfil={perfil} />}
       {puedeEditar && (
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start" }}>
           <AsistenciaPanel perfil={perfil} />
@@ -8181,7 +8309,9 @@ function TuSemana({ perfil, onNavigate }) {
       supabase.from("wellness_respuestas").select("fecha, estres, sueno, doms, fatiga, escala").eq("jugador_id", yoDb).gte("fecha", L).lte("fecha", D),
       supabase.from("registros_gimnasio").select("fecha").eq("jugador_id", yoDb).gte("fecha", L).lte("fecha", D),
       supabase.from("asistencias").select("fecha, presente").eq("jugador_id", yoDb).gte("fecha", L).lte("fecha", D),
-    ]).then(([w, g, a]) => setD({
+      supabase.from("practica_respuestas").select("fecha, respuesta, motivo").eq("jugador_id", yoDb).gte("fecha", L).lte("fecha", D),
+    ]).then(([w, g, a, pr]) => setD({
+      conf: Object.fromEntries((pr.data || []).map((r) => [r.fecha, r])),
       well: Object.fromEntries((w.data || []).map((r) => [r.fecha, pctWellness(r)])),
       gym: new Set((g.data || []).map((r) => r.fecha)),
       asis: Object.fromEntries((a.data || []).map((r) => [r.fecha, r.presente])),
@@ -8228,7 +8358,7 @@ function TuSemana({ perfil, onNavigate }) {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
         {dias.map((y, i) => {
-          const marcas = [practica(y).length ? "P" : null, gym(y).length ? "G" : null, partidoDia(y) ? "⚑" : null].filter(Boolean);
+          const marcas = [practica(y).length ? (d?.conf[y.iso] ? (d.conf[y.iso].respuesta === "voy" ? "P✓" : "P✕") : "P") : null, gym(y).length ? "G" : null, partidoDia(y) ? "⚑" : null].filter(Boolean);
           const activo = sel === i;
           const wOk = d && d.well[y.iso] !== undefined;
           return (
@@ -8242,7 +8372,7 @@ function TuSemana({ perfil, onNavigate }) {
           );
         })}
       </div>
-      <div style={{ fontSize: 11.5, color: "var(--h-sub)", margin: "6px 2px 4px" }}>P práctica · G gimnasio · ⚑ partido · el punto verde es el wellness cargado</div>
+      <div style={{ fontSize: 11.5, color: "var(--h-sub)", margin: "6px 2px 4px" }}>P práctica (✓ confirmaste, ✕ no vas) · G gimnasio · ⚑ partido · el punto verde es el wellness cargado</div>
 
       <div style={{ marginTop: 6 }}>
         <div style={{ fontSize: 15, fontWeight: 800, color: "var(--h-texto)", padding: "6px 0" }}>{esHoy ? "Hoy" : x.nombre} {x.f.getDate()}/{x.f.getMonth() + 1}</div>
@@ -8262,6 +8392,10 @@ function TuSemana({ perfil, onNavigate }) {
               <b>Práctica · Grupo {grupo}</b> <span style={{ color: "var(--h-sub)" }}>{pr.reduce((a, f) => a + minutosBloque(f), 0)} min</span>
               <div style={{ color: "var(--h-sub)" }}>{pr.map((f) => f.c).filter(Boolean).join(" · ")}</div>
               {esPasado && d && (d.asis[x.iso] === true ? ok("Fuiste") : d.asis[x.iso] === false ? falta("Faltaste") : null)}
+              {!esPasado && d && (
+                <ConfirmarPractica perfil={perfil} fecha={x.iso} diaNombre={x.nombre} inicial={d.conf[x.iso]}
+                  onCambio={(r) => setD((prev) => ({ ...prev, conf: { ...prev.conf, [x.iso]: r } }))} />
+              )}
               {esHoy && irBtn("Ver la práctica", "sesion")}
             </div>
           </div>
@@ -9329,6 +9463,8 @@ const NOTI_DESTINO = {
   alerta_wellness: "wellness",
   alerta_lesion: "disponibilidad",
   resumen_semanal: "resumenes",
+  practica_confirmar: "hoy",
+  practica_baja: "sesion",
   resumen_mensual: "resumenes",
   sesion_planificada: "sesion",
   video_partido: "veo",
