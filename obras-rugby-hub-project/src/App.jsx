@@ -4337,7 +4337,7 @@ function VeoPage({ perfil }) {
       <div style={{ marginBottom: 6 }}>
         <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Análisis de video</div>
         <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
-          Video y estadísticas automáticas · {categoria} vs {partido.rival} ({partido.cond === "Local" ? "L" : "V"}) ·{" "}
+          Video del partido y su análisis · {categoria} vs {partido.rival} ({partido.cond === "Local" ? "L" : "V"}) ·{" "}
           {partido.gf}-{partido.gc} · {partido.date}
         </div>
       </div>
