@@ -8748,7 +8748,7 @@ function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setCargando(false);
     if (error) setMensaje(error.message);
-    // Si no hay error, el listener de sesión en AppRoot te lleva solo  a la app.
+    // Si no hay error, el listener de sesión en AppRoot te lleva solo a la app.
   }
 
   async function handleRegistro() {
@@ -8769,6 +8769,7 @@ function LoginPage() {
       email,
       password,
       options: {
+        emailRedirectTo: window.location.origin,
         data: {
           club_slug: CLUB_SLUG,
           nombre: nombreFinal,
@@ -8792,7 +8793,7 @@ function LoginPage() {
       setMensaje("¡Cuenta creada! Revisá tu email para confirmarla y después iniciá sesión.");
       setModo("ingresar");
     }
-    // Si Supabase ya devolvió sesión activa, el listener en AppRoot te lleva directo  a la app.
+    // Si Supabase ya devolvió sesión activa, el listener en AppRoot te lleva directo a la app.
   }
 
   return (
