@@ -12,8 +12,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title || "ADN Obras", {
       body: data.body,
-      icon: "/adn-icon-192.png",
-      badge: "/adn-icon-192.png",
+      icon: "/app-icon-192.png",
+      badge: "/app-icon-192.png",
       tag: data.tag || "general",
     })
   );
