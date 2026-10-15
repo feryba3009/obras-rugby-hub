@@ -8929,6 +8929,8 @@ const NOTI_DESTINO = {
   formacion_confirmada: "equipos",
   convocatoria: "hoy",
   convocatoria_baja: "equipos",
+  alerta_wellness: "wellness",
+  alerta_lesion: "disponibilidad",
   sesion_planificada: "sesion",
   video_partido: "veo",
   informe_partido: "reportes",
