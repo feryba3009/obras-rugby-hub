@@ -7496,7 +7496,9 @@ async function subirFotoJugador(jugadorDbId, file) {
 function PanelPerfil({ perfil }) {
   const [nombre, setNombre] = useState(perfil?.nombre || "");
   const [rol, setRol] = useState(perfil?.rol || "Jugador");
+  const [nacimiento, setNacimiento] = useState(perfil?.fecha_nacimiento || "");
   const [email, setEmail] = useState(perfil?.email || "");
+  const staffPerfil = esStaff(perfil);
   const [avatarUrl, setAvatarUrl] = useState(perfil?.avatar_url || null);
   const [subiendo, setSubiendo] = useState(false);
   const [msg, setMsg] = useState("");
@@ -7516,9 +7518,12 @@ function PanelPerfil({ perfil }) {
 
   async function guardar() {
     if (!perfil) return;
-    const { error } = await supabase.from("profiles").update({ nombre, rol }).eq("id", perfil.id);
-    perfil.nombre = nombre;
-    perfil.rol = rol;
+    const cambios = { nombre, fecha_nacimiento: nacimiento || null, ...(staffPerfil ? { rol } : {}) };
+    const { error } = await supabase.from("profiles").update(cambios).eq("id", perfil.id);
+    if (!error && perfil.jugador_id && nacimiento) {
+      await supabase.from("jugadores").update({ fecha_nacimiento: nacimiento }).eq("id", perfil.jugador_id);
+    }
+    if (!error) Object.assign(perfil, cambios);
     setMsg(error ? "No se pudo guardar." : "Guardado.");
     setTimeout(() => setMsg(""), 2500);
   }
@@ -7557,14 +7562,21 @@ function PanelPerfil({ perfil }) {
       <label style={labelStyle}>Nombre</label>
       <input style={inputStyle} value={nombre} onChange={(e) => setNombre(e.target.value)} />
 
+      <label style={labelStyle}>Fecha de nacimiento</label>
+      <input type="date" style={inputStyle} value={nacimiento} onChange={(e) => setNacimiento(e.target.value)} max={new Date().toLocaleDateString("sv-SE")} min="1940-01-01" />
+
       <label style={labelStyle}>Rol / Área</label>
-      <select style={inputStyle} value={rol} onChange={(e) => setRol(e.target.value)}>
-        {ROLES_REGISTRO.map((r) => (
-          <option key={r} value={r} style={{ background: "var(--h-campo)" }}>
-            {r}
-          </option>
-        ))}
-      </select>
+      {staffPerfil ? (
+        <select style={inputStyle} value={rol} onChange={(e) => setRol(e.target.value)}>
+          {ROLES_REGISTRO.map((r) => (
+            <option key={r} value={r} style={{ background: "var(--h-campo)" }}>
+              {r}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input style={inputStyle} value={rol} disabled />
+      )}
 
       <label style={labelStyle}>Email</label>
       <input style={inputStyle} value={email} disabled />
@@ -8902,7 +8914,7 @@ function LoginPage() {
       setMensaje("Las contraseñas no coinciden.");
       return;
     }
-    if (rol === "Jugador" && !nacimiento) {
+    if (!nacimiento) {
       setMensaje("Completá tu fecha de nacimiento.");
       return;
     }
@@ -8932,7 +8944,7 @@ function LoginPage() {
           nombre_nuevo_jugador: rol === "Jugador" && soyNuevo ? nombreNuevoJugador : "",
           posicion_nueva: rol === "Jugador" && soyNuevo ? posicionNueva : "",
           altura: rol === "Jugador" ? altura : "",
-          fecha_nacimiento: rol === "Jugador" ? nacimiento : "",
+          fecha_nacimiento: nacimiento,
           peso: rol === "Jugador" ? peso : "",
         },
       },
@@ -9104,6 +9116,8 @@ function LoginPage() {
                 <>
                   <label style={labelStyle}>Nombre y apellido</label>
                   <input style={inputStyle} value={nombreCompleto} onChange={(e) => setNombreCompleto(e.target.value)} placeholder="Nombre y apellido" />
+                  <label style={labelStyle}>Fecha de nacimiento</label>
+                  <input type="date" style={inputStyle} value={nacimiento} onChange={(e) => setNacimiento(e.target.value)} max={new Date().toLocaleDateString("sv-SE")} min="1940-01-01" />
                 </>
               )}
 
@@ -9140,6 +9154,7 @@ let TEMPORADA_ACTIVA = "2026"; // se sobreescribe con el valor real de la base a
 function esParaMi(n, perfil) {
   if (n.roles_destino && !(perfil && n.roles_destino.includes(perfil.rol))) return false;
   if (n.jugadores_destino && n.jugadores_destino.length && !(perfil?.jugador_id && n.jugadores_destino.includes(perfil.jugador_id))) return false;
+  if (n.perfiles_destino && n.perfiles_destino.length && !(perfil?.id && n.perfiles_destino.includes(perfil.id))) return false;
   return true;
 }
 

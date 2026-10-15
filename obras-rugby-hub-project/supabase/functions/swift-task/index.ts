@@ -2,7 +2,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import webpush from "npm:web-push@3.6.7";
 
 // Manda el push de una notificación a los perfiles que corresponden:
-// solo del mismo club, de los roles indicados y, si viene jugadores_destino, solo a esos jugadores.
+// solo del mismo club, de los roles indicados y, si viene jugadores_destino o perfiles_destino, solo a esos.
 // La dispara el trigger on_notificacion_creada (función notificar_push) en cada alta de notificaciones.
 Deno.serve(async (req) => {
   try {
@@ -39,6 +39,9 @@ Deno.serve(async (req) => {
     }
     if (noti.jugadores_destino && noti.jugadores_destino.length > 0) {
       perfilesQuery = perfilesQuery.in("jugador_id", noti.jugadores_destino);
+    }
+    if (noti.perfiles_destino && noti.perfiles_destino.length > 0) {
+      perfilesQuery = perfilesQuery.in("id", noti.perfiles_destino);
     }
     const { data: perfiles } = await perfilesQuery;
     const perfilIds = (perfiles || []).map((p) => p.id);
