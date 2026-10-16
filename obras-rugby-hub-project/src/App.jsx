@@ -233,7 +233,7 @@ async function cargarCalendario() {
 
   const { data: partidoRows, error: errPart } = await supabase
     .from("partidos")
-    .select("id, categoria_id, fecha_numero, fecha, condicion, goles_favor, goles_contra, resultado, veo_link, informe, partido_liga_id, convocatoria_publicada_at, equipos_rivales(nombre)")
+    .select("id, categoria_id, fecha_numero, fecha, condicion, goles_favor, goles_contra, resultado, veo_link, informe, partido_liga_id, convocatoria_publicada_at, votacion_abre_at, equipos_rivales(nombre)")
     .order("fecha_numero");
   if (errPart) console.error("Error cargando partidos:", errPart);
 
@@ -265,6 +265,7 @@ async function cargarCalendario() {
           ? (r.goles_favor > r.goles_contra ? "Ganado" : r.goles_favor < r.goles_contra ? "Perdido" : "Empate")
           : r.resultado,
         veoLink: r.veo_link,
+        votacionAbre: r.votacion_abre_at,
         informe: r.informe,
         partidoLigaId: r.partido_liga_id,
       }));
@@ -1294,7 +1295,8 @@ function CalendarioPage({ perfil }) {
               </div>
             </>
           )}
-          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Ya jugados</div>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>Ya jugados</div>
+          <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 8 }}>Tocá un partido para ver y compartir su resumen.</div>
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 8 }}>
             {[...fixture].reverse().map((p) => (
               <PartidoAgenda key={"j" + p.id} p={p} perfil={perfil} onGuardado={() => forceUpdate((n) => n + 1)} />
@@ -1432,6 +1434,7 @@ function TorneoPage({ perfil }) {
     <div style={{ margin: "22px 0 10px" }}>
       <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>{t}</div>
       {sub && <div style={{ fontSize: 13, color: "var(--h-sub)" }}>{sub}</div>}
+      <div style={{ fontSize: 12.5, color: "var(--h-sub2)" }}>Tocá un partido jugado para compartir su resumen.</div>
     </div>
   );
   const resReg = resumen(regular), resFin = resumen(final);
@@ -1566,6 +1569,8 @@ function SemanaPlantel() {
 // Un partido en la agenda: día grande a la izquierda, rival y resultado.
 function PartidoAgenda({ p, proximo, destacado, perfil, onGuardado }) {
   const [editando, setEditando] = useState(false);
+  const [verResumen, setVerResumen] = useState(false);
+  const jugado = !proximo && p.gf != null;
   const [gf, setGf] = useState("");
   const [gc, setGc] = useState("");
   const [d, m] = String(p.date || "").split("/");
@@ -1577,7 +1582,15 @@ function PartidoAgenda({ p, proximo, destacado, perfil, onGuardado }) {
     if (ok) { await cargarCalendario(); setEditando(false); onGuardado(); }
   }
   return (
-    <div style={{ ...cardStyle, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, minWidth: 0, maxWidth: "100%", boxSizing: "border-box", borderLeft: `4px solid ${p.suspendido ? "var(--h-alerta)" : proximo ? "var(--h-club)" : color}`, background: destacado ? "var(--h-acento-suave)" : cardStyle.background }}>
+    <>
+    {verResumen && <ResumenPartido p={p} onCerrar={() => setVerResumen(false)} />}
+    <div
+      onClick={jugado && !editando ? () => setVerResumen(true) : undefined}
+      role={jugado && !editando ? "button" : undefined}
+      tabIndex={jugado && !editando ? 0 : undefined}
+      onKeyDown={jugado && !editando ? (e) => { if (e.key === "Enter") setVerResumen(true); } : undefined}
+      aria-label={jugado && !editando ? `Ver y compartir el resumen del partido contra ${p.rival}` : undefined}
+      style={{ ...cardStyle, cursor: jugado && !editando ? "pointer" : "default", padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, minWidth: 0, maxWidth: "100%", boxSizing: "border-box", borderLeft: `4px solid ${p.suspendido ? "var(--h-alerta)" : proximo ? "var(--h-club)" : color}`, background: destacado ? "var(--h-acento-suave)" : cardStyle.background }}>
       <div style={{ width: 38, textAlign: "center", flexShrink: 0 }}>
         <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1 }}>{d}</div>
         <div style={{ fontSize: 11, color: "var(--h-sub)", textTransform: "uppercase" }}>{mes}</div>
@@ -1604,10 +1617,11 @@ function PartidoAgenda({ p, proximo, destacado, perfil, onGuardado }) {
         <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <b style={{ fontFamily: "var(--h-titulo)", fontSize: 18, color: "var(--h-texto)", whiteSpace: "nowrap" }}>{p.gf}-{p.gc}</b>
           <span style={{ width: 22, height: 22, borderRadius: "50%", background: color, color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{(p.res || "")[0]}</span>
-          {puedeGestionar(perfil) && <button onClick={() => setEditando(true)} aria-label="Corregir resultado" title="Corregir resultado" style={{ background: "none", border: "none", color: "var(--h-sub2)", fontSize: 15, cursor: "pointer", padding: "0 2px" }}>✎</button>}
+          {puedeGestionar(perfil) && <button onClick={(e) => { e.stopPropagation(); setEditando(true); }} aria-label="Corregir resultado" title="Corregir resultado" style={{ background: "none", border: "none", color: "var(--h-sub2)", fontSize: 15, cursor: "pointer", padding: "0 2px" }}>✎</button>}
         </span>
       )}
     </div>
+    </>
   );
 }
 
@@ -7893,15 +7907,198 @@ function EstadoPlantelPage({ perfil }) {
   );
 }
 
+// ───────────────────────── Resumen del partido para compartir ─────────────────────────
+// Imagen 1080×1350 (formato de Instagram / WhatsApp) con el resultado, los tries y el jugador del partido.
+function cargarImagen(src) {
+  return new Promise((ok) => {
+    if (!src) return ok(null);
+    const img = new Image();
+    if (!String(src).startsWith("data:")) img.crossOrigin = "anonymous";
+    img.onload = () => ok(img);
+    img.onerror = () => ok(null);
+    img.src = src;
+  });
+}
+function categoriaDePartido(id) {
+  if ((FIXTURE.superior || []).some((p) => p.id === id)) return "Superior";
+  if ((FIXTURE.intermedia || []).some((p) => p.id === id)) return "Intermedia";
+  return "";
+}
+async function datosResumenPartido(p) {
+  const [{ data: ind }, mvp] = await Promise.all([
+    supabase.from("analisis_individual_partido").select("jugador_id, tries").eq("partido_id", p.id).gt("tries", 0),
+    p.votacionAbre && Date.now() >= cierreVotacion(p).getTime()
+      ? supabase.rpc("mvp_resultado", { p_partido: p.id }).then((r) => r.data || [])
+      : Promise.resolve([]),
+  ]);
+  const nombre = (id) => POOL.find((j) => j.dbId === id)?.id || "";
+  const tries = (ind || []).map((x) => ({ nombre: nombre(x.jugador_id), n: x.tries })).filter((x) => x.nombre).sort((a, b) => b.n - a.n);
+  const max = mvp[0]?.votos;
+  const ganadores = mvp.filter((x) => x.votos === max).map((x) => nombre(x.jugador_id)).filter(Boolean);
+  return { tries, mvp: ganadores };
+}
+async function imagenResumenPartido({ p, categoria, tries, mvp, clubNombre, colores, zona }) {
+  const W = 1080, H = 1350;
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  try { await document.fonts?.ready; } catch (e) { /* nada */ }
+  const TIT = "'Barlow Condensed', 'Arial Narrow', Arial, sans-serif";
+  const TXT = "Barlow, Arial, sans-serif";
+  const gano = p.res === "Ganado", perdio = p.res === "Perdido";
+  // Fondo
+  ctx.fillStyle = "#0E1620"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = colores.club; ctx.fillRect(0, 0, W, 170);
+  ctx.fillStyle = colores.txt;
+  ctx.font = `800 54px ${TIT}`; ctx.textBaseline = "middle";
+  ctx.fillText(`${categoria ? categoria.toUpperCase() + " · " : ""}${etiquetaFecha(p.fecha).toUpperCase()}`, 60, 70);
+  ctx.font = `500 32px ${TXT}`;
+  ctx.fillText(`${p.date}${p.cond ? " · " + (p.cond === "Local" ? "en casa" : "de visitante") : ""}`, 60, 125);
+  // Escudos y marcador (el local a la izquierda)
+  const obras = { nombre: clubNombre || "Obras", escudo: OBRAS_LOGO_SRC, tantos: p.gf };
+  const rival = { nombre: p.rival || "Rival", escudo: ESCUDOS_RIVALES[p.rival], tantos: p.gc };
+  const [izq, der] = p.cond === "Local" ? [obras, rival] : [rival, obras];
+  const [imgI, imgD] = await Promise.all([cargarImagen(izq.escudo), cargarImagen(der.escudo)]);
+  const escudo = (img, cx, cy, nombre) => {
+    const t = 230;
+    if (img) {
+      const r = Math.min(t / img.width, t / img.height);
+      ctx.drawImage(img, cx - (img.width * r) / 2, cy - (img.height * r) / 2, img.width * r, img.height * r);
+    } else {
+      ctx.fillStyle = "#24303C"; ctx.beginPath(); ctx.arc(cx, cy, t / 2.2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#fff"; ctx.font = `800 90px ${TIT}`; ctx.textAlign = "center"; ctx.fillText(String(nombre).charAt(0), cx, cy + 4); ctx.textAlign = "left";
+    }
+  };
+  escudo(imgI, 220, 390, izq.nombre);
+  escudo(imgD, W - 220, 390, der.nombre);
+  ctx.textAlign = "center"; ctx.fillStyle = "#fff";
+  const ajustar = (txt, max, base) => { let f = base; ctx.font = `700 ${f}px ${TIT}`; while (ctx.measureText(txt).width > max && f > 24) { f -= 2; ctx.font = `700 ${f}px ${TIT}`; } return txt; };
+  ajustar(izq.nombre, 380, 44); ctx.fillText(izq.nombre, 220, 545);
+  ajustar(der.nombre, 380, 44); ctx.fillText(der.nombre, W - 220, 545);
+  ctx.font = `800 150px ${TIT}`;
+  ctx.fillText(`${izq.tantos ?? "-"}`, 220, 690);
+  ctx.fillText(`${der.tantos ?? "-"}`, W - 220, 690);
+  ctx.font = `800 90px ${TIT}`; ctx.fillStyle = "#6B7785"; ctx.fillText("–", W / 2, 690);
+  // Resultado
+  const palabra = gano ? "VICTORIA" : perdio ? "DERROTA" : "EMPATE";
+  const colorRes = gano ? "#2FA36B" : perdio ? "#D64545" : "#8A94A0";
+  ctx.font = `800 44px ${TIT}`;
+  const anchoP = ctx.measureText(palabra).width + 70;
+  ctx.fillStyle = colorRes;
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(W / 2 - anchoP / 2, 790, anchoP, 74, 37) : ctx.rect(W / 2 - anchoP / 2, 790, anchoP, 74); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.fillText(palabra, W / 2, 829);
+  ctx.textAlign = "left";
+  // Tries y jugador del partido
+  let y = 935;
+  const bloque = (titulo, lineas) => {
+    ctx.fillStyle = "#8FA0B0"; ctx.font = `700 30px ${TXT}`; ctx.fillText(titulo, 60, y); y += 50;
+    ctx.fillStyle = "#fff"; ctx.font = `600 40px ${TXT}`;
+    for (const l of lineas) { ctx.fillText(l, 60, y); y += 52; }
+    y += 18;
+  };
+  if (tries.length) {
+    const t = tries.map((x) => `${apellido(x.nombre)}${x.n > 1 ? ` (${x.n})` : ""}`);
+    const lineas = [];
+    let actual = "";
+    for (const nom of t) {
+      const prueba = actual ? `${actual} · ${nom}` : nom;
+      ctx.font = `600 40px ${TXT}`;
+      if (ctx.measureText(prueba).width > W - 120 && actual) { lineas.push(actual); actual = nom; } else actual = prueba;
+    }
+    if (actual) lineas.push(actual);
+    bloque("TRIES", lineas.slice(0, 3));
+  }
+  if (mvp.length) bloque("JUGADOR DEL PARTIDO", [`🏆 ${mvp.join(" y ")}`]);
+  if (zona) {
+    ctx.fillStyle = "#8FA0B0"; ctx.font = `600 30px ${TXT}`;
+    ctx.fillText(zona, 60, Math.max(y, H - 140));
+  }
+  // Firma
+  ctx.fillStyle = "#1FA37A"; ctx.font = `800 40px ${TIT}`; ctx.textAlign = "right";
+  const firma = `ADN ${clubNombre || ""}`.trim();
+  ctx.fillText(firma, W - 60, H - 60);
+  return await new Promise((ok) => canvas.toBlob(ok, "image/png"));
+}
+
+function ResumenPartido({ p, onCerrar }) {
+  const club = useClub();
+  const [url, setUrl] = useState(null);
+  const [blob, setBlob] = useState(null);
+  const [error, setError] = useState("");
+  const categoria = p.categoria || categoriaDePartido(p.id);
+  useEffect(() => {
+    let vivo = true, creada = null;
+    (async () => {
+      try {
+        const { tries, mvp } = await datosResumenPartido(p);
+        const z = ZONA_FINAL[categoria.toLowerCase()];
+        let zonaTxt = "";
+        if (z && p.fecha > FECHAS_FASE_REGULAR) {
+          const orden = [...z.filas].sort((a, b) => (b.pts || 0) - (a.pts || 0) || (b.dif || 0) - (a.dif || 0));
+          const pos = orden.findIndex((f) => f.equipo === "Obras Sanitarias") + 1;
+          if (pos) zonaTxt = `${nombreClubCorto(club) || "Obras"}: ${pos}° de ${orden.length} en la ${z.nombre}`;
+        }
+        const b = await imagenResumenPartido({ p, categoria, tries, mvp, clubNombre: nombreClubCorto(club), colores: colorClub(), zona: zonaTxt });
+        if (!vivo) return;
+        creada = URL.createObjectURL(b);
+        setBlob(b); setUrl(creada);
+      } catch (e) {
+        console.error("Error armando el resumen:", e);
+        if (vivo) setError("No se pudo armar la imagen.");
+      }
+    })();
+    return () => { vivo = false; if (creada) URL.revokeObjectURL(creada); };
+  }, [p.id]);
+  const nombreArchivo = `obras-${(p.rival || "partido").toLowerCase().replace(/[^a-z0-9]+/gi, "-")}-${String(p.date || "").replace(/\//g, "-")}.png`;
+  async function compartir() {
+    const archivo = new File([blob], nombreArchivo, { type: "image/png" });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [archivo] })) await navigator.share({ files: [archivo], title: "Resumen del partido" });
+      else descargar();
+    } catch (e) { if (e?.name !== "AbortError") descargar(); }
+  }
+  function descargar() {
+    const a = document.createElement("a");
+    a.href = url; a.download = nombreArchivo; a.click();
+  }
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Resumen del partido" onClick={onCerrar}
+      style={{ position: "fixed", inset: 0, zIndex: 120, background: "rgba(8,12,16,0.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 420, display: "flex", flexDirection: "column", gap: 12 }}>
+        {url ? (
+          <img src={url} alt={`Resumen: ${p.cond === "Local" ? "Obras" : p.rival} ${p.cond === "Local" ? p.gf : p.gc} - ${p.cond === "Local" ? p.gc : p.gf} ${p.cond === "Local" ? p.rival : "Obras"}`}
+            style={{ width: "100%", maxHeight: "70vh", objectFit: "contain", borderRadius: 14, background: "#0E1620" }} />
+        ) : (
+          <div style={{ aspectRatio: "4 / 5", maxHeight: "70vh", borderRadius: 14, background: "#0E1620", display: "flex", alignItems: "center", justifyContent: "center", color: "#B8C2CC", fontSize: 14 }}>
+            {error || "Armando el resumen…"}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onCerrar} style={{ ...pillButton, flex: 1, background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "#fff" }}>Cerrar</button>
+          <button onClick={descargar} disabled={!url} style={{ ...pillButton, flex: 1, background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "#fff" }}>Descargar</button>
+          <button onClick={compartir} disabled={!url} style={{ ...pillButton, flex: 2, background: "#25D366", color: "#fff", border: "none", fontWeight: 700 }}>Compartir</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ───────────────────────── Jugador del partido (votación) ─────────────────────────
 // Se abre al cargar el resultado y cierra 3 días después del partido. Uno no se puede votar a sí mismo.
-const DIAS_VOTACION = 3;
+const HORAS_VOTACION = 24;
+const cierreVotacion = (p) => (p.votacionAbre ? new Date(new Date(p.votacionAbre).getTime() + HORAS_VOTACION * 3600 * 1000) : null);
+const textoCierre = (f) => {
+  const hoy = new Date();
+  const dia = f.toDateString() === hoy.toDateString() ? "hoy" : f.toDateString() === new Date(hoy.getTime() + 864e5).toDateString() ? "mañana" : `el ${f.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })}`;
+  return `${dia} a las ${f.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
+};
 function fechaISODeDisplay(dmy) { const [d, m, y] = String(dmy || "").split("/"); return y ? `${y}-${m}-${d}` : ""; }
 function sumarDiasISO(iso, n) { const f = new Date(iso + "T12:00:00"); f.setDate(f.getDate() + n); return f.toLocaleDateString("sv-SE"); }
 const hoyISO_AR = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
 
 function SelectorVoto({ partido, perfil, onElegir, onCerrar }) {
   const [busca, setBusca] = useState("");
+  const [elegido, setElegido] = useState(null);
   const [convocados, setConvocados] = useState([]);
   useEffect(() => {
     const catId = CATEGORIA_IDS[partido.categoria];
@@ -7915,7 +8112,7 @@ function SelectorVoto({ partido, perfil, onElegir, onCerrar }) {
   const deLaFormacion = convocados.map((id) => todos.find((j) => j.dbId === id)).filter(Boolean).filter(filtro);
   const resto = todos.filter((j) => !convocados.includes(j.dbId)).filter(filtro);
   const fila = (j) => (
-    <button key={j.dbId} onClick={() => onElegir(j)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 4px", background: "none", border: "none", borderTop: "1px solid var(--h-borde)", cursor: "pointer", textAlign: "left" }}>
+    <button key={j.dbId} onClick={() => setElegido(j)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 4px", background: "none", border: "none", borderTop: "1px solid var(--h-borde)", cursor: "pointer", textAlign: "left" }}>
       <AvatarPlaceholder size={34} foto={j.foto} />
       <span style={{ flex: 1, minWidth: 0 }}>
         <span style={{ display: "block", fontSize: 15, fontWeight: 600, color: "var(--h-texto)" }}>{j.id}</span>
@@ -7946,6 +8143,18 @@ function SelectorVoto({ partido, perfil, onElegir, onCerrar }) {
           {resto.map(fila)}
         </div>
       </div>
+      {elegido && (
+        <div style={{ borderTop: "1px solid var(--h-borde)", background: "var(--h-panel)", padding: "14px 16px calc(14px + env(safe-area-inset-bottom))" }}>
+          <div style={{ maxWidth: 560, margin: "0 auto" }}>
+            <div style={{ fontSize: 15, color: "var(--h-texto)" }}>¿Votás a <b>{elegido.id}</b>?</div>
+            <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 2 }}>Es un solo voto y después no se puede cambiar.</div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button onClick={() => setElegido(null)} style={{ ...pillButton, flex: 1, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}>Volver</button>
+              <button onClick={() => onElegir(elegido)} style={{ ...pillButton, flex: 2, background: "var(--h-acento)", color: "var(--h-panel)", border: "none", fontWeight: 700 }}>Confirmar voto</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -7954,14 +8163,15 @@ function JugadorDelPartido({ perfil }) {
   const [votos, setVotos] = useState({}); // partidoId -> jugadorId (mi voto)
   const [conteos, setConteos] = useState({}); // partidoId -> [{jugador_id, votos}]
   const [eligiendo, setEligiendo] = useState(null);
+  const [resumen, setResumen] = useState(null);
   const [msg, setMsg] = useState("");
   const staff = esStaff(perfil);
-  const hoy = hoyISO_AR();
+  const ahora = Date.now();
   const partidos = ["Superior", "Intermedia"].flatMap((cat) =>
-    (FIXTURE[cat.toLowerCase()] || []).map((p) => ({ ...p, categoria: cat, iso: fechaISODeDisplay(p.date) }))
-  ).filter((p) => p.iso && hoy >= p.iso && hoy <= sumarDiasISO(p.iso, DIAS_VOTACION + 7));
-  const abiertos = partidos.filter((p) => hoy <= sumarDiasISO(p.iso, DIAS_VOTACION));
-  const cerrados = partidos.filter((p) => hoy > sumarDiasISO(p.iso, DIAS_VOTACION));
+    (FIXTURE[cat.toLowerCase()] || []).map((p) => ({ ...p, categoria: cat, cierre: cierreVotacion(p) }))
+  ).filter((p) => p.cierre && ahora <= p.cierre.getTime() + 6 * 864e5);
+  const abiertos = partidos.filter((p) => ahora < p.cierre.getTime());
+  const cerrados = partidos.filter((p) => ahora >= p.cierre.getTime());
   const claves = partidos.map((p) => p.id).join(",");
 
   async function cargar() {
@@ -7973,7 +8183,7 @@ function JugadorDelPartido({ perfil }) {
     }
     const res = {};
     for (const p of partidos) {
-      if (!staff && hoy <= sumarDiasISO(p.iso, DIAS_VOTACION)) continue;
+      if (!staff && ahora < p.cierre.getTime()) continue;
       const { data } = await supabase.rpc("mvp_resultado", { p_partido: p.id });
       res[p.id] = data || [];
     }
@@ -7989,10 +8199,8 @@ function JugadorDelPartido({ perfil }) {
     setEligiendo(null);
     setMsg("");
     const fila = { partido_id: p.id, jugador_id: jugador.dbId, votante: perfil.auth_user_id };
-    const { error } = votos[p.id]
-      ? await supabase.from("votos_partido").update({ jugador_id: jugador.dbId }).eq("partido_id", p.id).eq("votante", perfil.auth_user_id)
-      : await supabase.from("votos_partido").insert(fila);
-    if (error) { setMsg("No se pudo guardar el voto. Probá de nuevo."); return; }
+    const { error } = await supabase.from("votos_partido").insert(fila);
+    if (error) { setMsg(error.code === "23505" ? "Ya votaste en este partido." : "No se pudo guardar el voto (la votación puede estar cerrada)."); cargar(); return; }
     cargar();
   }
 
@@ -8014,14 +8222,11 @@ function JugadorDelPartido({ perfil }) {
               <span aria-hidden style={{ fontSize: 22 }}>🏆</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>Jugador del partido</div>
-                <div style={{ fontSize: 13, color: "var(--h-sub)" }}>{p.categoria} · {p.cond === "Local" ? "vs" : "en"} {p.rival} · {p.gf}-{p.gc} · se vota hasta el {fechaCorta(sumarDiasISO(p.iso, DIAS_VOTACION))}</div>
+                <div style={{ fontSize: 13, color: "var(--h-sub)" }}>{p.categoria} · {p.cond === "Local" ? "vs" : "en"} {p.rival} · {p.gf}-{p.gc} · cierra {textoCierre(p.cierre)}</div>
               </div>
             </div>
             {mio ? (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
-                <span style={{ fontSize: 14.5, color: "var(--h-texto)" }}>✓ Votaste a <b>{nombre(mio)}</b></span>
-                <button onClick={() => setEligiendo(p)} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, fontSize: 13.5, cursor: "pointer", padding: 0 }}>Cambiar</button>
-              </div>
+              <div style={{ marginTop: 10, fontSize: 14.5, color: "var(--h-texto)" }}>✓ Votaste a <b>{nombre(mio)}</b>. El resultado sale cuando cierra la votación.</div>
             ) : (
               <button onClick={() => setEligiendo(p)} style={{ ...buttonStyle, marginTop: 12 }}>Votar</button>
             )}
@@ -8048,11 +8253,15 @@ function JugadorDelPartido({ perfil }) {
                 <div style={{ fontSize: 13, opacity: 0.9 }}>{g[0].votos} {g[0].votos === 1 ? "voto" : "votos"}{g.length > 1 ? " cada uno" : ""}</div>
               </div>
             </div>
+            <button onClick={() => setResumen(p)} style={{ ...pillButton, marginTop: 12, background: "rgba(255,255,255,0.18)", color: "inherit", border: "1px solid rgba(255,255,255,0.45)", fontWeight: 700 }}>
+              Compartir el resumen del partido
+            </button>
           </div>
         );
       })}
       {msg && <div style={{ fontSize: 13, color: "var(--h-error)", marginBottom: 10 }}>{msg}</div>}
       {eligiendo && <SelectorVoto partido={eligiendo} perfil={perfil} onElegir={votar} onCerrar={() => setEligiendo(null)} />}
+      {resumen && <ResumenPartido p={resumen} onCerrar={() => setResumen(null)} />}
     </>
   );
 }
@@ -8074,26 +8283,25 @@ function sesionesDeHoy() {
 
 function EsfuerzoSesion({ perfil }) {
   const tipos = sesionesDeHoy();
-  const [cargadas, setCargadas] = useState(null);
-  const [tipo, setTipo] = useState(tipos[0] || "");
+  // Una sola carga por día, por la sesión completa (si hay partido, cuenta como partido).
+  const tipo = tipos.includes("Partido") ? "Partido" : tipos.includes("Práctica") ? "Práctica" : tipos[0];
+  const [hecha, setHecha] = useState(undefined);
   const [rpe, setRpe] = useState(null);
-  const [minutos, setMinutos] = useState(String(MINUTOS_TIPO[tipos[0]] || 60));
+  const [minutos, setMinutos] = useState(String(MINUTOS_TIPO[tipo] || 60));
   const [editando, setEditando] = useState(false);
   const [msg, setMsg] = useState("");
   const jugadorId = perfil?.jugador_id;
   const hoy = hoyISO_AR();
 
   async function cargar() {
-    const { data } = await supabase.from("rpe_sesiones").select("tipo, rpe, minutos").eq("jugador_id", jugadorId).eq("fecha", hoy);
-    const m = Object.fromEntries((data || []).map((r) => [r.tipo, r]));
-    setCargadas(m);
-    const pendiente = tipos.find((t) => !m[t]);
-    if (pendiente) { setTipo(pendiente); setMinutos(String(MINUTOS_TIPO[pendiente])); }
+    const { data } = await supabase.from("rpe_sesiones").select("tipo, rpe, minutos").eq("jugador_id", jugadorId).eq("fecha", hoy).maybeSingle();
+    setHecha(data || null);
+    if (data) setMinutos(String(data.minutos));
   }
-  useEffect(() => { if (jugadorId && tipos.length) cargar(); }, [jugadorId]);
-  if (!jugadorId || !tipos.length || !cargadas) return null;
-  const pendientes = tipos.filter((t) => !cargadas[t]);
-  const mostrarForm = editando || pendientes.length > 0;
+  useEffect(() => { if (jugadorId && tipo) cargar(); }, [jugadorId]);
+  if (!jugadorId || !tipo || hecha === undefined) return null;
+  const mostrarForm = editando || !hecha;
+  const queHubo = tipo === "Partido" ? "el partido" : tipo === "Práctica" ? "la práctica" : "el gimnasio";
 
   async function guardar() {
     setMsg("");
@@ -8102,7 +8310,7 @@ function EsfuerzoSesion({ perfil }) {
     if (!(min >= 1 && min <= 300)) { setMsg("Revisá los minutos (entre 1 y 300)."); return; }
     const { error } = await supabase.from("rpe_sesiones").upsert(
       { jugador_id: jugadorId, fecha: hoy, tipo, rpe, minutos: min, updated_at: new Date().toISOString() },
-      { onConflict: "jugador_id,fecha,tipo" }
+      { onConflict: "jugador_id,fecha" }
     );
     if (error) { setMsg("No se pudo guardar. Probá de nuevo."); return; }
     setRpe(null); setEditando(false);
@@ -8111,30 +8319,20 @@ function EsfuerzoSesion({ perfil }) {
 
   return (
     <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
-      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>¿Qué tan dura fue la sesión?</div>
-      {Object.values(cargadas).length > 0 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-          {Object.entries(cargadas).map(([t, r]) => (
-            <span key={t} style={{ fontSize: 13, fontWeight: 600, color: "var(--h-texto)", background: "var(--h-fondo)", borderRadius: 999, padding: "4px 10px", borderLeft: `4px solid ${colorRPE(r.rpe)}` }}>
-              ✓ {t}: {r.rpe}/10 · {r.minutos} min
-            </span>
-          ))}
-          {!mostrarForm && <button onClick={() => { setEditando(true); setTipo(tipos[0]); setMinutos(String(cargadas[tipos[0]]?.minutos || MINUTOS_TIPO[tipos[0]])); }} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: 0 }}>Corregir</button>}
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>¿Qué tan dura fue la sesión de hoy?</div>
+      {hecha && !editando && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "var(--h-texto)", background: "var(--h-fondo)", borderRadius: 999, padding: "5px 12px", borderLeft: `4px solid ${colorRPE(hecha.rpe)}` }}>
+            ✓ {hecha.rpe}/10 · {ESCALA_RPE[hecha.rpe]} · {hecha.minutos} min
+          </span>
+          <button onClick={() => { setEditando(true); setRpe(hecha.rpe); }} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: 0 }}>Corregir</button>
         </div>
       )}
       {mostrarForm && (
         <>
-          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 4 }}>Marcalo apenas termines. 1 es muy fácil y 10, al máximo.</div>
-          {tipos.length > 1 && (
-            <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-              {tipos.map((t) => (
-                <button key={t} onClick={() => { setTipo(t); setMinutos(String(cargadas[t]?.minutos || MINUTOS_TIPO[t])); }} aria-pressed={tipo === t}
-                  style={{ ...pillButton, fontWeight: 700, border: "1px solid " + (tipo === t ? "var(--h-acento)" : "var(--h-borde2)"), background: tipo === t ? "var(--h-acento-suave)" : "transparent", color: tipo === t ? "var(--h-acento)" : "var(--h-texto2)" }}>
-                  {t}{cargadas[t] ? " ✓" : ""}
-                </button>
-              ))}
-            </div>
-          )}
+          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 4 }}>
+            Pensá en toda la sesión de hoy ({queHubo}), de principio a fin. 1 es muy fácil y 10, al máximo.
+          </div>
           <div role="radiogroup" aria-label="Esfuerzo del 1 al 10" style={{ display: "grid", gridTemplateColumns: "repeat(10, minmax(0, 1fr))", gap: 4, marginTop: 12 }}>
             {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
               <button key={n} role="radio" aria-checked={rpe === n} aria-label={`${n}: ${ESCALA_RPE[n]}`} onClick={() => setRpe(n)}
@@ -8147,10 +8345,10 @@ function EsfuerzoSesion({ perfil }) {
           {rpe && <div style={{ fontSize: 14, fontWeight: 700, color: colorRPE(rpe), marginTop: 6 }}>{rpe} · {ESCALA_RPE[rpe]}</div>}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "var(--h-texto2)" }}>
-              Duró
-              <input type="number" inputMode="numeric" min="1" max="300" value={minutos} onChange={(e) => setMinutos(e.target.value)} aria-label="Minutos"
+              Duró en total
+              <input type="number" inputMode="numeric" min="1" max="300" value={minutos} onChange={(e) => setMinutos(e.target.value)} aria-label="Minutos de la sesión completa"
                 style={{ ...inputStyle, width: 74, marginTop: 0, textAlign: "center", padding: "8px 6px" }} />
-              minutos
+              min
             </label>
             <button onClick={guardar} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none", fontWeight: 700, marginLeft: "auto" }}>Guardar</button>
           </div>
