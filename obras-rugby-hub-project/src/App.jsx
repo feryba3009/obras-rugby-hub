@@ -9696,6 +9696,7 @@ function TuSemana({ perfil, onNavigate }) {
 }
 
 function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista, perfil }) {
+  const esCelular = useIsMobile();
   // El aviso de "Activá las notificaciones" solo aparece si este celular/compu todavía no las tiene
   // activadas y no se cerró antes. Una vez activadas (o cerrado el aviso), no vuelve a salir.
   const [showBanner, setShowBanner] = useState(false);
@@ -9826,6 +9827,23 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const totalPlantel = POOL.length;
 
   const tarjeta = { ...cardStyle, padding: "16px 18px" };
+  // Celular: los tres accesos en una fila, solo ícono, nombre y un dato corto.
+  const AccesoChico = ({ icono, titulo, dato, activo, onClick }) => (
+    <button
+      onClick={onClick}
+      aria-label={`${titulo}: ${dato}`}
+      style={{
+        ...tarjeta, margin: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, width: "100%",
+        padding: "12px 6px 10px", fontFamily: "var(--h-texto-fuente)", color: "var(--h-texto)", borderTop: "3px solid " + (activo ? "var(--h-club)" : "var(--h-borde)"),
+      }}
+    >
+      <span style={{ width: 40, height: 40, borderRadius: 12, background: "var(--h-acento-suave)", color: "var(--h-club-tinta)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Icono nombre={icono} size={22} />
+      </span>
+      <span style={{ fontFamily: "var(--h-titulo)", fontSize: 16, fontWeight: 800, lineHeight: 1 }}>{titulo}</span>
+      <span style={{ fontSize: 11.5, color: activo ? "var(--h-club-tinta)" : "var(--h-sub)", fontWeight: activo ? 700 : 500, whiteSpace: "nowrap" }}>{dato}</span>
+    </button>
+  );
   const AccesoDiario = ({ icono, titulo, linea, estado, onClick }) => (
     <button
       onClick={onClick}
@@ -9920,7 +9938,14 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
       {esStaff(perfil) && <RegistroPlantel />}
 
       {/* Lo de todos los días: wellness, gimnasio y práctica, a un toque (el jugador lo tiene en "Tu semana") */}
-      {!esJugador && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 14 }}>
+      {!esJugador && esCelular && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 14 }}>
+          <AccesoChico icono="wellness" titulo="Wellness" dato={alertasHoy.cargando ? "…" : `${alertasHoy.respuestas.length}/${totalPlantel}`} activo={alertasHoy.respuestas.length > 0} onClick={() => onNavigate("wellness")} />
+          <AccesoChico icono="gimnasio" titulo="Gimnasio" dato={gymHoy ? "Hoy" : "No hay hoy"} activo={!!gymHoy} onClick={() => onNavigate("gimnasio")} />
+          <AccesoChico icono="sesion" titulo="Práctica" dato={bloquesPractica.length ? `${bloquesPractica.reduce((a, f) => a + minutosBloque(f), 0)} min` : "No hay hoy"} activo={bloquesPractica.length > 0} onClick={() => onNavigate("sesion")} />
+        </div>
+      )}
+      {!esJugador && !esCelular && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 14 }}>
         <AccesoDiario icono="wellness" titulo="Wellness" linea={lineaWellness} estado={estadoWellness} onClick={() => onNavigate("wellness")} />
         <AccesoDiario
           icono="gimnasio"
