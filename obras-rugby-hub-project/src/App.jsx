@@ -2439,12 +2439,40 @@ function TiraSemana({ dia, onDia, habilitado, marcado }) {
   );
 }
 
+// Plan del gimnasio por día → grupo (1 y 2) → puesto. Cada grupo tiene su plan general ("todos") y
+// cualquier puesto puede tener un plan propio que reemplaza al general para los jugadores de ese puesto.
+// { Lunes: { g1: { todos: [bloques], "Medio scrum": [bloques] }, g2: { todos: [...] } }, ... }
+const clonar = (x) => JSON.parse(JSON.stringify(x));
+function normalizarDiaGym(v) {
+  if (Array.isArray(v)) return { g1: { todos: v }, g2: { todos: clonar(v) } };
+  if (v && typeof v === "object") return { g1: { todos: [], ...(v.g1 || {}) }, g2: { todos: [], ...(v.g2 || {}) } };
+  return { g1: { todos: [] }, g2: { todos: [] } };
+}
+function normalizarPlanGym(plan) {
+  return Object.fromEntries(DIAS_GYM.map((d) => [d, normalizarDiaGym(plan?.[d])]));
+}
+function bloquesGym(plan, dia, grupo, puesto) {
+  const g = plan?.[dia]?.[`g${grupo}`];
+  if (!g) return [];
+  return puesto && Array.isArray(g[puesto]) ? g[puesto] : g.todos || [];
+}
+function grupoYPuestoDe(jugadorDbId) {
+  const j = POOL.find((x) => x.dbId === jugadorDbId);
+  return { grupo: calcularGrupos().grupo[jugadorDbId] || 1, puesto: j?.posicionIdeal || null };
+}
+// El plan que le toca a un jugador ese día (sin jugador: el general del Grupo 1).
+function planGymDe(dia, jugadorDbId) {
+  if (!jugadorDbId) return bloquesGym(PLAN_GYM, dia, 1, null);
+  const { grupo, puesto } = grupoYPuestoDe(jugadorDbId);
+  return bloquesGym(PLAN_GYM, dia, grupo, puesto);
+}
+
 // Plan vigente del club (lo que se ve en Gimnasio, en Inicio y en "Tu semana"). Arranca con el de base.
-let PLAN_GYM = PLAN_GYM_INICIAL;
+let PLAN_GYM = normalizarPlanGym(PLAN_GYM_INICIAL);
 async function cargarPlanGym() {
   const { data, error } = await supabase.from("plan_gimnasio_club").select("plan").maybeSingle();
   if (error) { console.error("Error cargando el plan de gimnasio:", error); return; }
-  if (data?.plan && typeof data.plan === "object") PLAN_GYM = { ...PLAN_GYM_INICIAL, ...data.plan };
+  if (data?.plan && typeof data.plan === "object") PLAN_GYM = normalizarPlanGym({ ...PLAN_GYM_INICIAL, ...data.plan });
 }
 
 // ── Videos de los ejercicios ──
@@ -2731,8 +2759,49 @@ function GimnasioPage({ perfil }) {
     return DIAS_GYM.includes(hoy) ? hoy : "Lunes";
   });
   const [editMode, setEditMode] = useState(false);
-  const bloques = plan[dia];
   const jugadorPropio = perfil?.jugador_id || "";
+  const mio = jugadorPropio ? grupoYPuestoDe(jugadorPropio) : null;
+  // Qué plan se ve / edita: el jugador ve el suyo; el staff elige grupo y puesto.
+  const [sel, setSel] = useState(() => (mio && !puedeEditarGym ? { grupo: mio.grupo, puesto: mio.puesto } : { grupo: 1, puesto: null }));
+  const grupoDia = plan[dia]?.[`g${sel.grupo}`] || { todos: [] };
+  const tienePropio = !!(sel.puesto && Array.isArray(grupoDia[sel.puesto]));
+  const clave = sel.puesto && tienePropio ? sel.puesto : "todos";
+  const bloques = editMode ? grupoDia[clave] || [] : bloquesGym(plan, dia, sel.grupo, sel.puesto);
+  // Cambia el plan que se está editando (día + grupo + puesto, o el general del grupo).
+  function mutar(fn) {
+    setPlan((prev) => {
+      const next = clonar(prev);
+      next[dia] = normalizarDiaGym(next[dia]);
+      const g = next[dia][`g${sel.grupo}`];
+      g[clave] = fn(g[clave] || []);
+      return next;
+    });
+  }
+  function armarPropio() {
+    setPlan((prev) => {
+      const next = clonar(prev);
+      const g = next[dia][`g${sel.grupo}`];
+      g[sel.puesto] = clonar(g.todos || []);
+      return next;
+    });
+  }
+  function quitarPropio() {
+    if (!window.confirm(`¿Borrar el plan propio de ${sel.puesto}? Vuelve a usar el general del Grupo ${sel.grupo}.`)) return;
+    setPlan((prev) => {
+      const next = clonar(prev);
+      delete next[dia][`g${sel.grupo}`][sel.puesto];
+      return next;
+    });
+  }
+  function copiarAlOtroGrupo() {
+    const otro = sel.grupo === 1 ? 2 : 1;
+    if (!window.confirm(`¿Copiar este plan del ${dia.toLowerCase()} (${sel.puesto || "general"}) al Grupo ${otro}? Reemplaza lo que tenga.`)) return;
+    setPlan((prev) => {
+      const next = clonar(prev);
+      next[dia][`g${otro}`][clave] = clonar(next[dia][`g${sel.grupo}`][clave] || []);
+      return next;
+    });
+  }
   const [abiertoIdx, setAbiertoIdx] = useState(null);
   const [hechos, setHechos] = useState(new Set());
   const [versionCargas, setVersionCargas] = useState(0);
@@ -2745,42 +2814,62 @@ function GimnasioPage({ perfil }) {
   useEffect(() => { setAbiertoIdx(null); }, [dia]);
 
   function updateBloque(bi, field, value) {
-    setPlan((prev) => ({ ...prev, [dia]: prev[dia].map((b, i) => (i === bi ? { ...b, [field]: value } : b)) }));
+    mutar((bs) => bs.map((b, i) => (i === bi ? { ...b, [field]: value } : b)));
   }
-  function updateTitulo(bi, value) {
-    setPlan((prev) => {
-      const next = prev[dia].map((b, i) => (i === bi ? { ...b, titulo: value } : b));
-      return { ...prev, [dia]: next };
-    });
-  }
+  function updateTitulo(bi, value) { updateBloque(bi, "titulo", value); }
   function updateEjercicio(bi, ei, field, value) {
-    setPlan((prev) => {
-      const next = prev[dia].map((b, i) =>
-        i === bi ? { ...b, ejercicios: b.ejercicios.map((e, j) => (j === ei ? { ...e, [field]: value } : e)) } : b
-      );
-      return { ...prev, [dia]: next };
-    });
+    mutar((bs) => bs.map((b, i) => (i === bi ? { ...b, ejercicios: b.ejercicios.map((e, j) => (j === ei ? { ...e, [field]: value } : e)) } : b)));
   }
   function addEjercicio(bi) {
-    setPlan((prev) => {
-      const next = prev[dia].map((b, i) =>
-        i === bi ? { ...b, ejercicios: [...b.ejercicios, { nombre: "", detalle: "", valor: "" }] } : b
-      );
-      return { ...prev, [dia]: next };
-    });
+    mutar((bs) => bs.map((b, i) => (i === bi ? { ...b, ejercicios: [...b.ejercicios, { nombre: "", detalle: "", valor: "" }] } : b)));
   }
   function deleteEjercicio(bi, ei) {
-    setPlan((prev) => {
-      const next = prev[dia].map((b, i) => (i === bi ? { ...b, ejercicios: b.ejercicios.filter((_, j) => j !== ei) } : b));
-      return { ...prev, [dia]: next };
-    });
+    mutar((bs) => bs.map((b, i) => (i === bi ? { ...b, ejercicios: b.ejercicios.filter((_, j) => j !== ei) } : b)));
   }
-  function deleteBloque(bi) {
-    setPlan((prev) => ({ ...prev, [dia]: prev[dia].filter((_, i) => i !== bi) }));
-  }
-  function addBloque() {
-    setPlan((prev) => ({ ...prev, [dia]: [...prev[dia], { titulo: "Nuevo bloque", ejercicios: [] }] }));
-  }
+  function deleteBloque(bi) { mutar((bs) => bs.filter((_, i) => i !== bi)); }
+  function addBloque() { mutar((bs) => [...bs, { titulo: "Nuevo bloque", ejercicios: [] }]); }
+
+  // Selector de grupo y puesto (staff) / a qué plan corresponde lo que ve el jugador.
+  const chip = (activo) => ({
+    ...pillButton, fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, padding: "6px 12px",
+    border: "1px solid " + (activo ? "var(--h-acento)" : "var(--h-borde2)"),
+    background: activo ? "var(--h-acento-suave)" : "transparent",
+    color: activo ? "var(--h-acento)" : "var(--h-texto2)",
+  });
+  const selector = puedeEditarGym ? (
+    <div style={{ marginBottom: 14 }}>
+      <div role="tablist" aria-label="Grupo" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 12, background: "var(--h-panel)", border: "1px solid var(--h-borde)", maxWidth: 420 }}>
+        {[1, 2].map((g) => (
+          <button key={g} role="tab" aria-selected={sel.grupo === g} onClick={() => setSel((x) => ({ ...x, grupo: g }))}
+            style={{ padding: "9px 6px", borderRadius: 9, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 14, background: sel.grupo === g ? "var(--h-club)" : "transparent", color: sel.grupo === g ? "var(--h-club-txt)" : "var(--h-texto2)" }}>
+            Grupo {g}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "10px 0 2px", WebkitOverflowScrolling: "touch" }}>
+        <button onClick={() => setSel((x) => ({ ...x, puesto: null }))} style={chip(!sel.puesto)}>Todos los puestos</button>
+        {POSICIONES_LISTA.map((pu) => {
+          const propio = Array.isArray(plan[dia]?.[`g${sel.grupo}`]?.[pu]);
+          return (
+            <button key={pu} onClick={() => setSel((x) => ({ ...x, puesto: pu }))} style={chip(sel.puesto === pu)} aria-label={`${pu}${propio ? " (plan propio)" : ""}`}>
+              {pu}{propio ? " ●" : ""}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 4 }}>
+        {!sel.puesto
+          ? `Plan general del Grupo ${sel.grupo}: lo hacen todos los puestos que no tienen uno propio (●).`
+          : tienePropio
+            ? `${sel.puesto} del Grupo ${sel.grupo} tiene su plan propio.`
+            : `${sel.puesto} del Grupo ${sel.grupo} hace el plan general del grupo.`}
+      </div>
+    </div>
+  ) : mio ? (
+    <div style={{ fontSize: 13, color: "var(--h-texto2)", marginBottom: 12 }}>
+      Tu plan: <b>Grupo {mio.grupo}{mio.puesto ? ` · ${mio.puesto}` : ""}</b>
+    </div>
+  ) : null;
 
   return (
     <div>
@@ -2809,10 +2898,37 @@ function GimnasioPage({ perfil }) {
 
       <TiraSemana dia={dia} onDia={setDia} habilitado={(d) => DIAS_GYM.includes(d)} />
 
+      {selector}
+
+      {editMode && sel.puesto && !tienePropio && (
+        <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+          <div style={{ fontSize: 14, color: "var(--h-texto)" }}>Hoy <b>{sel.puesto}</b> del Grupo {sel.grupo} hace el plan general del grupo.</div>
+          <button onClick={armarPropio} style={{ ...pillButton, marginTop: 10, background: "var(--h-acento)", color: "var(--h-panel)", border: "none", fontWeight: 700 }}>
+            Armar un plan propio para {sel.puesto}
+          </button>
+          <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 6 }}>Arranca como copia del general y lo cambiás a gusto.</div>
+        </div>
+      )}
+      {editMode && (!sel.puesto || tienePropio) && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          <button onClick={copiarAlOtroGrupo} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)", fontSize: 12.5 }}>
+            Copiar al Grupo {sel.grupo === 1 ? 2 : 1}
+          </button>
+          {tienePropio && (
+            <button onClick={quitarPropio} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-error-suave)", color: "var(--h-error)", fontSize: 12.5 }}>
+              Quitar el plan propio de {sel.puesto}
+            </button>
+          )}
+        </div>
+      )}
+
       {!editMode && (
         <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: -6, marginBottom: 12 }}>
           Tocá un ejercicio para ver el video{jugadorPropio ? " y anotar tus kilos" : ""}.
         </div>
+      )}
+      {!editMode && bloques.length === 0 && (
+        <div style={{ ...cardStyle, padding: "14px 16px", fontSize: 13.5, color: "var(--h-sub)" }}>Todavía no hay plan cargado para este día.</div>
       )}
       {!editMode && bloques.map((b, bi) => (
         <BloqueGymVista
@@ -2835,7 +2951,7 @@ function GimnasioPage({ perfil }) {
           onGuardado={() => setVersionCargas((v) => v + 1)}
         />
       )}
-      {editMode && bloques.map((b, bi) => (
+      {editMode && (!sel.puesto || tienePropio) && bloques.map((b, bi) => (
         <BloqueGym
           key={bi}
           bloque={b}
@@ -2849,7 +2965,7 @@ function GimnasioPage({ perfil }) {
         />
       ))}
 
-      {editMode && (
+      {editMode && (!sel.puesto || tienePropio) && (
         <button
           onClick={addBloque}
           style={{ ...pillButton, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)", width: "100%" }}
@@ -2900,7 +3016,8 @@ function RegistroCargas({ perfil, dia, bloques }) {
   const [guardando, setGuardando] = useState(false);
   const [msg, setMsg] = useState("");
   const [ejercicioVer, setEjercicioVer] = useState("");
-  const ejercicios = ejerciciosConCarga(bloques);
+  // El staff carga con el plan que le toca a ese jugador (su grupo y su puesto).
+  const ejercicios = ejerciciosConCarga(staff && jugadorId ? planGymDe(dia, jugadorId) : bloques);
 
   useEffect(() => {
     if (!staff) return;
@@ -9475,7 +9592,7 @@ function TuSemana({ perfil, onNavigate }) {
     return null;
   };
   const practica = (x) => SESIONES[x.nombre]?.[`grupo${grupo}`] || [];
-  const gym = (x) => (DIAS_GYM.includes(x.nombre) ? PLAN_GYM[x.nombre] || [] : []);
+  const gym = (x) => (DIAS_GYM.includes(x.nombre) ? planGymDe(x.nombre, yoDb) : []);
 
   // Cuentas de la semana (hasta hoy)
   const pasados = dias.slice(0, hoyIdx + 1);
@@ -9694,7 +9811,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const esJugador = perfil?.rol === "Jugador";
   const yaHizoWellness = esJugador && alertasHoy.respuestas.some((x) => x.jugadorId === perfil?.jugador_id);
   const diaHoy = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date().getDay()];
-  const gymHoy = PLAN_GYM[diaHoy];
+  const gymHoy = DIAS_GYM.includes(diaHoy) ? planGymDe(diaHoy, esJugador ? perfil?.jugador_id : null) : undefined;
   const proximoGym = DIAS_GYM.find((d) => ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].indexOf(d) > ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].indexOf(diaHoy)) || DIAS_GYM[0];
   const practicaHoy = SESIONES[diaHoy];
   const miGrupoPractica = esJugador && perfil?.jugador_id ? calcularGrupos().grupo[perfil.jugador_id] || 1 : 1;
