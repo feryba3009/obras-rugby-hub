@@ -41,6 +41,7 @@ const NAV = [
   {
     group: "Partido",
     items: [
+      { key: "torneo", label: "Torneo", icono: "torneo" },
       { key: "equipos", label: "Equipo del partido", icono: "equipos" },
       { key: "videoteca", label: "Videos del rival", icono: "videoteca" },
     ],
@@ -89,6 +90,7 @@ const ICONOS = {
   resumen: "M6 3h9l3 3v15H6zM15 3v3h3M9 10h6M9 14h6M9 18h4",
   rtp: "M12 21s-8-4.5-8-11a5 5 0 0 1 8-4 5 5 0 0 1 8 4c0 6.5-8 11-8 11zM9 11h6M12 8v6",
   equipos: "M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z",
+  torneo: "M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 20h8M10 17h4",
   videoteca: "M3 6h13v12H3zM16 10l5-3v10l-5-3",
   reportes: "M6 3h9l4 4v14H6zM15 3v4h4M9 12h7M9 16h7",
   analisis: "M4 19h16M7 16V9M12 16V5M17 16v-4",
@@ -191,6 +193,11 @@ const textoBloque = (t) => { const x = String(t || ""); return x && x === x.toUp
 let POSICIONES = { superior: [], intermedia: [] };
 let FIXTURE = { superior: [], intermedia: [] };
 let PROXIMOS = { superior: [], intermedia: [] };
+// Partidos que quedaron "Próximo" con la fecha ya pasada: suspendidos, a reprogramar.
+let SUSPENDIDOS = { superior: [], intermedia: [] };
+// Tabla de la zona de la fase final donde quedó el club ({ nombre, filas }).
+let ZONA_FINAL = { superior: null, intermedia: null };
+const nombreZona = (z) => { const m = String(z || "").match(/-\s*([^-]+?)\s*-\s*(Superior|Intermedia|Primera)\s*$/i); return m ? `Zona ${m[1].trim()}` : String(z || "Fase final"); };
 
 const DBDATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 function dbDateToDisplay(d) {
@@ -220,7 +227,7 @@ async function cargarCalendario() {
 
   const { data: posRows, error: errPos } = await supabase
     .from("posiciones")
-    .select("id, categoria_id, es_obras, pj, g, e, p, pf, pc, dif, bo, bd, pts, equipos_rivales(nombre)")
+    .select("id, categoria_id, es_obras, pj, g, e, p, pf, pc, dif, bo, bd, pts, fase, zona, equipos_rivales(nombre)")
     .order("pts", { ascending: false });
   if (errPos) console.error("Error cargando posiciones:", errPos);
 
@@ -233,13 +240,14 @@ async function cargarCalendario() {
   for (const [nombreCat, claveCat] of [["Superior", "superior"], ["Intermedia", "intermedia"]]) {
     const catId = catPorNombre[nombreCat];
 
-    POSICIONES[claveCat] = (posRows || [])
-      .filter((r) => r.categoria_id === catId)
-      .map((r) => ({
-        id: r.id,
-        equipo: r.es_obras ? "Obras Sanitarias" : r.equipos_rivales?.nombre,
-        pj: r.pj, g: r.g, e: r.e, p: r.p, pf: r.pf, pc: r.pc, dif: r.dif, bo: r.bo, bd: r.bd, pts: r.pts,
-      }));
+    const filaPos = (r) => ({
+      id: r.id,
+      equipo: r.es_obras ? "Obras Sanitarias" : r.equipos_rivales?.nombre,
+      pj: r.pj, g: r.g, e: r.e, p: r.p, pf: r.pf, pc: r.pc, dif: r.dif, bo: r.bo, bd: r.bd, pts: r.pts,
+    });
+    POSICIONES[claveCat] = (posRows || []).filter((r) => r.categoria_id === catId && (r.fase || "regular") === "regular").map(filaPos);
+    const zonaRows = (posRows || []).filter((r) => r.categoria_id === catId && r.fase === "final");
+    ZONA_FINAL[claveCat] = zonaRows.length ? { nombre: nombreZona(zonaRows[0].zona), filas: zonaRows.map(filaPos) } : null;
 
     const partidosCat = (partidoRows || []).filter((r) => r.categoria_id === catId);
     FIXTURE[claveCat] = partidosCat
@@ -252,7 +260,10 @@ async function cargarCalendario() {
         cond: r.condicion,
         gf: r.goles_favor,
         gc: r.goles_contra,
-        res: r.resultado,
+        // El resultado sale del tanteo (así nunca queda "Perdido" un partido ganado).
+        res: r.goles_favor != null && r.goles_contra != null
+          ? (r.goles_favor > r.goles_contra ? "Ganado" : r.goles_favor < r.goles_contra ? "Perdido" : "Empate")
+          : r.resultado,
         veoLink: r.veo_link,
         informe: r.informe,
         partidoLigaId: r.partido_liga_id,
@@ -271,6 +282,9 @@ async function cargarCalendario() {
         rival: r.equipos_rivales?.nombre,
         cond: r.condicion,
       }));
+    SUSPENDIDOS[claveCat] = partidosCat
+      .filter((r) => r.resultado === "Próximo" && r.fecha && r.fecha < hoyAR)
+      .map((r) => ({ id: r.id, fecha: r.fecha_numero, date: dbDateToDisplay(r.fecha), rival: r.equipos_rivales?.nombre, cond: r.condicion, suspendido: true }));
   }
 }
 
@@ -283,25 +297,29 @@ async function guardarResultadoPartido(partidoId, gf, gc) {
     .from("partidos")
     .update({ goles_favor: gf, goles_contra: gc, resultado: res })
     .eq("id", partidoId)
-    .select("categoria_id")
+    .select("categoria_id, fecha_numero")
     .single();
   if (error) {
     console.error("Error guardando resultado:", error);
     return false;
   }
   crearNotificacion("resultado_cargado", `Resultado cargado: Obras ${gf}-${gc}`, null);
-  if (data?.categoria_id) await recalcularPosicionObras(data.categoria_id);
+  if (data?.categoria_id) await recalcularPosicionObras(data.categoria_id, (data.fecha_numero || 0) > FECHAS_FASE_REGULAR ? "final" : "regular");
   return true;
 }
 
 // Recalcula solo la fila de Obras en la tabla de posiciones, sumando todos sus partidos jugados
 // de esa categoría — así queda siempre al día sola, sin tocar las filas de los otros clubes
 // (esas las carga a mano el cuerpo técnico/manager, editando la tabla).
-async function recalcularPosicionObras(categoriaId) {
+async function recalcularPosicionObras(categoriaId, fase = "regular") {
+  // Cada fase tiene su tabla: la regular suma las fechas 1-18 y la de la zona final, las siguientes.
+  // (En la fase final la tabla oficial arrastra puntos de la regular: esa la trae URBA los domingos.)
+  if (fase === "final") return;
   const { data: partidos, error: errPartidos } = await supabase
     .from("partidos")
     .select("resultado, goles_favor, goles_contra")
     .eq("categoria_id", categoriaId)
+    .lte("fecha_numero", FECHAS_FASE_REGULAR)
     .in("resultado", ["Ganado", "Empate", "Perdido"]);
   if (errPartidos || !partidos) return;
 
@@ -317,6 +335,7 @@ async function recalcularPosicionObras(categoriaId) {
     .select("id, bo, bd")
     .eq("categoria_id", categoriaId)
     .eq("es_obras", true)
+    .eq("fase", "regular")
     .maybeSingle();
   if (!filaObras) return;
 
@@ -1124,6 +1143,7 @@ function CalendarioPage({ perfil }) {
 
   const fixture = FIXTURE[cat];
   const proximos = PROXIMOS[cat];
+  const suspendidos = SUSPENDIDOS[cat] || [];
   const ultimo = fixture[fixture.length - 1];
   const proximo = proximos[0];
 
@@ -1261,12 +1281,15 @@ function CalendarioPage({ perfil }) {
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
         <div style={{ flex: "2 1 340px", minWidth: 0 }}>
-          {proximos.length > 0 && (
+          {(proximos.length > 0 || suspendidos.length > 0) && (
             <>
               <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Lo que viene</div>
               <div style={{ display: "grid", gap: 8, marginBottom: 18 }}>
                 {proximos.map((p, i) => (
                   <PartidoAgenda key={"p" + p.id} p={p} proximo destacado={i === 0} perfil={perfil} onGuardado={() => forceUpdate((n) => n + 1)} />
+                ))}
+                {suspendidos.map((p) => (
+                  <PartidoAgenda key={"s" + p.id} p={p} proximo perfil={perfil} onGuardado={() => forceUpdate((n) => n + 1)} />
                 ))}
               </div>
             </>
@@ -1295,6 +1318,193 @@ function CalendarioPage({ perfil }) {
               />
             </div>
           </details>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────── Torneo: el recorrido de todo el año ─────────────────────────
+const COLOR_RES = { Ganado: "var(--h-ok)", Perdido: "var(--h-error)", Empate: "#8A94A0" };
+
+function TablaSimple({ filas, titulo, nota }) {
+  const orden = [...(filas || [])].sort((a, b) => (b.pts || 0) - (a.pts || 0) || (b.dif || 0) - (a.dif || 0));
+  if (!orden.length) return null;
+  const th = { padding: "6px 4px", fontWeight: 600, color: "var(--h-sub)", fontSize: 12, textAlign: "center" };
+  const td = { padding: "8px 4px", textAlign: "center", fontSize: 13.5, color: "var(--h-texto2)" };
+  return (
+    <div style={{ ...cardStyle, padding: "14px 14px 8px", marginBottom: 14 }}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>{titulo}</div>
+      {nota && <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 2 }}>{nota}</div>}
+      <div style={{ overflowX: "auto", marginTop: 8 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 330 }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, width: 26 }}>#</th>
+              <th style={{ ...th, textAlign: "left" }}>Equipo</th>
+              <th style={th}>PJ</th><th style={th}>G</th><th style={th}>E</th><th style={th}>P</th><th style={th}>Dif</th><th style={th}>Pts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {orden.map((f, i) => {
+              const somos = f.equipo === "Obras Sanitarias";
+              const dif = f.dif ?? (f.pf || 0) - (f.pc || 0);
+              return (
+                <tr key={f.id || f.equipo} style={{ borderTop: "1px solid var(--h-borde)", background: somos ? "var(--h-acento-suave)" : "transparent" }}>
+                  <td style={{ ...td, fontWeight: 700, color: "var(--h-sub)" }}>{i + 1}</td>
+                  <td style={{ ...td, textAlign: "left", color: "var(--h-texto)", fontWeight: somos ? 800 : 500, whiteSpace: "nowrap" }}>{somos ? "Obras" : f.equipo}</td>
+                  <td style={td}>{f.pj}</td><td style={td}>{f.g}</td><td style={td}>{f.e}</td><td style={td}>{f.p}</td>
+                  <td style={{ ...td, color: dif > 0 ? "var(--h-ok)" : dif < 0 ? "var(--h-error)" : td.color }}>{dif > 0 ? "+" : ""}{dif}</td>
+                  <td style={{ ...td, fontWeight: 800, color: "var(--h-texto)", fontFamily: "var(--h-titulo)", fontSize: 15 }}>{f.pts}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function TorneoPage({ perfil }) {
+  const [cat, setCat] = useState("superior");
+  const [, forceUpdate] = useState(0);
+  const jugados = FIXTURE[cat] || [];
+  const proximos = PROXIMOS[cat] || [];
+  const suspendidos = SUSPENDIDOS[cat] || [];
+  const zona = ZONA_FINAL[cat];
+  const porFecha = {};
+  for (const p of jugados) porFecha[p.fecha] = { ...p, estado: p.res };
+  for (const p of suspendidos) porFecha[p.fecha] = { ...p, estado: "Suspendido" };
+  for (const p of proximos) porFecha[p.fecha] = { ...p, estado: "Próximo" };
+  const maxFecha = Math.max(FECHAS_FASE_REGULAR, ...Object.keys(porFecha).map(Number));
+  const fechas = Array.from({ length: maxFecha }, (_, i) => porFecha[i + 1] || { fecha: i + 1, estado: "Libre" });
+  const regular = fechas.filter((f) => f.fecha <= FECHAS_FASE_REGULAR);
+  const final = fechas.filter((f) => f.fecha > FECHAS_FASE_REGULAR);
+
+  const resumen = (lista) => lista.reduce((a, p) => {
+    if (!["Ganado", "Perdido", "Empate"].includes(p.estado)) return a;
+    a.pj++; a[p.estado]++; a.pf += Number(p.gf) || 0; a.pc += Number(p.gc) || 0; return a;
+  }, { pj: 0, Ganado: 0, Empate: 0, Perdido: 0, pf: 0, pc: 0 });
+  const total = resumen(fechas);
+  const ordenReg = [...(POSICIONES[cat] || [])].sort((a, b) => (b.pts || 0) - (a.pts || 0) || (b.dif || 0) - (a.dif || 0));
+  const puestoReg = ordenReg.findIndex((f) => f.equipo === "Obras Sanitarias") + 1;
+  const ordenZona = zona ? [...zona.filas].sort((a, b) => (b.pts || 0) - (a.pts || 0) || (b.dif || 0) - (a.dif || 0)) : [];
+  const puestoZona = ordenZona.findIndex((f) => f.equipo === "Obras Sanitarias") + 1;
+  const ultimos = fechas.filter((f) => COLOR_RES[f.estado]).slice(-5);
+
+  const Casilla = ({ f }) => {
+    const c = COLOR_RES[f.estado];
+    const fondo = c || (f.estado === "Próximo" ? "var(--h-club)" : f.estado === "Suspendido" ? "var(--h-alerta-suave)" : "transparent");
+    const txt = c ? "#fff" : f.estado === "Próximo" ? "var(--h-club-txt)" : "var(--h-sub)";
+    const letra = c ? f.estado[0] : f.estado === "Próximo" ? "•" : f.estado === "Suspendido" ? "S" : "–";
+    const titulo = `${etiquetaFecha(f.fecha)}: ${f.rival ? `${f.cond === "Local" ? "vs" : "en"} ${f.rival}` : "fecha libre"}${c ? ` · ${f.gf}-${f.gc}` : f.estado === "Suspendido" ? " · suspendido" : ""}`;
+    return (
+      <div title={titulo} aria-label={titulo} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+        <span style={{ width: 30, height: 30, borderRadius: 8, background: fondo, color: txt, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 13, border: c || f.estado === "Próximo" ? "none" : "1.5px dashed var(--h-borde2)" }}>{letra}</span>
+        <span style={{ fontSize: 10.5, color: "var(--h-sub2)" }}>{f.fecha > FECHAS_FASE_REGULAR ? f.fecha - FECHAS_FASE_REGULAR : f.fecha}</span>
+      </div>
+    );
+  };
+
+  const FilaLibre = ({ f }) => (
+    <div style={{ ...cardStyle, padding: "10px 12px", display: "flex", alignItems: "center", gap: 12, borderLeft: "4px solid var(--h-borde2)", opacity: 0.8 }}>
+      <div style={{ width: 44, textAlign: "center", flexShrink: 0, fontSize: 18, color: "var(--h-sub2)" }}>–</div>
+      <div style={{ fontSize: 14, color: "var(--h-sub)" }}><b style={{ color: "var(--h-texto2)" }}>{etiquetaFecha(f.fecha)}</b> · Fecha libre</div>
+    </div>
+  );
+  const listaFase = (lista) => (
+    <div style={{ display: "grid", gap: 8 }}>
+      {lista.map((f) =>
+        f.estado === "Libre" ? <FilaLibre key={"l" + f.fecha} f={f} />
+          : <PartidoAgenda key={f.estado + f.id} p={f} proximo={f.estado === "Próximo" || f.estado === "Suspendido"} perfil={perfil} onGuardado={() => forceUpdate((n) => n + 1)} />
+      )}
+    </div>
+  );
+  const tituloFase = (t, sub) => (
+    <div style={{ margin: "22px 0 10px" }}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>{t}</div>
+      {sub && <div style={{ fontSize: 13, color: "var(--h-sub)" }}>{sub}</div>}
+    </div>
+  );
+  const resReg = resumen(regular), resFin = resumen(final);
+  const linea = (r) => `${r.Ganado} ganados · ${r.Empate} empatados · ${r.Perdido} perdidos`;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Torneo</div>
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>URBA Desarrollo 2026 · todo el recorrido del año</div>
+      </div>
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {[{ key: "superior", label: "Superior" }, { key: "intermedia", label: "Intermedia" }].map((t) => (
+          <button key={t.key} onClick={() => setCat(t.key)} aria-pressed={cat === t.key}
+            style={{ ...pillButton, fontWeight: 700, border: "1px solid " + (cat === t.key ? "var(--h-acento)" : "var(--h-borde2)"), background: cat === t.key ? "var(--h-acento-suave)" : "transparent", color: cat === t.key ? "var(--h-acento)" : "var(--h-texto2)" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 14, borderTop: "4px solid var(--h-club)" }}>
+        <div style={{ display: "flex", gap: 22, flexWrap: "wrap", alignItems: "flex-end" }}>
+          {[["Jugados", total.pj], ["Ganados", total.Ganado], ["Empatados", total.Empate], ["Perdidos", total.Perdido]].map(([l, v]) => (
+            <div key={l}>
+              <div style={{ fontFamily: "var(--h-titulo)", fontSize: 32, fontWeight: 800, lineHeight: 1, color: l === "Ganados" ? "var(--h-ok)" : l === "Perdidos" ? "var(--h-error)" : "var(--h-texto)" }}>{v}</div>
+              <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 3 }}>{l}</div>
+            </div>
+          ))}
+          <div>
+            <div style={{ fontFamily: "var(--h-titulo)", fontSize: 32, fontWeight: 800, lineHeight: 1, color: "var(--h-texto)" }}>{total.pf}<span style={{ color: "var(--h-sub2)", fontSize: 22 }}> / </span>{total.pc}</div>
+            <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 3 }}>Tantos a favor / en contra</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 14, fontSize: 13.5, color: "var(--h-texto2)" }}>
+          {puestoReg > 0 && <span>Fase regular: <b style={{ color: "var(--h-texto)" }}>{puestoReg}° de {ordenReg.length}</b></span>}
+          {zona && puestoZona > 0 && <span>Fase final · {zona.nombre}: <b style={{ color: "var(--h-texto)" }}>{puestoZona}° de {ordenZona.length}</b></span>}
+          {ultimos.length > 0 && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>Últimos:
+              {ultimos.map((f) => <span key={f.fecha} title={etiquetaFecha(f.fecha)} style={{ width: 18, height: 18, borderRadius: 5, background: COLOR_RES[f.estado], color: "#fff", fontSize: 10.5, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{f.estado[0]}</span>)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 6 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--h-texto)", marginBottom: 10 }}>El año, fecha por fecha</div>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--h-sub)", marginBottom: 6 }}>Fase regular</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(32px, 1fr))", gap: 6 }}>
+          {regular.map((f) => <Casilla key={f.fecha} f={f} />)}
+        </div>
+        {final.length > 0 && (
+          <>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--h-sub)", margin: "12px 0 6px" }}>Fase final{zona ? ` · ${zona.nombre}` : ""}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(32px, 1fr))", gap: 6 }}>
+              {final.map((f) => <Casilla key={f.fecha} f={f} />)}
+            </div>
+          </>
+        )}
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 12, fontSize: 12, color: "var(--h-sub)" }}>
+          <span><b style={{ color: "var(--h-ok)" }}>G</b> ganado</span><span><b style={{ color: "#8A94A0" }}>E</b> empate</span><span><b style={{ color: "var(--h-error)" }}>P</b> perdido</span>
+          <span><b style={{ color: "var(--h-texto)" }}>•</b> por jugar</span><span><b style={{ color: "var(--h-alerta)" }}>S</b> suspendido</span><span>– libre</span>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div style={{ flex: "2 1 340px", minWidth: 0 }}>
+          {final.length > 0 && (
+            <>
+              {tituloFase(`Fase final${zona ? ` · ${zona.nombre}` : ""}`, resFin.pj ? linea(resFin) : "Todavía sin partidos jugados")}
+              {listaFase(final)}
+            </>
+          )}
+          {tituloFase("Fase regular", `Fechas 1 a ${FECHAS_FASE_REGULAR} · ${linea(resReg)}`)}
+          {listaFase(regular)}
+        </div>
+        <div style={{ flex: "1 1 280px", minWidth: 0, marginTop: 22 }}>
+          {zona && <TablaSimple filas={zona.filas} titulo={`Tabla · ${zona.nombre}`} nota="Fase final. Los puntos son los de la tabla oficial de URBA." />}
+          <TablaSimple filas={POSICIONES[cat]} titulo="Tabla · Fase regular" nota={`Fechas 1 a ${FECHAS_FASE_REGULAR}.`} />
+          {!zona && !(POSICIONES[cat] || []).length && <div style={{ ...cardStyle, padding: "14px 16px", fontSize: 13, color: "var(--h-sub)" }}>Todavía no está la tabla del torneo.</div>}
         </div>
       </div>
     </div>
@@ -1348,7 +1558,7 @@ function PartidoAgenda({ p, proximo, destacado, perfil, onGuardado }) {
     if (ok) { await cargarCalendario(); setEditando(false); onGuardado(); }
   }
   return (
-    <div style={{ ...cardStyle, padding: "10px 12px", display: "flex", alignItems: "center", gap: 12, borderLeft: `4px solid ${proximo ? "var(--h-club)" : color}`, background: destacado ? "var(--h-acento-suave)" : cardStyle.background }}>
+    <div style={{ ...cardStyle, padding: "10px 12px", display: "flex", alignItems: "center", gap: 12, borderLeft: `4px solid ${p.suspendido ? "var(--h-alerta)" : proximo ? "var(--h-club)" : color}`, background: destacado ? "var(--h-acento-suave)" : cardStyle.background }}>
       <div style={{ width: 44, textAlign: "center", flexShrink: 0 }}>
         <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1 }}>{d}</div>
         <div style={{ fontSize: 11, color: "var(--h-sub)", textTransform: "uppercase" }}>{mes}</div>
@@ -1357,6 +1567,7 @@ function PartidoAgenda({ p, proximo, destacado, perfil, onGuardado }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--h-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.cond === "Local" ? "vs" : "en"} {p.rival}</div>
         <div style={{ fontSize: 12, color: "var(--h-sub)" }}>{etiquetaFecha(p.fecha)} · {p.cond === "Local" ? "en casa" : "de visitante"}</div>
+        {p.suspendido && <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-alerta)", marginTop: 2 }}>Suspendido · a reprogramar</div>}
       </div>
       {editando ? (
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -10045,6 +10256,12 @@ function ObrasHub({ perfil }) {
     raiz.setProperty("--h-club-oscuro", tonoLegible(c));
   }, [club?.color_primario]);
 
+  // Tocar el logo de ADN vuelve al inicio (y arriba de todo).
+  function irAlInicio() {
+    setMasAbierto(false);
+    setActive("hoy");
+    try { window.scrollTo({ top: 0, behavior: "smooth" }); document.querySelector(".main-content")?.scrollTo({ top: 0 }); } catch (e) { /* nada */ }
+  }
   function irAConfiguracion(tabKey) {
     setConfigTabInicial(tabKey);
     setActive(CONFIG_ITEM.key);
@@ -10063,10 +10280,10 @@ function ObrasHub({ perfil }) {
       {mostrarSidebar && (
         <div style={{ width: 248, borderRight: "1px solid var(--h-borde)", background: "var(--h-panel)", padding: "18px 12px", flexShrink: 0, display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto", boxSizing: "border-box" }}>
           <div style={{ padding: "0 6px 18px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <button onClick={irAlInicio} aria-label="Ir al inicio" title="Ir al inicio" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", width: "100%" }}>
               <InsigniaADN size={34} />
               <NombreHub />
-            </div>
+            </button>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: 8 }}>
               <CampanaNotificaciones perfil={perfil} align="left" onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
               <BotonAjustes activo={active === CONFIG_ITEM.key} onClick={() => setActive(CONFIG_ITEM.key)} />
@@ -10091,10 +10308,10 @@ function ObrasHub({ perfil }) {
       <div className="main-content" style={{ flex: 1, minWidth: 0, padding: mostrarSidebar ? "28px 32px" : "0 14px 92px", overflow: "auto" }}>
         {!mostrarSidebar && (
           <div style={{ position: "sticky", top: 0, zIndex: 30, background: "var(--h-fondo)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "12px 0 10px", margin: "0 0 6px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <button onClick={irAlInicio} aria-label="Ir al inicio" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
               <InsigniaADN size={30} />
               <NombreHub chico />
-            </div>
+            </button>
             <CampanaNotificaciones perfil={perfil} onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
           </div>
         )}
@@ -10108,6 +10325,8 @@ function ObrasHub({ perfil }) {
             setNovedadVista={setNovedadVista}
             perfil={perfil}
           />
+        ) : active === "torneo" ? (
+          <TorneoPage perfil={perfil} />
         ) : active === "calendario" ? (
           <CalendarioPage perfil={perfil} />
         ) : active === "sesion" ? (

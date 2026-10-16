@@ -1,10 +1,10 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 // Sincroniza con la URBA (lo corre pg_cron los domingos):
-//  · Fase regular: carga los resultados de los partidos que estaban "Próximo" y actualiza la tabla.
+//  · Fase regular: resultados oficiales de Obras y tabla de posiciones.
 //  · Fase final (Desarrollo se divide en dos zonas, Campeonato y Formativo): busca en qué zona quedó
-//    Obras y agrega sus partidos (fechas 19 en adelante = fecha 1 en adelante de la fase final),
-//    con el resultado cuando ya se jugaron.
+//    Obras, guarda la tabla de esa zona y sus partidos (fechas 19 en adelante = fecha 1 en adelante
+//    de la fase final), con el resultado cuando ya se jugaron.
 const REGULAR = { Superior: 2025182, Intermedia: 2025207 };
 const FASE_FINAL = { Superior: [2025326, 2025327], Intermedia: [2025328, 2025329] };
 const FECHAS_FASE_REGULAR = 18;
@@ -58,12 +58,13 @@ Deno.serve(async () => {
             const gf = local ? m.local_team_score : m.visit_team_score;
             const gc = local ? m.visit_team_score : m.local_team_score;
             const resultado = gf > gc ? "Ganado" : gf < gc ? "Perdido" : "Empate";
+            // Siempre con el dato oficial (también corrige resultados mal cargados a mano).
             const { data: upd } = await supabase.from("partidos").update({ goles_favor: gf, goles_contra: gc, resultado })
-              .eq("categoria_id", categoriaId).eq("fecha_numero", fechaNumero).eq("resultado", "Próximo").select("id");
+              .eq("categoria_id", categoriaId).eq("fecha_numero", fechaNumero).select("id");
             info.resultados += upd?.length || 0;
           }
         }
-        await supabase.from("posiciones").delete().eq("categoria_id", categoriaId);
+        await supabase.from("posiciones").delete().eq("categoria_id", categoriaId).eq("fase", "regular");
         for (const fila of data.standings) {
           const nombre = normalizar(fila.team.name);
           const esObras = nombre === OBRAS;
@@ -72,7 +73,7 @@ Deno.serve(async () => {
             categoria_id: categoriaId, equipo_id: equipoId, es_obras: esObras,
             pj: fila.played, g: fila.won, e: fila.tied, p: fila.lost, pf: fila.points_favor, pc: fila.points_against,
             dif: fila.points_favor - fila.points_against, bo: fila.bonus_offensive, bd: fila.bonus_defensive, pts: fila.points_total,
-            temporada: "2026", ...(clubId ? { club_id: clubId } : {}),
+            temporada: "2026", fase: "regular", ...(clubId ? { club_id: clubId } : {}),
           });
         }
       } catch (e) {
@@ -85,6 +86,21 @@ Deno.serve(async () => {
         try { data = await traer(id); } catch (e) { info.errorFinal = String(e); continue; }
         if (!tieneObras(data)) continue;
         info.zona = data.championship.name;
+        info.tablaZona = Array.isArray(data.standings) ? data.standings.length : 0;
+        // Tabla de la zona de la fase final
+        if (Array.isArray(data.standings) && data.standings.length) {
+          await supabase.from("posiciones").delete().eq("categoria_id", categoriaId).eq("fase", "final");
+          for (const fila of data.standings) {
+            const nombre = normalizar(fila.team.name);
+            const esObras = nombre === OBRAS;
+            await supabase.from("posiciones").insert({
+              categoria_id: categoriaId, equipo_id: esObras ? null : await rivalId(nombre), es_obras: esObras,
+              pj: fila.played, g: fila.won, e: fila.tied, p: fila.lost, pf: fila.points_favor, pc: fila.points_against,
+              dif: fila.points_favor - fila.points_against, bo: fila.bonus_offensive, bd: fila.bonus_defensive, pts: fila.points_total,
+              temporada: "2026", fase: "final", zona: data.championship.name, ...(clubId ? { club_id: clubId } : {}),
+            });
+          }
+        }
         for (const round of data.championship.rounds) {
           const n = parseInt(round.name.replace(/\D/g, ""), 10);
           const fechaNumero = FECHAS_FASE_REGULAR + n;
@@ -107,7 +123,7 @@ Deno.serve(async () => {
                 temporada: "2026", ...(clubId ? { club_id: clubId } : {}),
               });
               info.faseFinalNuevos++;
-            } else if (existente.resultado === "Próximo" && jugado) {
+            } else if (jugado) {
               await supabase.from("partidos").update({ goles_favor: gf, goles_contra: gc, resultado }).eq("id", existente.id);
               info.faseFinalResultados++;
             } else if (existente.resultado === "Próximo") {
