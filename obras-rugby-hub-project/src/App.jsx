@@ -11054,6 +11054,26 @@ function ObrasHub({ perfil }) {
   function abrirMenu() { clearTimeout(timerMenu.current); timerMenu.current = setTimeout(() => setMenuAbierto(true), 80); }
   function cerrarMenu() { clearTimeout(timerMenu.current); timerMenu.current = setTimeout(() => setMenuAbierto(false), 180); }
 
+  // Celular: la barra de abajo se esconde al bajar y aparece al subir. La cabecera (logos) queda fija.
+  const [barraVisible, setBarraVisible] = useState(true);
+  useEffect(() => {
+    let ultimo = 0;
+    function alScrollear(e) {
+      const el = e?.target && e.target !== document ? e.target : document.scrollingElement || document.documentElement;
+      const y = el.scrollTop || window.scrollY || 0;
+      const dif = y - ultimo;
+      if (y < 40) setBarraVisible(true);
+      else if (dif > 6) setBarraVisible(false);
+      else if (dif < -6) setBarraVisible(true);
+      if (Math.abs(dif) > 6 || y < 40) ultimo = y;
+    }
+    window.addEventListener("scroll", alScrollear, { passive: true });
+    const main = document.querySelector(".main-content");
+    main?.addEventListener("scroll", alScrollear, { passive: true });
+    return () => { window.removeEventListener("scroll", alScrollear); main?.removeEventListener("scroll", alScrollear); };
+  }, []);
+  useEffect(() => { setBarraVisible(true); }, [active]);
+
   // Tocar el logo de ADN vuelve al inicio (y arriba de todo).
   function irAlInicio() {
     setMasAbierto(false);
@@ -11127,11 +11147,12 @@ function ObrasHub({ perfil }) {
         </div>
       )}
 
-      <div className="main-content" style={{ flex: 1, minWidth: 0, padding: mostrarSidebar ? "28px 32px" : "0 14px 92px", overflow: "auto" }}>
+      <div className="main-content" style={{ flex: 1, minWidth: 0, padding: mostrarSidebar ? "28px 32px" : "0 14px 92px", ...(mostrarSidebar ? { overflow: "auto" } : { overflowX: "clip" }) }}>
         {!mostrarSidebar && (
           <div style={{ position: "sticky", top: 0, zIndex: 30, background: "var(--h-fondo)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "12px 0 10px", margin: "0 0 6px" }}>
             <button onClick={irAlInicio} aria-label="Ir al inicio" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
               <InsigniaADN size={30} />
+              <span style={{ flexShrink: 0, display: "inline-flex" }}><Shield size={30} /></span>
               <NombreHub chico />
             </button>
             <CampanaNotificaciones perfil={perfil} onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
@@ -11201,6 +11222,8 @@ function ObrasHub({ perfil }) {
           style={{
             position: "fixed", bottom: 0, left: 0, right: 0, background: "var(--h-panel)", borderTop: "1px solid var(--h-borde)",
             padding: "6px 4px calc(6px + env(safe-area-inset-bottom))", display: "grid", gridTemplateColumns: "repeat(5, 1fr)", zIndex: 40,
+            // Se esconde al bajar y vuelve al subir (o al llegar arriba de todo).
+            transform: barraVisible ? "translateY(0)" : "translateY(110%)", transition: "transform .22s ease",
           }}
         >
           {[...BOTTOM_NAV_ITEMS, { key: "__mas", label: "Menú", icono: "mas" }].map((item) => {
