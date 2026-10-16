@@ -9907,7 +9907,6 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
 
       {/* Encabezado: la fecha y el club, sin saludo */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <Shield size={36} />
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-club-tinta)", textTransform: "uppercase", letterSpacing: "0.12em" }}>{saludoHora()}{perfil?.nombre ? `, ${perfil.nombre.split(" ")[0]}` : ""}</div>
           <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, lineHeight: 1.05, color: "var(--h-texto)" }}>{fechaCorta}</div>
