@@ -10068,7 +10068,7 @@ function CaminoAlPartido({ proximo, onNavigate }) {
     <section style={caja} aria-label="El partido que viene">
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <span style={{ background: "#fff", borderRadius: "50%", padding: 3, display: "inline-flex" }}><Shield size={34} /></span>
+          <span style={{ display: "inline-flex" }}><Shield size={40} /></span>
           <span style={{ fontFamily: "var(--h-titulo)", fontSize: 14, fontWeight: 700, opacity: 0.8 }}>{proximo.cond === "Local" ? "vs" : "en"}</span>
           <TeamBadge name={proximo.rival} size={40} />
         </div>
