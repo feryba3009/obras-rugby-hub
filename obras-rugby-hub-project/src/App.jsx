@@ -10279,8 +10279,39 @@ function esStaff(perfil) {
   return !!perfil && ["Cuerpo técnico", "Cuerpo médico", "Manager"].includes(perfil.rol);
 }
 
+// Registro: números escritos de cualquier forma ("1,88", "1.88 m", "188cm", "95,5") → cm / kg enteros.
+function numeroRegistro(t, minimo, maximo, metros) {
+  const s = String(t || "").replace(",", ".").replace(/[^0-9.]/g, "");
+  if (!s) return "";
+  let v = parseFloat(s);
+  if (!isFinite(v)) return "";
+  if (metros && v < 3) v *= 100;
+  return v >= minimo && v <= maximo ? String(Math.round(v)) : null; // null = no se entiende
+}
+const claveNombre = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+// ¿El "nuevo" ya está en la lista? Mismo nombre completo, o mismo primer nombre y mismo último apellido.
+function jugadorParecido(lista, nombre) {
+  const k = claveNombre(nombre);
+  const p = k.split(" ");
+  if (p.length < 2) return null;
+  return lista.find((j) => claveNombre(j.nombre) === k)
+    || lista.find((j) => { const q = claveNombre(j.nombre).split(" "); return q[0] === p[0] && q[q.length - 1] === p[p.length - 1]; })
+    || null;
+}
+// Errores típicos al tipear el email.
+function errorEmail(e) {
+  const m = String(e || "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m)) return "Revisá el email: parece que tiene un error.";
+  const dom = m.split("@")[1];
+  if (/^gmail\.com\..+/.test(dom)) return "Revisá el email: Gmail termina en @gmail.com (sin .ar).";
+  if (/^(gmial|gmal|gamil|gnail|gmai)\.com$/.test(dom) || /^gmail\.(co|con|cm|om)$/.test(dom)) return "Revisá el email: ¿quisiste poner @gmail.com?";
+  if (/^(hotmial|hotmal|hotmai)\./.test(dom)) return "Revisá el email: ¿quisiste poner @hotmail?";
+  return "";
+}
+
 function LoginPage() {
   const [modo, setModo] = useState("ingresar"); // "ingresar" | "registro"
+  const [noSoyEse, setNoSoyEse] = useState(""); // nombre sugerido que el jugador dijo que no es él
   const [rol, setRol] = useState("Jugador");
   const [jugadoresLista, setJugadoresLista] = useState([]);
   const [jugadorId, setJugadorId] = useState("");
@@ -10335,13 +10366,14 @@ function LoginPage() {
     setMensaje("");
     setCargando(true);
     setMantenerSesion(mantener);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (!email.trim() || !password) { setCargando(false); setMensaje("Completá tu email y tu contraseña."); return; }
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
     setCargando(false);
     if (error) {
       const m = (error.message || "").toLowerCase();
       setMensaje(
         m.includes("not confirmed") ? "Todavía no confirmaste tu email. Buscá el mail de confirmación (mirá también en Correo no deseado)."
-        : m.includes("invalid login") ? "Email o contraseña incorrectos."
+        : m.includes("invalid login") ? "Email o contraseña incorrectos. Si no te acordás la contraseña, tocá \"¿Olvidaste tu contraseña?\"."
         : m.includes("rate limit") ? "Demasiados intentos seguidos. Esperá un rato y probá de nuevo."
         : error.message
       );
@@ -10363,6 +10395,21 @@ function LoginPage() {
       setMensaje("Elegí tu nombre en la lista (o tocá \"Soy nuevo\" si no estás).");
       return;
     }
+    const emailLimpio = email.trim().toLowerCase();
+    const errEmail = errorEmail(emailLimpio);
+    if (errEmail) { setMensaje(errEmail); return; }
+    if (rol === "Jugador" && soyNuevo) {
+      if (claveNombre(nombreNuevoJugador).split(" ").length < 2) { setMensaje("Escribí tu nombre y apellido."); return; }
+      const parecido = jugadorParecido(jugadoresLista, nombreNuevoJugador);
+      if (parecido && parecido.nombre !== noSoyEse) {
+        setMensaje(`Ya estás en la lista como "${parecido.nombre}". Tocá "Sí, soy yo" arriba para no crear un perfil repetido.`);
+        return;
+      }
+    }
+    const alturaOk = rol === "Jugador" ? numeroRegistro(altura, 120, 230, true) : "";
+    const pesoOk = rol === "Jugador" ? numeroRegistro(peso, 35, 200, false) : "";
+    if (alturaOk === null) { setMensaje("Revisá la altura: escribila en centímetros, por ejemplo 182."); return; }
+    if (pesoOk === null) { setMensaje("Revisá el peso: escribilo en kilos, por ejemplo 88."); return; }
     setCargando(true);
 
     const nombreFinal = rol === "Jugador" ? (soyNuevo ? nombreNuevoJugador : jugadorId) : nombreCompleto;
@@ -10371,8 +10418,9 @@ function LoginPage() {
     // Mandamos todo como metadata del usuario: así el perfil se crea solo del lado del servidor
     // (un trigger en la base), sin depender de que el navegador ya tenga sesión activa en este
     // instante — que es justo lo que fallaba si el proyecto pide confirmar el email antes de entrar.
+    setMantenerSesion(true);
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: emailLimpio,
       password,
       options: {
         emailRedirectTo: window.location.origin,
@@ -10384,9 +10432,9 @@ function LoginPage() {
           jugador_id: rol === "Jugador" && !soyNuevo ? jugadorDb?.id || "" : "",
           nombre_nuevo_jugador: rol === "Jugador" && soyNuevo ? nombreNuevoJugador : "",
           posicion_nueva: rol === "Jugador" && soyNuevo ? posicionNueva : "",
-          altura: rol === "Jugador" ? altura : "",
+          altura: alturaOk,
           fecha_nacimiento: nacimiento,
-          peso: rol === "Jugador" ? peso : "",
+          peso: pesoOk,
         },
       },
     });
@@ -10401,6 +10449,8 @@ function LoginPage() {
         setMensaje("La contraseña tiene que tener al menos 6 caracteres.");
       } else if (m.includes("invalid") && m.includes("email")) {
         setMensaje("Revisá el email: parece que tiene un error.");
+      } else if (m.includes("database error") || error.status === 500) {
+        setMensaje("No se pudo crear la cuenta por un error del sistema. Revisá los datos y probá de nuevo; si sigue pasando, avisale al staff.");
       } else {
         setMensaje("No se pudo crear la cuenta: " + error.message);
       }
@@ -10582,6 +10632,25 @@ function LoginPage() {
                     <>
                       <label style={labelStyle}>Nombre y apellido</label>
                       <input style={inputStyle} value={nombreNuevoJugador} onChange={(e) => setNombreNuevoJugador(e.target.value)} placeholder="Nombre y apellido" />
+                      {(() => {
+                        const parecido = jugadorParecido(jugadoresLista, nombreNuevoJugador);
+                        if (!parecido || parecido.nombre === noSoyEse) return null;
+                        return (
+                          <div style={{ marginTop: 8, padding: "10px 12px", borderRadius: 8, border: "1px solid var(--h-acento)", background: "var(--h-acento-suave)", fontSize: 13, color: "var(--h-texto)" }}>
+                            Ya hay un jugador en la lista llamado <b>{parecido.nombre}</b>. ¿Sos vos?
+                            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                              <button type="button" onClick={() => { setSoyNuevo(false); setJugadorId(parecido.nombre); setMensaje(""); }}
+                                style={{ ...pillButton, flex: 1, fontSize: 12, border: "1px solid var(--h-acento)", background: "var(--h-acento)", color: "#fff" }}>
+                                Sí, soy yo
+                              </button>
+                              <button type="button" onClick={() => { setNoSoyEse(parecido.nombre); setMensaje(""); }}
+                                style={{ ...pillButton, flex: 1, fontSize: 12, border: "1px solid var(--h-borde2)", background: "transparent", color: "var(--h-texto2)" }}>
+                                No, soy otro
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
                       <label style={labelStyle}>Posición ideal</label>
                       <select value={posicionNueva} onChange={(e) => setPosicionNueva(e.target.value)} style={inputStyle}>
                         {Object.keys(POSICIONES_ALT).map((p) => (
@@ -10595,9 +10664,9 @@ function LoginPage() {
                   <label style={labelStyle}>Fecha de nacimiento</label>
                   <input type="date" style={inputStyle} value={nacimiento} onChange={(e) => setNacimiento(e.target.value)} max={new Date().toLocaleDateString("sv-SE")} min="1940-01-01" />
                   <label style={labelStyle}>Altura (cm)</label>
-                  <input style={inputStyle} value={altura} onChange={(e) => setAltura(e.target.value)} placeholder="ej: 182" />
+                  <input style={inputStyle} inputMode="decimal" value={altura} onChange={(e) => setAltura(e.target.value)} placeholder="ej: 182" />
                   <label style={labelStyle}>Peso (kg)</label>
-                  <input style={inputStyle} value={peso} onChange={(e) => setPeso(e.target.value)} placeholder="ej: 88" />
+                  <input style={inputStyle} inputMode="decimal" value={peso} onChange={(e) => setPeso(e.target.value)} placeholder="ej: 88" />
                 </>
               )}
               {rol !== "Jugador" && (
