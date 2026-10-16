@@ -1304,9 +1304,14 @@ function CalendarioPage({ perfil }) {
         </div>
 
         <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-          <DondeEstamos filas={POSICIONES[cat]} />
+          <DondeEstamos filas={ZONA_FINAL[cat]?.filas || POSICIONES[cat]} titulo={ZONA_FINAL[cat] ? `Fase final · ${ZONA_FINAL[cat].nombre}` : "Fase regular"} />
+          {ZONA_FINAL[cat] && (
+            <div style={{ marginTop: 12 }}>
+              <TablaSimple filas={ZONA_FINAL[cat].filas} titulo={`Tabla · ${ZONA_FINAL[cat].nombre}`} nota="Fase final. Puntos de la tabla oficial de URBA." />
+            </div>
+          )}
           <details style={{ ...cardStyle, padding: "12px 14px", marginTop: 12 }}>
-            <summary style={{ cursor: "pointer", fontSize: 13.5, color: "var(--h-texto)", fontWeight: 600 }}>Tabla completa del torneo</summary>
+            <summary style={{ cursor: "pointer", fontSize: 13.5, color: "var(--h-texto)", fontWeight: 600 }}>Tabla de la fase regular</summary>
             <div style={{ overflowX: "auto", marginTop: 10 }}>
               <TablaPosiciones
                 data={POSICIONES[cat]}
@@ -1369,6 +1374,7 @@ function TablaSimple({ filas, titulo, nota }) {
 function TorneoPage({ perfil }) {
   const [cat, setCat] = useState("superior");
   const [, forceUpdate] = useState(0);
+  const [faseVer, setFaseVer] = useState("final");
   const jugados = FIXTURE[cat] || [];
   const proximos = PROXIMOS[cat] || [];
   const suspendidos = SUSPENDIDOS[cat] || [];
@@ -1381,6 +1387,7 @@ function TorneoPage({ perfil }) {
   const fechas = Array.from({ length: maxFecha }, (_, i) => porFecha[i + 1] || { fecha: i + 1, estado: "Libre" });
   const regular = fechas.filter((f) => f.fecha <= FECHAS_FASE_REGULAR);
   const final = fechas.filter((f) => f.fecha > FECHAS_FASE_REGULAR);
+  const verFinal = faseVer === "final" && (final.length > 0 || !!zona);
 
   const resumen = (lista) => lista.reduce((a, p) => {
     if (!["Ganado", "Perdido", "Empate"].includes(p.estado)) return a;
@@ -1490,23 +1497,35 @@ function TorneoPage({ perfil }) {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
-        <div style={{ flex: "2 1 340px", minWidth: 0 }}>
-          {final.length > 0 && (
-            <>
-              {tituloFase(`Fase final${zona ? ` · ${zona.nombre}` : ""}`, resFin.pj ? linea(resFin) : "Todavía sin partidos jugados")}
-              {listaFase(final)}
-            </>
-          )}
-          {tituloFase("Fase regular", `Fechas 1 a ${FECHAS_FASE_REGULAR} · ${linea(resReg)}`)}
+      {(final.length > 0 || zona) && (
+        <div role="tablist" aria-label="Fase" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 14, background: "var(--h-panel)", border: "1px solid var(--h-borde)", margin: "16px 0 4px" }}>
+          {[["final", `Fase final${zona ? ` · ${zona.nombre.replace(/^Zona\s+/, "")}` : ""}`], ["regular", "Fase regular"]].map(([k, l]) => (
+            <button key={k} role="tab" aria-selected={faseVer === k} onClick={() => setFaseVer(k)}
+              style={{ padding: "10px 6px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 14, background: faseVer === k ? "var(--h-club)" : "transparent", color: faseVer === k ? "var(--h-club-txt)" : "var(--h-texto2)" }}>
+              {l}
+            </button>
+          ))}
+        </div>
+      )}
+      {verFinal ? (
+        <>
+          {zona
+            ? <div style={{ marginTop: 14 }}><TablaSimple filas={zona.filas} titulo={`Tabla · ${zona.nombre}`} nota="Fase final. Los puntos son los de la tabla oficial de URBA." /></div>
+            : <div style={{ ...cardStyle, padding: "14px 16px", marginTop: 14, fontSize: 13, color: "var(--h-sub)" }}>La tabla de la zona se actualiza con URBA los domingos.</div>}
+          {tituloFase(`Partidos · Fase final${zona ? ` · ${zona.nombre}` : ""}`, resFin.pj ? linea(resFin) : "Todavía sin partidos jugados")}
+          {listaFase(final)}
+        </>
+      ) : (
+        <>
+          <div style={{ marginTop: 14 }}>
+            {(POSICIONES[cat] || []).length
+              ? <TablaSimple filas={POSICIONES[cat]} titulo="Tabla · Fase regular" nota={`Fechas 1 a ${FECHAS_FASE_REGULAR}.`} />
+              : <div style={{ ...cardStyle, padding: "14px 16px", fontSize: 13, color: "var(--h-sub)" }}>Todavía no está la tabla del torneo.</div>}
+          </div>
+          {tituloFase("Partidos · Fase regular", `Fechas 1 a ${FECHAS_FASE_REGULAR} · ${linea(resReg)}`)}
           {listaFase(regular)}
-        </div>
-        <div style={{ flex: "1 1 280px", minWidth: 0, marginTop: 22 }}>
-          {zona && <TablaSimple filas={zona.filas} titulo={`Tabla · ${zona.nombre}`} nota="Fase final. Los puntos son los de la tabla oficial de URBA." />}
-          <TablaSimple filas={POSICIONES[cat]} titulo="Tabla · Fase regular" nota={`Fechas 1 a ${FECHAS_FASE_REGULAR}.`} />
-          {!zona && !(POSICIONES[cat] || []).length && <div style={{ ...cardStyle, padding: "14px 16px", fontSize: 13, color: "var(--h-sub)" }}>Todavía no está la tabla del torneo.</div>}
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1593,7 +1612,7 @@ function PartidoAgenda({ p, proximo, destacado, perfil, onGuardado }) {
 }
 
 // Dónde está el equipo en la tabla: el puesto grande y los equipos de alrededor.
-function DondeEstamos({ filas }) {
+function DondeEstamos({ filas, titulo }) {
   const orden = [...(filas || [])].sort((a, b) => (b.pts || 0) - (a.pts || 0) || (b.dif || 0) - (a.dif || 0));
   const i = orden.findIndex((f) => f.equipo === "Obras Sanitarias");
   if (i < 0) return <div style={{ ...cardStyle, padding: "14px 16px", fontSize: 13, color: "var(--h-sub)" }}>Todavía no está la tabla del torneo.</div>;
@@ -1603,6 +1622,7 @@ function DondeEstamos({ filas }) {
   const arriba = i > 0 ? (orden[i - 1].pts || 0) - (nos.pts || 0) : null;
   return (
     <div style={{ ...cardStyle, padding: "14px 16px" }}>
+      {titulo && <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--h-sub)", marginBottom: 4 }}>{titulo}</div>}
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
         <span style={{ fontFamily: "var(--h-titulo)", fontSize: 44, fontWeight: 800, color: "var(--h-club-tinta)", lineHeight: 1 }}>{i + 1}°</span>
         <span style={{ fontSize: 13.5, color: "var(--h-texto2)" }}>de {orden.length} · {nos.pts} puntos</span>
