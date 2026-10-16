@@ -7410,11 +7410,19 @@ function EditorHorariosWellness() {
   );
 }
 
+// Desde Inicio ("Para cuidar hoy") se entra al wellness de un jugador puntual.
+let focoWellness = null;
+function irAWellnessDe(jugadorId, onNavigate) {
+  focoWellness = jugadorId;
+  onNavigate("wellness");
+}
+
 function WellnessPage({ perfil }) {
   const [ventana, setVentana] = useState(null);
   const [datos, setDatos] = useState({ hoy: [], porJugador: {} });
   const [cargando, setCargando] = useState(true);
-  const [abiertoJugador, setAbiertoJugador] = useState(null);
+  const [foco, setFoco] = useState(() => { const f = focoWellness; focoWellness = null; return f; });
+  const [abiertoJugador, setAbiertoJugador] = useState(foco);
   const [recordado, setRecordado] = useState("");
   const fw = useFiltroJugadores("pct");
   const esJugador = perfil?.rol === "Jugador";
@@ -7525,6 +7533,27 @@ function WellnessPage({ perfil }) {
       )}
     </div>
   );
+
+  const enFoco = foco ? datos.hoy.find((x) => x.jugadorId === foco) : null;
+  if (enFoco) {
+    const r = rangoWellness(enFoco.pct);
+    return (
+      <div>
+        <button onClick={() => { setFoco(null); setAbiertoJugador(null); }}
+          style={{ background: "transparent", border: "none", color: "var(--h-acento)", cursor: "pointer", fontSize: 13.5, fontWeight: 600, marginBottom: 14, padding: 0 }}>
+          ← Ver el wellness de todo el plantel
+        </button>
+        <div style={{ fontSize: 30, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 4 }}>{enFoco.nombre}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "var(--h-sub)", marginBottom: 14 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: colorRango(r) }} />
+          Wellness de hoy · grupo {r.titulo} ({r.sub.toLowerCase()})
+        </div>
+        <div style={{ maxWidth: 480 }}>
+          <TarjetaJugador x={enFoco} alerta={!!enFoco.motivo} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -8145,10 +8174,11 @@ function EquiposPage({ perfil }) {
 
 // Estado del plantel: quién está para jugar, quién vuelve de una lesión y cuánto le falta,
 // quién está en recuperación y quién no está habilitado. Todo en una sola vista.
+let focoEstadoPlantel = null; // desde Inicio: abrir directo la ficha de ese jugador
 function EstadoPlantelPage({ perfil }) {
   const [filtro, setFiltro] = useState("Todos");
   const fj = useFiltroJugadores("nombre");
-  const [verId, setVerId] = useState(null);
+  const [verId, setVerId] = useState(() => { const f = focoEstadoPlantel; focoEstadoPlantel = null; return f; });
   const [lesiones, setLesiones] = useState({});
   useEffect(() => {
     supabase.from("lesiones").select("*, jugadores(nombre)").eq("activa", true).then(({ data }) => {
@@ -10250,13 +10280,13 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
             <EncabezadoTarjeta titulo="Para cuidar hoy" />
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {aMirarWellness.map((a) => (
-                <button key={"w" + a.nombre} onClick={() => onNavigate("wellness")} title={a.motivo || `${a.pct}%`} style={{ ...pillButton, background: "var(--h-panel2)", border: "1px solid var(--h-borde)", color: "var(--h-texto)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <button key={"w" + a.nombre} onClick={() => irAWellnessDe(a.jugadorId, onNavigate)} title={a.motivo || `${a.pct}%`} style={{ ...pillButton, background: "var(--h-panel2)", border: "1px solid var(--h-borde)", color: "var(--h-texto)", display: "inline-flex", alignItems: "center", gap: 6 }}>
                   <span style={{ width: 8, height: 8, borderRadius: "50%", background: colorRango(rangoWellness(a.pct)) }} />{a.nombre}
                   <span style={{ fontSize: 12, color: "var(--h-sub)", fontWeight: 700 }}>{a.pct}%</span>
                 </button>
               ))}
               {aVigilarNombres.slice(0, 8).map((a) => (
-                <button key={"r" + a.nombre} onClick={() => onNavigate("disponibilidad")} title={a.estado} style={{ ...pillButton, background: "var(--h-panel2)", border: "1px solid var(--h-borde)", color: "var(--h-texto)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <button key={"r" + a.nombre} onClick={() => { focoEstadoPlantel = a.nombre; onNavigate("disponibilidad"); }} title={a.estado} style={{ ...pillButton, background: "var(--h-panel2)", border: "1px solid var(--h-borde)", color: "var(--h-texto)", display: "inline-flex", alignItems: "center", gap: 6 }}>
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: a.estado === "Lesionado" ? "var(--h-error)" : "var(--h-alerta)" }} />{a.nombre}
                 </button>
               ))}
