@@ -7885,6 +7885,115 @@ function EstadoPlantelPage({ perfil }) {
   );
 }
 
+// ───────────────────────── Registro del plantel (solo staff) ─────────────────────────
+// Cuántos jugadores ya tienen cuenta, quiénes faltan y un mensaje de WhatsApp listo para cada uno.
+function mensajeRegistro(nombre) {
+  const pila = String(nombre || "").trim().split(/\s+/)[0] || "";
+  return (
+    `¡Hola${pila ? " " + pila : ""}! Te falta registrarte en *ADN Obras*, la app del plantel ` +
+    `(práctica, gimnasio, wellness y convocatoria).\n\n` +
+    `1. Entrá a ${INVITE_LINK}\n` +
+    `2. Tocá *Crear cuenta* → Jugador → buscá tu nombre en la lista.\n` +
+    `3. Completá tus datos y listo, no hay que confirmar ningún mail.\n\n` +
+    `¡Vamos Obras!`
+  );
+}
+function RegistroPlantel() {
+  const [jugadores, setJugadores] = useState(null);
+  const [perfiles, setPerfiles] = useState([]);
+  const [abierto, setAbierto] = useState(false);
+  const [tab, setTab] = useState("faltan");
+  const [copiado, setCopiado] = useState(false);
+  useEffect(() => {
+    Promise.all([
+      supabase.from("jugadores").select("id, nombre, posicion_ideal").order("nombre"),
+      supabase.from("profiles").select("jugador_id, confirmado, bloqueado").not("jugador_id", "is", null),
+    ]).then(([j, p]) => { setJugadores(j.data || []); setPerfiles(p.data || []); });
+  }, []);
+  if (!jugadores || !jugadores.length) return null;
+  const perfilDe = Object.fromEntries(perfiles.map((x) => [x.jugador_id, x]));
+  const faltan = jugadores.filter((j) => !perfilDe[j.id]);
+  const pendientes = jugadores.filter((j) => perfilDe[j.id] && !perfilDe[j.id].confirmado);
+  const listos = jugadores.filter((j) => perfilDe[j.id]?.confirmado);
+  const conCuenta = jugadores.length - faltan.length;
+  if (!faltan.length && !pendientes.length) return null;
+  const pct = Math.round((conCuenta / jugadores.length) * 100);
+  const lista = tab === "faltan" ? faltan : tab === "pendientes" ? pendientes : listos;
+  const wa = (texto) => `https://wa.me/?text=${encodeURIComponent(texto)}`;
+  const textoGrupo =
+    `*Faltan registrarse en ADN Obras* (${faltan.length}):\n` + faltan.map((j) => `• ${j.nombre}`).join("\n") +
+    `\n\nEntren a ${INVITE_LINK} → Crear cuenta → Jugador → busquen su nombre. ¡Son 2 minutos!`;
+  function copiarLista() {
+    try { navigator.clipboard.writeText(textoGrupo).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 2000); }); } catch (e) { /* nada */ }
+  }
+  const pestaña = (k, l, n) => (
+    <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+      style={{ padding: "8px 4px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, background: tab === k ? "var(--h-club)" : "transparent", color: tab === k ? "var(--h-club-txt)" : "var(--h-texto2)" }}>
+      {l} · {n}
+    </button>
+  );
+  return (
+    <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>Registro del plantel</div>
+        <div style={{ fontSize: 13.5, color: "var(--h-texto2)" }}><b style={{ color: "var(--h-texto)", fontSize: 16 }}>{conCuenta}</b> de {jugadores.length} ya tienen cuenta</div>
+      </div>
+      <div style={{ height: 8, borderRadius: 4, background: "var(--h-borde)", overflow: "hidden", margin: "10px 0 8px" }} role="img" aria-label={`${pct}% del plantel registrado`}>
+        <div style={{ width: `${pct}%`, height: "100%", background: "var(--h-ok)" }} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, color: "var(--h-sub)" }}>
+          {faltan.length ? `Faltan ${faltan.length}` : "Ya están todos"}{pendientes.length ? ` · ${pendientes.length} esperando aprobación` : ""}
+        </span>
+        <button onClick={() => setAbierto((v) => !v)} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, fontSize: 13.5, cursor: "pointer", padding: 0 }}>
+          {abierto ? "Ocultar" : "Ver quiénes faltan"}
+        </button>
+      </div>
+
+      {abierto && (
+        <div style={{ marginTop: 12 }}>
+          <div role="tablist" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 4, padding: 4, borderRadius: 12, background: "var(--h-fondo)", marginBottom: 10 }}>
+            {pestaña("faltan", "Faltan", faltan.length)}
+            {pestaña("pendientes", "A aprobar", pendientes.length)}
+            {pestaña("listos", "Ya están", listos.length)}
+          </div>
+          {tab === "faltan" && faltan.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+              <a href={wa(textoGrupo)} target="_blank" rel="noopener noreferrer" style={{ ...pillButton, background: "#25D366", color: "#fff", border: "none", textDecoration: "none", fontWeight: 700 }}>
+                Mandar la lista al grupo
+              </a>
+              <button onClick={copiarLista} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}>
+                {copiado ? "✓ Copiada" : "Copiar lista"}
+              </button>
+            </div>
+          )}
+          {tab === "pendientes" && pendientes.length > 0 && (
+            <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 8 }}>Se aprueban en Ajustes › Staff y usuarios.</div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)" }}>
+            {lista.map((j) => (
+              <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderTop: "1px solid var(--h-borde)", minWidth: 0 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--h-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{j.nombre}</div>
+                  {j.posicion_ideal && <div style={{ fontSize: 12, color: "var(--h-sub)" }}>{j.posicion_ideal}</div>}
+                </div>
+                {tab === "faltan" && (
+                  <a href={wa(mensajeRegistro(j.nombre))} target="_blank" rel="noopener noreferrer" aria-label={`Mandarle el link a ${j.nombre} por WhatsApp`}
+                    style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, color: "#128C4A", border: "1.5px solid #25D366", borderRadius: 999, padding: "5px 11px", textDecoration: "none" }}>
+                    WhatsApp
+                  </a>
+                )}
+                {tab === "listos" && <span style={{ color: "var(--h-ok)", fontWeight: 800 }}>✓</span>}
+              </div>
+            ))}
+            {lista.length === 0 && <div style={{ fontSize: 13, color: "var(--h-sub)", padding: "8px 0" }}>Nadie en esta lista.</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const CONFIG_TABS = [
   { key: "perfil", label: "Perfil", icon: "" },
   { key: "cuenta", label: "Cuenta y seguridad", icon: "" },
@@ -8112,7 +8221,7 @@ function PanelCuenta({ perfil }) {
   );
 }
 
-const INVITE_LINK = "https://obrasrugbyhub.app/invitacion";
+const INVITE_LINK = typeof window !== "undefined" ? window.location.origin : "https://adn-obras.up.railway.app";
 
 function textoInvitacion() {
   return (
@@ -9149,6 +9258,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
 
       {convocatoria && <TarjetaConvocatoria perfil={perfil} onNavigate={onNavigate} />}
       {esJugador && <TuSemana perfil={perfil} onNavigate={onNavigate} />}
+      {esStaff(perfil) && <RegistroPlantel />}
 
       {/* Lo de todos los días: wellness, gimnasio y práctica, a un toque (el jugador lo tiene en "Tu semana") */}
       {!esJugador && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 14 }}>
