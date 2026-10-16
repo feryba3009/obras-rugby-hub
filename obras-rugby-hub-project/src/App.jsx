@@ -3851,7 +3851,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
       onUpdateCampo("zona", zonaLesion);
       setMostrarFormLesion(false);
       setDescLesion("");
-      setLesionActiva({ zona: zonaLesion, descripcion: descLesion, semanas_estimadas: Number(semanasLesion), fecha_vuelta_estimada: fechaVuelta });
+      setLesionActiva(await lesionActivaDe(jugador.dbId));
     }
   }
 
@@ -4003,22 +4003,23 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
               {jugador.estado === "Lesionado" ? (
                 <>
                   <div style={{ fontSize: 13, color: "var(--h-error)", fontWeight: 600, marginBottom: 6 }}>Lesionado · {jugador.zona}</div>
-                  {lesionActiva ? (
-                    <div style={{ fontSize: 12, color: "var(--h-texto2)", marginBottom: 10, lineHeight: 1.5 }}>
-                      {lesionActiva.descripcion && <div>{lesionActiva.descripcion}</div>}
-                      <div>Rehabilitación estimada: {lesionActiva.semanas_estimadas || "?"} semanas</div>
-                      <div>Vuelta estimada: {lesionActiva.fecha_vuelta_estimada}</div>
-                    </div>
+                  {lesionActiva?.id ? (
+                    <>
+                      <div style={{ fontSize: 12, color: "var(--h-texto2)", marginBottom: 8, lineHeight: 1.5 }}>
+                        {lesionActiva.descripcion && <div>{lesionActiva.descripcion}</div>}
+                        <div>Rehabilitación estimada al lesionarse: {lesionActiva.semanas_estimadas || "?"} semanas</div>
+                      </div>
+                      <EtapasLesion lesion={lesionActiva} editable onCambio={setLesionActiva} onAlta={confirmarAlta} guardando={cargandoLesion} />
+                    </>
                   ) : (
-                    <div style={{ fontSize: 12, color: "var(--h-sub2)", marginBottom: 10 }}>Cargando el detalle…</div>
+                    <>
+                      <div style={{ fontSize: 12, color: "var(--h-sub2)", marginBottom: 10 }}>Cargando el detalle…</div>
+                      <button onClick={confirmarAlta} disabled={cargandoLesion}
+                        style={{ ...pillButton, background: "var(--h-ok)", color: "var(--h-panel)", border: "none", fontSize: 12 }}>
+                        {cargandoLesion ? "Guardando…" : "✓ Dar de alta"}
+                      </button>
+                    </>
                   )}
-                  <button
-                    onClick={confirmarAlta}
-                    disabled={cargandoLesion}
-                    style={{ ...pillButton, background: "var(--h-ok)", color: "var(--h-panel)", border: "none", fontSize: 12 }}
-                  >
-                    {cargandoLesion ? "Guardando…" : "✓ Dar de alta"}
-                  </button>
                 </>
               ) : mostrarFormLesion ? (
                 <>
@@ -4067,6 +4068,13 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
                    Informar lesión
                 </button>
               )}
+            </div>
+          )}
+          {perfil?.rol !== "Cuerpo médico" && jugador.estado === "Lesionado" && lesionActiva?.id && (
+            <div style={{ marginBottom: 16, padding: "12px", background: "var(--h-campo)", borderRadius: 8, border: "1px solid var(--h-borde2)" }}>
+              <div style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 6 }}>Lesión actual</div>
+              <div style={{ fontSize: 13, color: "var(--h-error)", fontWeight: 600, marginBottom: 6 }}>{jugador.zona || lesionActiva.zona}{lesionActiva.descripcion ? ` · ${lesionActiva.descripcion}` : ""}</div>
+              <EtapasLesion lesion={lesionActiva} />
             </div>
           )}
 
@@ -7005,6 +7013,81 @@ async function darDeAltaLesion(jugadorId) {
   await supabase.from("jugadores").update({ estado: "Disponible" }).eq("id", jugadorId);
 }
 
+// Etapas de la lesión: 1. Lesión → 2. Recuperación → 3. Posible alta deportiva (fecha que pone kinesio).
+const ETAPAS_LESION = [
+  { key: "Lesión", titulo: "Lesión" },
+  { key: "Recuperación", titulo: "Recuperación" },
+  { key: "Posible alta", titulo: "Posible alta deportiva" },
+];
+async function cambiarEtapaLesion(lesionId, cambios) {
+  const { data, error } = await supabase.from("lesiones").update(cambios).eq("id", lesionId).select("*").single();
+  if (error) { console.error("Error cambiando etapa de lesión:", error); return null; }
+  return data;
+}
+
+function EtapasLesion({ lesion, editable, onCambio, onAlta, guardando }) {
+  const [fecha, setFecha] = useState(lesion?.fecha_posible_alta || lesion?.fecha_vuelta_estimada || "");
+  const [cargando, setCargando] = useState(false);
+  useEffect(() => { setFecha(lesion?.fecha_posible_alta || lesion?.fecha_vuelta_estimada || ""); }, [lesion?.id, lesion?.fecha_posible_alta]);
+  if (!lesion) return null;
+  const idx = Math.max(0, ETAPAS_LESION.findIndex((e) => e.key === (lesion.etapa || "Lesión")));
+  const fechas = [lesion.fecha_lesion, lesion.fecha_recuperacion, lesion.fecha_posible_alta];
+  const hoyIso = new Date().toLocaleDateString("sv-SE");
+  async function mover(cambios) {
+    setCargando(true);
+    const r = await cambiarEtapaLesion(lesion.id, cambios);
+    setCargando(false);
+    if (r) onCambio?.(r);
+  }
+  const ocupado = cargando || guardando;
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 6, margin: "4px 0 10px" }}>
+        {ETAPAS_LESION.map((e, i) => {
+          const hecho = i < idx, actual = i === idx;
+          const color = actual ? (i === 2 ? "var(--h-ok)" : i === 1 ? "var(--h-alerta)" : "var(--h-error)") : hecho ? "var(--h-sub)" : "var(--h-borde2)";
+          return (
+            <div key={e.key} style={{ minWidth: 0 }}>
+              <div style={{ height: 6, borderRadius: 3, background: hecho || actual ? color : "var(--h-borde)" }} />
+              <div style={{ fontSize: 11.5, fontWeight: actual ? 800 : 600, color: actual ? "var(--h-texto)" : "var(--h-sub)", marginTop: 5, lineHeight: 1.2 }}>
+                {i + 1}. {e.titulo}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--h-sub2)", marginTop: 1 }}>
+                {fechas[i] ? (i === 2 ? "el " : "desde ") + dbDateToDisplay(fechas[i]) : i === 2 && lesion.fecha_vuelta_estimada ? `estimada ${dbDateToDisplay(lesion.fecha_vuelta_estimada)}` : "—"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {idx === 2 && <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginBottom: 8 }}>La fecha de posible alta la define kinesio.</div>}
+      {editable && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          {idx === 0 && (
+            <button onClick={() => mover({ etapa: "Recuperación" })} disabled={ocupado}
+              style={{ ...pillButton, background: "var(--h-alerta)", color: "#fff", border: "none", fontSize: 12 }}>
+              {ocupado ? "Guardando…" : "Pasar a recuperación →"}
+            </button>
+          )}
+          {idx >= 1 && (
+            <>
+              <input type="date" value={fecha} min={hoyIso} onChange={(ev) => setFecha(ev.target.value)}
+                aria-label="Fecha de posible alta deportiva" style={{ ...inputStyle, width: 160, margin: 0 }} />
+              <button onClick={() => fecha && mover({ etapa: "Posible alta", fecha_posible_alta: fecha })} disabled={ocupado || !fecha || (idx === 2 && fecha === lesion.fecha_posible_alta)}
+                style={{ ...pillButton, background: "var(--h-ok)", color: "#fff", border: "none", fontSize: 12, opacity: !fecha ? 0.5 : 1 }}>
+                {ocupado ? "Guardando…" : idx === 2 ? "Cambiar fecha de alta" : "Marcar posible alta →"}
+              </button>
+            </>
+          )}
+          <button onClick={onAlta} disabled={ocupado}
+            style={{ ...pillButton, background: "transparent", color: "var(--h-ok)", border: "1px solid var(--h-ok)", fontSize: 12 }}>
+            ✓ Dar de alta
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 async function lesionActivaDe(jugadorId) {
   const { data } = await supabase
     .from("lesiones")
@@ -8095,7 +8178,9 @@ function EstadoPlantelPage({ perfil }) {
               <button key={j.id} onClick={() => setVerId(j.id)} style={{ ...cardStyle, padding: "12px 14px", textAlign: "left", cursor: "pointer", font: "inherit", width: "100%" }}>
                 <div style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 14.5 }}>{j.id} <span style={{ color: "var(--h-sub2)", fontWeight: 400 }}>›</span></div>
                 <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 2 }}>{[j.posicionIdeal, j.zona, tipoLesion(j.zona) !== "—" ? tipoLesion(j.zona) : null].filter(Boolean).join(" · ")}</div>
-                {pct !== null ? (
+                {l?.id ? (
+                  <div style={{ marginTop: 10 }}><EtapasLesion lesion={l} /></div>
+                ) : pct !== null ? (
                   <>
                     <div style={{ height: 8, borderRadius: 4, background: "var(--h-borde)", overflow: "hidden", margin: "10px 0 4px" }}>
                       <div style={{ width: `${pct}%`, height: "100%", background: "var(--h-club)" }} />
@@ -11108,6 +11193,7 @@ const NOTI_DESTINO = {
   video_partido: "veo",
   informe_partido: "reportes",
   lesion_reportada: "disponibilidad",
+  lesion_etapa: "disponibilidad",
   sync_urba: "calendario",
   votar_mvp: "hoy",
   mvp_ganador: "hoy",
@@ -11153,7 +11239,7 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
       onIrAConfiguracion("staff");
       return;
     }
-    const destino = NOTI_DESTINO[n.tipo];
+    const destino = n.tipo === "lesion_etapa" && perfil?.rol === "Jugador" ? "hoy" : NOTI_DESTINO[n.tipo];
     if (destino && onNavigate) onNavigate(destino);
   }
 
