@@ -12,7 +12,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <script>
       // Aplica el tema guardado antes de pintar, para que no parpadee.
-      try { var t = localStorage.getItem("hub-tema"); if (t === "oscuro") document.documentElement.dataset.tema = "oscuro"; } catch (e) {}
+      try { var t = localStorage.getItem("adn-tema") || localStorage.getItem("hub-tema"); if (t === "oscuro") document.documentElement.dataset.tema = "oscuro"; } catch (e) {}
     </script>
   </head>
   <body>

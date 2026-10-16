@@ -238,6 +238,10 @@ export default function VideotecaPage({ perfil }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 900 }}>
+      <div>
+        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Videos del rival</div>
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>Los partidos del torneo para mirar a los rivales y subir los nuestros.</div>
+      </div>
       {/* Torneos */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         {estados.map((e) => (

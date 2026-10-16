@@ -722,7 +722,7 @@ function etiquetaDias(dateStr) {
   return `hace ${-diff} día${diff === -1 ? "" : "s"}`;
 }
 
-// ───────────────────────── PARTIDO EN VIVO (MATCHDAY) ─────────────────────────
+// ───────────────────────── PARTIDO EN VIVO ─────────────────────────
 // Cronómetro simple (0:00 a 40:00, se frena/reanuda), tanteador, y botones de incidencia.
 // Usa la formación confirmada del partido (titulares + suplentes) para las tarjetas.
 
@@ -1841,11 +1841,11 @@ async function responderPractica(fecha, jugadorDbId, respuesta, motivo) {
   return !error;
 }
 // Fecha ISO (de esta semana) del día de la semana elegido.
-function isoDiaSemana(dia) {
+function isoDiaSemana(dia, semanas = 0) {
   const orden = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
   const hoy = new Date();
   const lunes = new Date(hoy);
-  lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+  lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7) + 7 * semanas);
   const d = new Date(lunes);
   d.setDate(lunes.getDate() + orden.indexOf(dia));
   return d.toLocaleDateString("sv-SE");
@@ -1899,8 +1899,8 @@ function ConfirmarPractica({ perfil, fecha, diaNombre, inicial, onCambio }) {
 }
 
 // Lo que ve el staff en Práctica del día: quién viene, quién no y quién no respondió.
-function ConfirmacionesPractica({ dia, perfil }) {
-  const fecha = isoDiaSemana(dia);
+function ConfirmacionesPractica({ dia, perfil, semanas = 0 }) {
+  const fecha = isoDiaSemana(dia, semanas);
   const [resp, setResp] = useState(null);
   const [aviso, setAviso] = useState("");
   useEffect(() => { setResp(null); cargarRespuestasPractica(fecha).then(setResp); }, [fecha]);
@@ -2186,11 +2186,11 @@ function PanelGrupos({ onCambio }) {
 }
 
 // Fecha (de esta semana) del día elegido: "Martes 14".
-function fechaDiaSemana(dia) {
+function fechaDiaSemana(dia, semanas = 0) {
   const orden = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
   const hoy = new Date();
   const lunes = new Date(hoy);
-  lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+  lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7) + 7 * semanas);
   const d = new Date(lunes);
   d.setDate(lunes.getDate() + orden.indexOf(dia));
   return `${dia} ${d.getDate()}`;
@@ -2199,11 +2199,14 @@ function fechaDiaSemana(dia) {
 function SesionPage({ perfil }) {
   const puedeEditar = puedeGestionar(perfil);
   const [sesiones, setSesiones] = useState(() => ({ ...SESIONES }));
-  const [dia, setDia] = useState(() => {
-    const hoy = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date().getDay()];
-    if (DIAS_SEMANA.includes(hoy) && SESIONES[hoy]) return hoy;
-    return DIAS_SEMANA.find((d) => SESIONES[d]) || "Lunes";
-  });
+  // Abre en la próxima práctica: hoy si hay, si no la siguiente de la semana; si ya no quedan
+  // prácticas esta semana (ej. viernes), muestra la semana que viene.
+  const conPractica = (d) => ((SESIONES[d]?.grupo1 || []).length + (SESIONES[d]?.grupo2 || []).length) > 0;
+  const ORDEN_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const idxHoy = (new Date().getDay() + 6) % 7;
+  const proximaEstaSemana = DIAS_SEMANA.find((d) => ORDEN_SEMANA.indexOf(d) >= idxHoy && conPractica(d));
+  const [semanas] = useState(() => (proximaEstaSemana || !DIAS_SEMANA.some(conPractica) ? 0 : 1));
+  const [dia, setDia] = useState(() => proximaEstaSemana || DIAS_SEMANA.find(conPractica) || "Lunes");
   const [editMode, setEditMode] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState("");
@@ -2261,7 +2264,7 @@ function SesionPage({ perfil }) {
         <div>
           <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Práctica del día</div>
           <div style={{ fontSize: 14, color: "var(--h-sub)", marginTop: 4 }}>
-            {fechaDiaSemana(dia)}
+            {fechaDiaSemana(dia, semanas)}{semanas ? " (semana que viene)" : ""}
             {!vacia && ` · ${Math.max(min1, min2)} minutos · ${gruposConBloques} ${gruposConBloques === 1 ? "grupo" : "grupos"}`}
           </div>
         </div>
@@ -2296,7 +2299,7 @@ function SesionPage({ perfil }) {
         )}
       </div>
 
-      {puedeEditar && !vacia && <ConfirmacionesPractica dia={dia} perfil={perfil} />}
+      {puedeEditar && !vacia && <ConfirmacionesPractica dia={dia} perfil={perfil} semanas={semanas} />}
       {puedeEditar && (
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start" }}>
           <AsistenciaPanel perfil={perfil} />
@@ -2312,6 +2315,7 @@ function SesionPage({ perfil }) {
 
       <TiraSemana
         dia={dia}
+        semanas={semanas}
         onDia={(d) => { setDia(d); setEditMode(false); }}
         habilitado={(d) => DIAS_SEMANA.includes(d) && (puedeEditar || (sesiones[d]?.grupo1?.length || 0) + (sesiones[d]?.grupo2?.length || 0) > 0)}
         marcado={(d) => (sesiones[d]?.grupo1?.length || 0) + (sesiones[d]?.grupo2?.length || 0) > 0}
@@ -2401,11 +2405,11 @@ const PLAN_GYM_INICIAL = {
 };
 
 // Tira de la semana (lunes a domingo) con el número de día. Solo se pueden tocar los días que tienen algo.
-function TiraSemana({ dia, onDia, habilitado, marcado }) {
+function TiraSemana({ dia, onDia, habilitado, marcado, semanas = 0 }) {
   const orden = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
   const hoy = new Date();
   const lunes = new Date(hoy);
-  lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+  lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7) + 7 * semanas);
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 18, maxWidth: 460 }}>
       {orden.map((d, i) => {
@@ -5640,7 +5644,7 @@ function VeoPage({ perfil }) {
       <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginBottom: 12 }}>
         {trysVeo
           ? "✓ Minutos cargados a mano mirando el video."
-          : "El minuto exacto está en los tries cargados en vivo (Matchday) o cargados a mano mirando el video."}
+          : "El minuto exacto está en los tries cargados en vivo durante el partido o cargados a mano mirando el video."}
       </div>
 
       {importandoTrys && (
@@ -6688,7 +6692,7 @@ function EvaluacionesPage({ perfil }) {
         <div>
           <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Tests físicos</div>
           <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
-            Último test de cada jugador. ▲ mejoró y ▼ empeoró respecto de su test anterior.
+            El test más reciente de cada jugador. ▲ mejoró y ▼ empeoró respecto de su test anterior.
           </div>
         </div>
         {esEntrenador(perfil) && !mostrarCarga && (
@@ -9697,7 +9701,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const [showBanner, setShowBanner] = useState(false);
   useEffect(() => {
     let cerrado = false;
-    try { cerrado = localStorage.getItem("hub-aviso-notis-cerrado") === "1"; } catch (e) {}
+    try { cerrado = (localStorage.getItem("adn-aviso-notis-cerrado") || localStorage.getItem("hub-aviso-notis-cerrado")) === "1"; } catch (e) {}
     if (cerrado || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
     if (typeof Notification !== "undefined" && Notification.permission === "denied") return;
     let vivo = true;
@@ -9709,7 +9713,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   }, []);
   function cerrarAvisoNotis() {
     setShowBanner(false);
-    try { localStorage.setItem("hub-aviso-notis-cerrado", "1"); } catch (e) {}
+    try { localStorage.setItem("adn-aviso-notis-cerrado", "1"); } catch (e) {}
   }
   const [novedad, setNovedad] = useState(null);
   const [alertasHoy, setAlertasHoy] = useState({ cargando: true, respuestas: [] });
@@ -9770,7 +9774,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
     return <PartidoVivoPage partido={partido} categoria={categoriaEnVivo} perfil={perfil} onSalir={() => setCategoriaEnVivo(null)} />;
   }
 
-  const TarjetaMatchday = ({ categoria, partido, bloqueada }) => (
+  const TarjetaEnVivo = ({ categoria, partido, bloqueada }) => (
     <div
       style={{
         background: bloqueada ? "var(--h-panel)" : "var(--h-error-suave)",
@@ -9801,7 +9805,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
             cursor: bloqueada ? "not-allowed" : "pointer",
           }}
         >
-          Abrir el Matchday
+          Abrir el partido en vivo
         </button>
       )}
     </div>
@@ -9861,8 +9865,8 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
 
   return (
     <div>
-      {puedeGestionar(perfil) && intermediaHoy && <TarjetaMatchday categoria="Intermedia" partido={intermediaHoy} bloqueada={false} />}
-      {puedeGestionar(perfil) && superiorHoy && <TarjetaMatchday categoria="Superior" partido={superiorHoy} bloqueada={!intermediaTerminada} />}
+      {puedeGestionar(perfil) && intermediaHoy && <TarjetaEnVivo categoria="Intermedia" partido={intermediaHoy} bloqueada={false} />}
+      {puedeGestionar(perfil) && superiorHoy && <TarjetaEnVivo categoria="Superior" partido={superiorHoy} bloqueada={!intermediaTerminada} />}
 
       {novedad && !novedadVista && (
         <div
@@ -11020,14 +11024,14 @@ function ObrasHub({ perfil }) {
   const [masAbierto, setMasAbierto] = useState(false);
   const [menuPref, setMenuPref] = useState("Automático");
   const [temaPref, setTemaPrefEstado] = useState(() => {
-    try { return localStorage.getItem("hub-tema") === "oscuro" ? "Oscuro" : "Claro"; } catch (e) { return "Claro"; }
+    try { return (localStorage.getItem("adn-tema") || localStorage.getItem("hub-tema")) === "oscuro" ? "Oscuro" : "Claro"; } catch (e) { return "Claro"; }
   });
   const [novedadVista, setNovedadVista] = useState(false); // una sola vez por sesión iniciada, no cada vez que se entra a Hoy
   const isMobile = useIsMobile();
 
   function setTemaPref(t) {
     setTemaPrefEstado(t);
-    try { localStorage.setItem("hub-tema", t === "Oscuro" ? "oscuro" : "claro"); } catch (e) {}
+    try { localStorage.setItem("adn-tema", t === "Oscuro" ? "oscuro" : "claro"); } catch (e) {}
   }
   // El tema y el color del club se aplican a toda la página (también a los paneles que se abren por encima).
   useEffect(() => {
@@ -11107,7 +11111,7 @@ function ObrasHub({ perfil }) {
             onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) cerrarMenu(); }}
             style={{
               position: "absolute", top: 0, left: 0, height: "100vh", width: menuAbierto ? 248 : RIEL,
-              transition: "width .18s ease, box-shadow .18s ease", overflowX: "hidden", overflowY: "auto",
+              transition: "width .18s ease, box-shadow .18s ease", overflowX: "hidden", overflowY: "auto", scrollbarWidth: menuAbierto ? "thin" : "none",
               background: "var(--h-panel)", borderRight: "1px solid var(--h-borde)", boxSizing: "border-box",
               padding: "16px 14px", display: "flex", flexDirection: "column",
               boxShadow: menuAbierto ? "8px 0 28px rgba(14,22,32,0.18)" : "none",
