@@ -1284,7 +1284,7 @@ function CalendarioPage({ perfil }) {
           {(proximos.length > 0 || suspendidos.length > 0) && (
             <>
               <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Lo que viene</div>
-              <div style={{ display: "grid", gap: 8, marginBottom: 18 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 8, marginBottom: 18 }}>
                 {proximos.map((p, i) => (
                   <PartidoAgenda key={"p" + p.id} p={p} proximo destacado={i === 0} perfil={perfil} onGuardado={() => forceUpdate((n) => n + 1)} />
                 ))}
@@ -1295,7 +1295,7 @@ function CalendarioPage({ perfil }) {
             </>
           )}
           <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Ya jugados</div>
-          <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 8 }}>
             {[...fixture].reverse().map((p) => (
               <PartidoAgenda key={"j" + p.id} p={p} perfil={perfil} onGuardado={() => forceUpdate((n) => n + 1)} />
             ))}
@@ -1414,7 +1414,7 @@ function TorneoPage({ perfil }) {
     </div>
   );
   const listaFase = (lista) => (
-    <div style={{ display: "grid", gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 8 }}>
       {lista.map((f) =>
         f.estado === "Libre" ? <FilaLibre key={"l" + f.fecha} f={f} />
           : <PartidoAgenda key={f.estado + f.id} p={f} proximo={f.estado === "Próximo" || f.estado === "Suspendido"} perfil={perfil} onGuardado={() => forceUpdate((n) => n + 1)} />
@@ -1558,12 +1558,12 @@ function PartidoAgenda({ p, proximo, destacado, perfil, onGuardado }) {
     if (ok) { await cargarCalendario(); setEditando(false); onGuardado(); }
   }
   return (
-    <div style={{ ...cardStyle, padding: "10px 12px", display: "flex", alignItems: "center", gap: 12, borderLeft: `4px solid ${p.suspendido ? "var(--h-alerta)" : proximo ? "var(--h-club)" : color}`, background: destacado ? "var(--h-acento-suave)" : cardStyle.background }}>
-      <div style={{ width: 44, textAlign: "center", flexShrink: 0 }}>
+    <div style={{ ...cardStyle, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, minWidth: 0, maxWidth: "100%", boxSizing: "border-box", borderLeft: `4px solid ${p.suspendido ? "var(--h-alerta)" : proximo ? "var(--h-club)" : color}`, background: destacado ? "var(--h-acento-suave)" : cardStyle.background }}>
+      <div style={{ width: 38, textAlign: "center", flexShrink: 0 }}>
         <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1 }}>{d}</div>
         <div style={{ fontSize: 11, color: "var(--h-sub)", textTransform: "uppercase" }}>{mes}</div>
       </div>
-      <TeamBadge name={p.rival} size={26} />
+      <span style={{ flexShrink: 0, display: "inline-flex" }}><TeamBadge name={p.rival} size={24} /></span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--h-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.cond === "Local" ? "vs" : "en"} {p.rival}</div>
         <div style={{ fontSize: 12, color: "var(--h-sub)" }}>{etiquetaFecha(p.fecha)} · {p.cond === "Local" ? "en casa" : "de visitante"}</div>
@@ -1579,13 +1579,13 @@ function PartidoAgenda({ p, proximo, destacado, perfil, onGuardado }) {
         </span>
       ) : proximo ? (
         puedeGestionar(perfil) ? (
-          <button onClick={() => setEditando(true)} style={{ background: "none", border: "none", color: "var(--h-acento)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cargar resultado</button>
+          <button onClick={() => setEditando(true)} style={{ background: "none", border: "none", color: "var(--h-acento)", fontSize: 12.5, fontWeight: 600, cursor: "pointer", flexShrink: 0, padding: 0, lineHeight: 1.2, width: 64, textAlign: "right" }}>Cargar resultado</button>
         ) : null
       ) : (
-        <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <b style={{ fontFamily: "var(--h-titulo)", fontSize: 19, color: "var(--h-texto)" }}>{p.gf}-{p.gc}</b>
+        <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <b style={{ fontFamily: "var(--h-titulo)", fontSize: 18, color: "var(--h-texto)", whiteSpace: "nowrap" }}>{p.gf}-{p.gc}</b>
           <span style={{ width: 22, height: 22, borderRadius: "50%", background: color, color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{(p.res || "")[0]}</span>
-          {puedeGestionar(perfil) && <button onClick={() => setEditando(true)} aria-label="Corregir resultado" style={{ background: "none", border: "none", color: "var(--h-sub2)", fontSize: 12, cursor: "pointer" }}>Editar</button>}
+          {puedeGestionar(perfil) && <button onClick={() => setEditando(true)} aria-label="Corregir resultado" title="Corregir resultado" style={{ background: "none", border: "none", color: "var(--h-sub2)", fontSize: 15, cursor: "pointer", padding: "0 2px" }}>✎</button>}
         </span>
       )}
     </div>
