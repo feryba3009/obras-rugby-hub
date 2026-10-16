@@ -7162,6 +7162,17 @@ function pctItem(r, k) {
   const e = r.escala || 7;
   return Math.round((((r[k] || 1) - 1) / (e - 1)) * 100);
 }
+// Grupos de wellness: 100–76 / 75–51 / 50–26 / 25–0. En Inicio solo aparecen los de 50% para abajo.
+const RANGOS_WELLNESS = [
+  { k: "r4", min: 0, max: 25, titulo: "25 – 0%", sub: "Atención" },
+  { k: "r3", min: 26, max: 50, titulo: "50 – 26%", sub: "Para cuidar" },
+  { k: "r2", min: 51, max: 75, titulo: "75 – 51%", sub: "Bien" },
+  { k: "r1", min: 76, max: 100, titulo: "100 – 76%", sub: "Muy bien" },
+];
+const LIMITE_CUIDAR = 50;
+const rangoWellness = (p) => RANGOS_WELLNESS.find((r) => Math.round(p) >= r.min && Math.round(p) <= r.max) || RANGOS_WELLNESS[0];
+const colorRango = (r) => ({ r4: "var(--h-error)", r3: "#E8833A", r2: "var(--h-alerta)", r1: "var(--h-ok)" }[r.k]);
+
 function colorPct(p) {
   return p >= 80 ? COLORES_5[4] : p >= 60 ? COLORES_5[3] : p >= 40 ? COLORES_5[2] : p >= 20 ? COLORES_5[1] : COLORES_5[0];
 }
@@ -7472,8 +7483,10 @@ function WellnessPage({ perfil }) {
     { k: "puesto", label: "Puesto", get: (x) => indicePuesto(puestoDeId(x.jugadorId)) },
   ];
   const veo = (x) => pasaFiltro(fw, x.nombre, puestoDeId(x.jugadorId));
-  const aMirar = ordenarJugadores(datos.hoy.filter((x) => x.motivo && veo(x)), opcionesWellness, fw, (x) => x.nombre);
-  const resto = ordenarJugadores(datos.hoy.filter((x) => !x.motivo && veo(x)), opcionesWellness, fw, (x) => x.nombre);
+  const aMirar = datos.hoy.filter((x) => x.pct <= LIMITE_CUIDAR && veo(x));
+  const grupos = RANGOS_WELLNESS.map((r) => ({
+    r, js: ordenarJugadores(datos.hoy.filter((x) => rangoWellness(x.pct).k === r.k && veo(x)), opcionesWellness, fw, (x) => x.nombre),
+  }));
   const faltanVer = faltan.filter((j) => pasaFiltro(fw, j.id, j.posicionIdeal));
   const promedio = datos.hoy.length ? Math.round(datos.hoy.reduce((a, x) => a + x.pct, 0) / datos.hoy.length) : null;
 
@@ -7531,14 +7544,31 @@ function WellnessPage({ perfil }) {
       <BarraJugadores f={fw} opciones={opcionesWellness} total={POOL.length}
         visibles={datos.hoy.filter(veo).length + faltanVer.length} />
 
-      {aMirar.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", marginBottom: 10 }}>Para cuidar</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 10 }}>
-            {aMirar.map((x) => <TarjetaJugador key={x.jugadorId} x={x} alerta />)}
-          </div>
+      {datos.hoy.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6, marginBottom: 18 }}>
+          {grupos.map(({ r, js }) => (
+            <button key={r.k} type="button" disabled={!js.length}
+              onClick={() => document.getElementById("wl-" + r.k)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              style={{ ...cardStyle, padding: "8px 10px", textAlign: "left", font: "inherit", cursor: js.length ? "pointer" : "default", borderTop: `4px solid ${colorRango(r)}`, minWidth: 0, opacity: js.length ? 1 : 0.55 }}>
+              <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1.1 }}>{js.length}</div>
+              <div style={{ fontSize: 11.5, color: "var(--h-sub)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.titulo}</div>
+            </button>
+          ))}
         </div>
       )}
+
+      {grupos.filter(({ r }) => r.max <= LIMITE_CUIDAR).map(({ r, js }) => js.length > 0 && (
+        <div key={r.k} id={"wl-" + r.k} style={{ marginBottom: 20, scrollMarginTop: 80 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: colorRango(r) }} />
+            <span style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>{r.titulo}</span>
+            <span style={{ fontSize: 14, color: "var(--h-sub)" }}>{r.sub} · {js.length}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 10 }}>
+            {js.map((x) => <TarjetaJugador key={x.jugadorId} x={x} alerta={!!x.motivo} />)}
+          </div>
+        </div>
+      ))}
 
       {faltan.length > 0 && (
         <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 20 }}>
@@ -7554,14 +7584,18 @@ function WellnessPage({ perfil }) {
         </div>
       )}
 
-      {resto.length > 0 && (
-        <>
-          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", marginBottom: 10 }}>Bien</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 10 }}>
-            {resto.map((x) => <TarjetaJugador key={x.jugadorId} x={x} />)}
+      {grupos.filter(({ r }) => r.max > LIMITE_CUIDAR).map(({ r, js }) => js.length > 0 && (
+        <div key={r.k} id={"wl-" + r.k} style={{ marginBottom: 20, scrollMarginTop: 80 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: colorRango(r) }} />
+            <span style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>{r.titulo}</span>
+            <span style={{ fontSize: 14, color: "var(--h-sub)" }}>{r.sub} · {js.length}</span>
           </div>
-        </>
-      )}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 10 }}>
+            {js.map((x) => <TarjetaJugador key={x.jugadorId} x={x} alerta={!!x.motivo} />)}
+          </div>
+        </div>
+      ))}
       {datos.hoy.length === 0 && <div style={{ ...cardStyle, padding: "16px", fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay respuestas hoy.</div>}
 
       <CargaPlantel />
@@ -9973,7 +10007,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
   const lesionados = POOL.filter((j) => disponibilidadReal(j) === "Lesionado").length;
   const aVigilarRtp = POOL.filter((j) => disponibilidadReal(j) === "A vigilar").length;
   const noHabilitados = POOL.filter((j) => disponibilidadReal(j) === "No habilitado").length;
-  const aMirarWellness = alertasHoy.respuestas.filter((r) => r.motivo);
+  const aMirarWellness = alertasHoy.respuestas.filter((r) => r.pct <= LIMITE_CUIDAR).sort((a, b) => a.pct - b.pct);
 
   const fixture = FIXTURE.superior;
   const proximos = PROXIMOS.superior;
@@ -10216,8 +10250,9 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
             <EncabezadoTarjeta titulo="Para cuidar hoy" />
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {aMirarWellness.map((a) => (
-                <button key={"w" + a.nombre} onClick={() => onNavigate("wellness")} title={a.motivo} style={{ ...pillButton, background: "var(--h-panel2)", border: "1px solid var(--h-borde)", color: "var(--h-texto)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: colorPct(a.pct) }} />{a.nombre}
+                <button key={"w" + a.nombre} onClick={() => onNavigate("wellness")} title={a.motivo || `${a.pct}%`} style={{ ...pillButton, background: "var(--h-panel2)", border: "1px solid var(--h-borde)", color: "var(--h-texto)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: colorRango(rangoWellness(a.pct)) }} />{a.nombre}
+                  <span style={{ fontSize: 12, color: "var(--h-sub)", fontWeight: 700 }}>{a.pct}%</span>
                 </button>
               ))}
               {aVigilarNombres.slice(0, 8).map((a) => (
@@ -10226,7 +10261,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
                 </button>
               ))}
             </div>
-            <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 8 }}>Círculo: cómo llegó hoy (wellness) · Cuadrado: lesión o recuperación.</div>
+            <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 8 }}>Círculo: wellness de hoy en 50% o menos · Cuadrado: lesión o recuperación.</div>
           </div>
         )}
 
