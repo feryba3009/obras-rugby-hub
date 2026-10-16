@@ -10776,22 +10776,24 @@ const BOTTOM_NAV_ITEMS = [
 ];
 
 // Botón de una sección del menú (lateral o del panel "Más").
-function BotonNav({ item, activo, onClick, grande }) {
+function BotonNav({ item, activo, onClick, grande, compacto }) {
   return (
     <button
       className="h-nav-btn"
       onClick={onClick}
       aria-current={activo ? "page" : undefined}
+      aria-label={item.label}
+      title={compacto ? item.label : undefined}
       style={{
-        display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
-        padding: grande ? "11px 12px" : "8px 10px", borderRadius: 10, border: "none", marginBottom: 2,
+        display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", whiteSpace: "nowrap", overflow: "hidden",
+        padding: grande ? "11px 12px" : "9px 14px", borderRadius: 10, border: "none", marginBottom: 2,
         fontSize: grande ? 15 : 14, fontFamily: "var(--h-texto-fuente)", fontWeight: activo ? 600 : 500, cursor: "pointer",
         background: activo ? "var(--h-club)" : "transparent",
         color: activo ? "var(--h-club-txt)" : "var(--h-texto2)",
       }}
     >
-      <Icono nombre={item.icono} size={grande ? 20 : 18} />
-      {item.label}
+      <Icono nombre={item.icono} size={grande ? 20 : 20} />
+      <span style={{ opacity: compacto ? 0 : 1, transition: "opacity .15s" }}>{item.label}</span>
     </button>
   );
 }
@@ -11045,6 +11047,13 @@ function ObrasHub({ perfil }) {
     raiz.setProperty("--h-club-oscuro", tonoLegible(c));
   }, [club?.color_primario]);
 
+  // Menú lateral (compu): plegado en íconos y se despliega al pasar el mouse.
+  const RIEL = 76;
+  const [menuAbierto, setMenuAbierto] = useState(false);
+  const timerMenu = React.useRef(null);
+  function abrirMenu() { clearTimeout(timerMenu.current); timerMenu.current = setTimeout(() => setMenuAbierto(true), 80); }
+  function cerrarMenu() { clearTimeout(timerMenu.current); timerMenu.current = setTimeout(() => setMenuAbierto(false), 180); }
+
   // Tocar el logo de ADN vuelve al inicio (y arriba de todo).
   function irAlInicio() {
     setMasAbierto(false);
@@ -11067,30 +11076,54 @@ function ObrasHub({ perfil }) {
       <style>{RESPONSIVE_CSS}</style>
 
       {mostrarSidebar && (
-        <div style={{ width: 248, borderRight: "1px solid var(--h-borde)", background: "var(--h-panel)", padding: "18px 12px", flexShrink: 0, display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto", boxSizing: "border-box" }}>
-          <div style={{ padding: "0 6px 18px" }}>
-            <button onClick={irAlInicio} aria-label="Ir al inicio" title="Ir al inicio" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", width: "100%" }}>
-              <InsigniaADN size={34} />
-              <NombreHub />
+        // Menú lateral plegado: logo de ADN, escudo del club e íconos. Al acercar el mouse se despliega
+        // por encima del contenido (sin moverlo) con los nombres de cada sección.
+        <div style={{ width: RIEL, flexShrink: 0, position: "sticky", top: 0, height: "100vh", zIndex: 60 }}>
+          <nav
+            aria-label="Menú principal"
+            onMouseEnter={abrirMenu}
+            onMouseLeave={cerrarMenu}
+            onFocus={abrirMenu}
+            onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) cerrarMenu(); }}
+            style={{
+              position: "absolute", top: 0, left: 0, height: "100vh", width: menuAbierto ? 248 : RIEL,
+              transition: "width .18s ease, box-shadow .18s ease", overflowX: "hidden", overflowY: "auto",
+              background: "var(--h-panel)", borderRight: "1px solid var(--h-borde)", boxSizing: "border-box",
+              padding: "16px 14px", display: "flex", flexDirection: "column",
+              boxShadow: menuAbierto ? "8px 0 28px rgba(14,22,32,0.18)" : "none",
+            }}
+          >
+            <button onClick={() => { irAlInicio(); setMenuAbierto(false); }} aria-label="Ir al inicio" title="Ir al inicio"
+              style={{ display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", padding: "0 6px", cursor: "pointer", textAlign: "left", width: "100%", minHeight: 40 }}>
+              <InsigniaADN size={36} />
+              <span style={{ opacity: menuAbierto ? 1 : 0, transition: "opacity .15s", whiteSpace: "nowrap", minWidth: 0, overflow: "hidden" }}><NombreHub /></span>
             </button>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 9px 0" }}>
+              <span style={{ flexShrink: 0, display: "inline-flex" }}><Shield size={30} /></span>
+              <span style={{ opacity: menuAbierto ? 1 : 0, transition: "opacity .15s", fontSize: 13, color: "var(--h-sub)", whiteSpace: "nowrap" }}>{club?.nombre || "Tu club"}</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: menuAbierto ? "row" : "column", alignItems: menuAbierto ? "center" : "flex-start", gap: 6, padding: "12px 6px 14px", borderBottom: "1px solid var(--h-borde)", marginBottom: 12 }}>
               <CampanaNotificaciones perfil={perfil} align="left" onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
-              <BotonAjustes activo={active === CONFIG_ITEM.key} onClick={() => setActive(CONFIG_ITEM.key)} />
+              <BotonAjustes activo={active === CONFIG_ITEM.key} onClick={() => { setActive(CONFIG_ITEM.key); setMenuAbierto(false); }} />
             </div>
-          </div>
 
-          {NAV.map((g) => (
-            <div key={g.group || "inicio"} style={{ marginBottom: 14 }}>
-              {g.group && <TituloGrupo>{g.group}</TituloGrupo>}
-              {g.items.map((item) => (
-                <BotonNav key={item.key} item={item} activo={active === item.key} onClick={() => setActive(item.key)} />
-              ))}
+            {NAV.map((g, gi) => (
+              <div key={g.group || "inicio"} style={{ marginBottom: 10 }}>
+                {g.group && (
+                  menuAbierto
+                    ? <TituloGrupo>{g.group}</TituloGrupo>
+                    : gi > 0 && <div aria-hidden style={{ height: 1, background: "var(--h-borde)", margin: "4px 10px 8px" }} />
+                )}
+                {g.items.map((item) => (
+                  <BotonNav key={item.key} item={item} compacto={!menuAbierto} activo={active === item.key} onClick={() => { setActive(item.key); setMenuAbierto(false); }} />
+                ))}
+              </div>
+            ))}
+
+            <div style={{ marginTop: "auto", opacity: menuAbierto ? 1 : 0, transition: "opacity .15s", whiteSpace: "nowrap" }}>
+              <FirmaADN />
             </div>
-          ))}
-
-          <div style={{ marginTop: "auto" }}>
-            <FirmaADN />
-          </div>
+          </nav>
         </div>
       )}
 
