@@ -3665,7 +3665,12 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
   const [descLesion, setDescLesion] = useState("");
   const [semanasLesion, setSemanasLesion] = useState("2");
   const [subiendoFoto, setSubiendoFoto] = useState(false);
+  const [vecesMvp, setVecesMvp] = useState(0);
   const inputFotoRef = React.useRef(null);
+  useEffect(() => {
+    if (!jugador.dbId) return;
+    supabase.rpc("mvp_ganadores").then(({ data }) => setVecesMvp((data || []).filter((x) => x.jugador_id === jugador.dbId).length));
+  }, [jugador.dbId]);
 
   async function elegirFoto(e) {
     const file = e.target.files?.[0];
@@ -3766,6 +3771,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: aptoColor }} />
             Ficha médica: {(jugador.apto || "pendiente").toLowerCase()}
           </span>
+          {vecesMvp > 0 && <span style={{ fontWeight: 700 }}>🏆 Jugador del partido {vecesMvp === 1 ? "1 vez" : `${vecesMvp} veces`}</span>}
           <span style={{ color: "var(--h-sub)" }}>
             {!asistencia ? "…" : asistencia.total ? `Vino a ${asistencia.presentes} de ${asistencia.total} prácticas en ${TEMPORADA_ACTIVA}` : "Todavía sin asistencia cargada"}
           </span>
@@ -7223,6 +7229,8 @@ function WellnessPage({ perfil }) {
       )}
       {datos.hoy.length === 0 && <div style={{ ...cardStyle, padding: "16px", fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay respuestas hoy.</div>}
 
+      <CargaPlantel />
+
       {puedeGestionar(perfil) && <EditorHorariosWellness />}
     </div>
   );
@@ -7881,6 +7889,337 @@ function EstadoPlantelPage({ perfil }) {
           ))}
       </Seccion>
 
+    </div>
+  );
+}
+
+// ───────────────────────── Jugador del partido (votación) ─────────────────────────
+// Se abre al cargar el resultado y cierra 3 días después del partido. Uno no se puede votar a sí mismo.
+const DIAS_VOTACION = 3;
+function fechaISODeDisplay(dmy) { const [d, m, y] = String(dmy || "").split("/"); return y ? `${y}-${m}-${d}` : ""; }
+function sumarDiasISO(iso, n) { const f = new Date(iso + "T12:00:00"); f.setDate(f.getDate() + n); return f.toLocaleDateString("sv-SE"); }
+const hoyISO_AR = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
+
+function SelectorVoto({ partido, perfil, onElegir, onCerrar }) {
+  const [busca, setBusca] = useState("");
+  const [convocados, setConvocados] = useState([]);
+  useEffect(() => {
+    const catId = CATEGORIA_IDS[partido.categoria];
+    if (!catId) return;
+    supabase.from("lineup_slots").select("jugador_id, numero").eq("categoria_id", catId).not("jugador_id", "is", null)
+      .then(({ data }) => setConvocados((data || []).sort((a, b) => a.numero - b.numero).map((x) => x.jugador_id)));
+  }, [partido.id]);
+  const yo = perfil?.jugador_id;
+  const todos = POOL.filter((j) => j.dbId && j.dbId !== yo);
+  const filtro = (j) => !busca || j.id.toLowerCase().includes(busca.toLowerCase());
+  const deLaFormacion = convocados.map((id) => todos.find((j) => j.dbId === id)).filter(Boolean).filter(filtro);
+  const resto = todos.filter((j) => !convocados.includes(j.dbId)).filter(filtro);
+  const fila = (j) => (
+    <button key={j.dbId} onClick={() => onElegir(j)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 4px", background: "none", border: "none", borderTop: "1px solid var(--h-borde)", cursor: "pointer", textAlign: "left" }}>
+      <AvatarPlaceholder size={34} foto={j.foto} />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: 15, fontWeight: 600, color: "var(--h-texto)" }}>{j.id}</span>
+        <span style={{ display: "block", fontSize: 12, color: "var(--h-sub)" }}>{j.posicionIdeal}</span>
+      </span>
+      <span aria-hidden style={{ color: "var(--h-sub2)", fontSize: 18 }}>›</span>
+    </button>
+  );
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Elegí al jugador del partido" style={{ position: "fixed", inset: 0, zIndex: 120, background: "var(--h-fondo)", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid var(--h-borde)", background: "var(--h-panel)" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: "var(--h-texto)" }}>¿Quién fue el mejor?</div>
+          <div style={{ fontSize: 12.5, color: "var(--h-sub)" }}>{partido.categoria} · {partido.cond === "Local" ? "vs" : "en"} {partido.rival} · {partido.gf}-{partido.gc}</div>
+        </div>
+        <button onClick={onCerrar} aria-label="Cerrar" style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid var(--h-borde2)", background: "transparent", color: "var(--h-texto)", fontSize: 18, cursor: "pointer" }}>×</button>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        <div style={{ maxWidth: 560, margin: "0 auto", padding: "12px 16px 24px" }}>
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar jugador…" aria-label="Buscar jugador" style={{ ...inputStyle, marginTop: 0, marginBottom: 10 }} />
+          {deLaFormacion.length > 0 && (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-sub)", margin: "6px 0 2px" }}>De la formación</div>
+              {deLaFormacion.map(fila)}
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-sub)", margin: "16px 0 2px" }}>Resto del plantel</div>
+            </>
+          )}
+          {resto.map(fila)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function JugadorDelPartido({ perfil }) {
+  const [votos, setVotos] = useState({}); // partidoId -> jugadorId (mi voto)
+  const [conteos, setConteos] = useState({}); // partidoId -> [{jugador_id, votos}]
+  const [eligiendo, setEligiendo] = useState(null);
+  const [msg, setMsg] = useState("");
+  const staff = esStaff(perfil);
+  const hoy = hoyISO_AR();
+  const partidos = ["Superior", "Intermedia"].flatMap((cat) =>
+    (FIXTURE[cat.toLowerCase()] || []).map((p) => ({ ...p, categoria: cat, iso: fechaISODeDisplay(p.date) }))
+  ).filter((p) => p.iso && hoy >= p.iso && hoy <= sumarDiasISO(p.iso, DIAS_VOTACION + 7));
+  const abiertos = partidos.filter((p) => hoy <= sumarDiasISO(p.iso, DIAS_VOTACION));
+  const cerrados = partidos.filter((p) => hoy > sumarDiasISO(p.iso, DIAS_VOTACION));
+  const claves = partidos.map((p) => p.id).join(",");
+
+  async function cargar() {
+    if (!partidos.length) return;
+    const ids = partidos.map((p) => p.id);
+    if (perfil?.auth_user_id) {
+      const { data } = await supabase.from("votos_partido").select("partido_id, jugador_id").in("partido_id", ids).eq("votante", perfil.auth_user_id);
+      setVotos(Object.fromEntries((data || []).map((v) => [v.partido_id, v.jugador_id])));
+    }
+    const res = {};
+    for (const p of partidos) {
+      if (!staff && hoy <= sumarDiasISO(p.iso, DIAS_VOTACION)) continue;
+      const { data } = await supabase.rpc("mvp_resultado", { p_partido: p.id });
+      res[p.id] = data || [];
+    }
+    setConteos(res);
+  }
+  useEffect(() => { cargar(); }, [claves]);
+
+  if (!partidos.length) return null;
+  const nombre = (id) => POOL.find((j) => j.dbId === id)?.id || "—";
+
+  async function votar(jugador) {
+    const p = eligiendo;
+    setEligiendo(null);
+    setMsg("");
+    const fila = { partido_id: p.id, jugador_id: jugador.dbId, votante: perfil.auth_user_id };
+    const { error } = votos[p.id]
+      ? await supabase.from("votos_partido").update({ jugador_id: jugador.dbId }).eq("partido_id", p.id).eq("votante", perfil.auth_user_id)
+      : await supabase.from("votos_partido").insert(fila);
+    if (error) { setMsg("No se pudo guardar el voto. Probá de nuevo."); return; }
+    cargar();
+  }
+
+  const ganadores = (lista) => {
+    if (!lista?.length) return [];
+    const max = lista[0].votos;
+    return lista.filter((x) => x.votos === max);
+  };
+
+  return (
+    <>
+      {abiertos.map((p) => {
+        const mio = votos[p.id];
+        const parcial = conteos[p.id] || [];
+        const total = parcial.reduce((a, x) => a + x.votos, 0);
+        return (
+          <div key={"v" + p.id} style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14, borderLeft: "4px solid var(--h-club)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span aria-hidden style={{ fontSize: 22 }}>🏆</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>Jugador del partido</div>
+                <div style={{ fontSize: 13, color: "var(--h-sub)" }}>{p.categoria} · {p.cond === "Local" ? "vs" : "en"} {p.rival} · {p.gf}-{p.gc} · se vota hasta el {fechaCorta(sumarDiasISO(p.iso, DIAS_VOTACION))}</div>
+              </div>
+            </div>
+            {mio ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                <span style={{ fontSize: 14.5, color: "var(--h-texto)" }}>✓ Votaste a <b>{nombre(mio)}</b></span>
+                <button onClick={() => setEligiendo(p)} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, fontSize: 13.5, cursor: "pointer", padding: 0 }}>Cambiar</button>
+              </div>
+            ) : (
+              <button onClick={() => setEligiendo(p)} style={{ ...buttonStyle, marginTop: 12 }}>Votar</button>
+            )}
+            {staff && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--h-borde)", fontSize: 13, color: "var(--h-sub)" }}>
+                {total ? (
+                  <>Van {total} {total === 1 ? "voto" : "votos"} · Adelante: {parcial.slice(0, 3).map((x) => `${nombre(x.jugador_id)} (${x.votos})`).join(", ")} <span style={{ color: "var(--h-sub2)" }}>— solo lo ve el staff</span></>
+                ) : "Todavía nadie votó."}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {cerrados.map((p) => {
+        const g = ganadores(conteos[p.id]);
+        if (!g.length) return null;
+        return (
+          <div key={"g" + p.id} style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14, background: "var(--h-club)", color: "var(--h-club-txt)", border: "none" }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, opacity: 0.85 }}>🏆 Jugador del partido · {p.categoria} · {p.cond === "Local" ? "vs" : "en"} {p.rival}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
+              {g.length === 1 && <AvatarPlaceholder size={44} foto={POOL.find((j) => j.dbId === g[0].jugador_id)?.foto} />}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: "var(--h-titulo)", fontSize: 24, fontWeight: 800, lineHeight: 1.1 }}>{g.map((x) => nombre(x.jugador_id)).join(" y ")}</div>
+                <div style={{ fontSize: 13, opacity: 0.9 }}>{g[0].votos} {g[0].votos === 1 ? "voto" : "votos"}{g.length > 1 ? " cada uno" : ""}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      {msg && <div style={{ fontSize: 13, color: "var(--h-error)", marginBottom: 10 }}>{msg}</div>}
+      {eligiendo && <SelectorVoto partido={eligiendo} perfil={perfil} onElegir={votar} onCerrar={() => setEligiendo(null)} />}
+    </>
+  );
+}
+
+// ───────────────────────── Esfuerzo de la sesión (RPE) ─────────────────────────
+// El jugador marca del 1 al 10 qué tan dura fue cada sesión; carga = esfuerzo × minutos.
+const ESCALA_RPE = { 1: "Muy fácil", 2: "Fácil", 3: "Moderado", 4: "Algo duro", 5: "Duro", 6: "Duro", 7: "Muy duro", 8: "Muy duro", 9: "Casi al máximo", 10: "Al máximo" };
+const MINUTOS_TIPO = { "Práctica": 90, "Gimnasio": 60, "Partido": 80 };
+const colorRPE = (n) => (n <= 3 ? "#2FA36B" : n <= 6 ? "#E2B93B" : n <= 8 ? "#E07B39" : "#D64545");
+function sesionesDeHoy() {
+  const nombre = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date().getDay()];
+  const tipos = [];
+  const pr = SESIONES[nombre];
+  if (pr && ((pr.grupo1 || []).length || (pr.grupo2 || []).length)) tipos.push("Práctica");
+  if (DIAS_GYM.includes(nombre)) tipos.push("Gimnasio");
+  if (partidoDeHoyCategoria("Superior") || partidoDeHoyCategoria("Intermedia")) tipos.push("Partido");
+  return tipos;
+}
+
+function EsfuerzoSesion({ perfil }) {
+  const tipos = sesionesDeHoy();
+  const [cargadas, setCargadas] = useState(null);
+  const [tipo, setTipo] = useState(tipos[0] || "");
+  const [rpe, setRpe] = useState(null);
+  const [minutos, setMinutos] = useState(String(MINUTOS_TIPO[tipos[0]] || 60));
+  const [editando, setEditando] = useState(false);
+  const [msg, setMsg] = useState("");
+  const jugadorId = perfil?.jugador_id;
+  const hoy = hoyISO_AR();
+
+  async function cargar() {
+    const { data } = await supabase.from("rpe_sesiones").select("tipo, rpe, minutos").eq("jugador_id", jugadorId).eq("fecha", hoy);
+    const m = Object.fromEntries((data || []).map((r) => [r.tipo, r]));
+    setCargadas(m);
+    const pendiente = tipos.find((t) => !m[t]);
+    if (pendiente) { setTipo(pendiente); setMinutos(String(MINUTOS_TIPO[pendiente])); }
+  }
+  useEffect(() => { if (jugadorId && tipos.length) cargar(); }, [jugadorId]);
+  if (!jugadorId || !tipos.length || !cargadas) return null;
+  const pendientes = tipos.filter((t) => !cargadas[t]);
+  const mostrarForm = editando || pendientes.length > 0;
+
+  async function guardar() {
+    setMsg("");
+    const min = Number(minutos);
+    if (!rpe) { setMsg("Elegí un número del 1 al 10."); return; }
+    if (!(min >= 1 && min <= 300)) { setMsg("Revisá los minutos (entre 1 y 300)."); return; }
+    const { error } = await supabase.from("rpe_sesiones").upsert(
+      { jugador_id: jugadorId, fecha: hoy, tipo, rpe, minutos: min, updated_at: new Date().toISOString() },
+      { onConflict: "jugador_id,fecha,tipo" }
+    );
+    if (error) { setMsg("No se pudo guardar. Probá de nuevo."); return; }
+    setRpe(null); setEditando(false);
+    cargar();
+  }
+
+  return (
+    <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>¿Qué tan dura fue la sesión?</div>
+      {Object.values(cargadas).length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+          {Object.entries(cargadas).map(([t, r]) => (
+            <span key={t} style={{ fontSize: 13, fontWeight: 600, color: "var(--h-texto)", background: "var(--h-fondo)", borderRadius: 999, padding: "4px 10px", borderLeft: `4px solid ${colorRPE(r.rpe)}` }}>
+              ✓ {t}: {r.rpe}/10 · {r.minutos} min
+            </span>
+          ))}
+          {!mostrarForm && <button onClick={() => { setEditando(true); setTipo(tipos[0]); setMinutos(String(cargadas[tipos[0]]?.minutos || MINUTOS_TIPO[tipos[0]])); }} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: 0 }}>Corregir</button>}
+        </div>
+      )}
+      {mostrarForm && (
+        <>
+          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 4 }}>Marcalo apenas termines. 1 es muy fácil y 10, al máximo.</div>
+          {tipos.length > 1 && (
+            <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+              {tipos.map((t) => (
+                <button key={t} onClick={() => { setTipo(t); setMinutos(String(cargadas[t]?.minutos || MINUTOS_TIPO[t])); }} aria-pressed={tipo === t}
+                  style={{ ...pillButton, fontWeight: 700, border: "1px solid " + (tipo === t ? "var(--h-acento)" : "var(--h-borde2)"), background: tipo === t ? "var(--h-acento-suave)" : "transparent", color: tipo === t ? "var(--h-acento)" : "var(--h-texto2)" }}>
+                  {t}{cargadas[t] ? " ✓" : ""}
+                </button>
+              ))}
+            </div>
+          )}
+          <div role="radiogroup" aria-label="Esfuerzo del 1 al 10" style={{ display: "grid", gridTemplateColumns: "repeat(10, minmax(0, 1fr))", gap: 4, marginTop: 12 }}>
+            {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+              <button key={n} role="radio" aria-checked={rpe === n} aria-label={`${n}: ${ESCALA_RPE[n]}`} onClick={() => setRpe(n)}
+                style={{ height: 42, borderRadius: 10, border: rpe === n ? "none" : "1.5px solid var(--h-borde2)", background: rpe === n ? colorRPE(n) : "transparent", color: rpe === n ? "#fff" : "var(--h-texto)", fontWeight: 800, fontSize: 16, cursor: "pointer", padding: 0 }}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "var(--h-sub2)", marginTop: 4 }}><span>Muy fácil</span><span>Al máximo</span></div>
+          {rpe && <div style={{ fontSize: 14, fontWeight: 700, color: colorRPE(rpe), marginTop: 6 }}>{rpe} · {ESCALA_RPE[rpe]}</div>}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "var(--h-texto2)" }}>
+              Duró
+              <input type="number" inputMode="numeric" min="1" max="300" value={minutos} onChange={(e) => setMinutos(e.target.value)} aria-label="Minutos"
+                style={{ ...inputStyle, width: 74, marginTop: 0, textAlign: "center", padding: "8px 6px" }} />
+              minutos
+            </label>
+            <button onClick={guardar} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none", fontWeight: 700, marginLeft: "auto" }}>Guardar</button>
+          </div>
+          {msg && <div style={{ fontSize: 13, color: "var(--h-error)", marginTop: 8 }}>{msg}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Panel del staff: carga de la semana por jugador y relación con su promedio de las 4 semanas.
+function CargaPlantel() {
+  const [filas, setFilas] = useState(null);
+  const hoy = hoyISO_AR();
+  useEffect(() => {
+    supabase.from("rpe_sesiones").select("jugador_id, fecha, tipo, rpe, minutos, carga").gte("fecha", sumarDiasISO(hoy, -27)).order("fecha")
+      .then(({ data }) => setFilas(data || []));
+  }, []);
+  if (!filas) return null;
+  const desde7 = sumarDiasISO(hoy, -6);
+  const porJugador = {};
+  for (const r of filas) (porJugador[r.jugador_id] ||= []).push(r);
+  const lista = Object.entries(porJugador).map(([id, rs]) => {
+    const semana = rs.filter((r) => r.fecha >= desde7).reduce((a, r) => a + r.carga, 0);
+    const total28 = rs.reduce((a, r) => a + r.carga, 0);
+    const primera = rs[0].fecha;
+    const hayHistoria = primera <= sumarDiasISO(hoy, -20);
+    const cronica = total28 / 4;
+    const relacion = hayHistoria && cronica > 0 ? semana / cronica : null;
+    const deHoy = rs.filter((r) => r.fecha === hoy);
+    return { id, nombre: POOL.find((j) => j.dbId === id)?.id || "—", semana, relacion, deHoy, sesiones: rs.filter((r) => r.fecha >= desde7).length };
+  }).sort((a, b) => (b.relacion ?? -1) - (a.relacion ?? -1) || b.semana - a.semana);
+  const hoyCargaron = lista.filter((x) => x.deHoy.length).length;
+  const etiqueta = (r) => r == null ? { t: "—", c: "var(--h-sub2)" } : r > 1.5 ? { t: "Muy cargado", c: "var(--h-error)" } : r > 1.3 ? { t: "Subiendo", c: "var(--h-alerta)" } : r < 0.8 ? { t: "Bajo", c: "var(--h-sub)" } : { t: "Normal", c: "var(--h-ok)" };
+  const th = { padding: "6px 4px", fontSize: 12, fontWeight: 600, color: "var(--h-sub)", textAlign: "center" };
+  const td = { padding: "8px 4px", fontSize: 13.5, color: "var(--h-texto2)", textAlign: "center" };
+  return (
+    <div style={{ marginTop: 24, marginBottom: 8 }}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>Carga de entrenamiento</div>
+      <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 10 }}>
+        Esfuerzo (1 a 10) × minutos que cargan los jugadores al terminar cada sesión. Hoy cargaron {hoyCargaron}.
+      </div>
+      {lista.length === 0 ? (
+        <div style={{ ...cardStyle, padding: "14px 16px", fontSize: 13, color: "var(--h-sub)" }}>Todavía nadie cargó el esfuerzo de una sesión. A la noche les llega un recordatorio a los que entrenaron.</div>
+      ) : (
+        <div style={{ ...cardStyle, padding: "8px 12px", overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 320 }}>
+            <thead>
+              <tr><th style={{ ...th, textAlign: "left" }}>Jugador</th><th style={th}>Hoy</th><th style={th}>Semana</th><th style={th}>Estado</th></tr>
+            </thead>
+            <tbody>
+              {lista.map((x) => {
+                const e = etiqueta(x.relacion);
+                return (
+                  <tr key={x.id} style={{ borderTop: "1px solid var(--h-borde)" }}>
+                    <td style={{ ...td, textAlign: "left", color: "var(--h-texto)", fontWeight: 600, whiteSpace: "nowrap" }}>{x.nombre}</td>
+                    <td style={td}>{x.deHoy.length ? x.deHoy.map((r) => <span key={r.tipo} title={r.tipo} style={{ display: "inline-block", minWidth: 22, borderRadius: 6, background: colorRPE(r.rpe), color: "#fff", fontWeight: 800, fontSize: 12, padding: "1px 4px", margin: "0 1px" }}>{r.rpe}</span>) : "—"}</td>
+                    <td style={td}><b style={{ color: "var(--h-texto)" }}>{x.semana.toLocaleString("es-AR")}</b><div style={{ fontSize: 11, color: "var(--h-sub2)" }}>{x.sesiones} {x.sesiones === 1 ? "sesión" : "sesiones"}</div></td>
+                    <td style={{ ...td, color: e.c, fontWeight: 700 }}>{e.t}{x.relacion != null && <div style={{ fontSize: 11, fontWeight: 500, color: "var(--h-sub2)" }}>{x.relacion.toFixed(2)}</div>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ fontSize: 12, color: "var(--h-sub2)", marginTop: 8 }}>
+        "Estado" compara la carga de los últimos 7 días con el promedio semanal de las últimas 4 semanas: arriba de 1,5 es un salto grande (más riesgo de lesión), debajo de 0,8 entrenó menos que de costumbre. Aparece cuando el jugador tiene unas 3 semanas cargadas.
+      </div>
     </div>
   );
 }
@@ -9257,6 +9596,8 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
       </div>
 
       {convocatoria && <TarjetaConvocatoria perfil={perfil} onNavigate={onNavigate} />}
+      <JugadorDelPartido perfil={perfil} />
+      {esJugador && <EsfuerzoSesion perfil={perfil} />}
       {esJugador && <TuSemana perfil={perfil} onNavigate={onNavigate} />}
       {esStaff(perfil) && <RegistroPlantel />}
 
@@ -10219,6 +10560,9 @@ const NOTI_DESTINO = {
   informe_partido: "reportes",
   lesion_reportada: "disponibilidad",
   sync_urba: "calendario",
+  votar_mvp: "hoy",
+  mvp_ganador: "hoy",
+  rpe_cargar: "hoy",
 };
 
 function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfiguracion }) {
