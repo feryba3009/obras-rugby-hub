@@ -4078,6 +4078,10 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
             </div>
           )}
 
+          {(["Cuerpo técnico", "Manager", "Cuerpo médico"].includes(perfil?.rol) || (perfil?.jugador_id && perfil.jugador_id === jugador.dbId)) && (
+            <WellnessJugador jugadorDbId={jugador.dbId} />
+          )}
+
           <div style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 8 }}>Antecedentes</div>
           {jugador.historial.length > 0 ? (
             <ul style={{ margin: 0, paddingLeft: 18 }}>
@@ -7235,11 +7239,76 @@ function AnilloAvance({ hecho, total, size = 64 }) {
   );
 }
 
-function MiniBarras({ puntos, alto = 40 }) {
+// Wellness de un jugador para su ficha (pestaña Salud): último día, ítems, últimos 30 días y comentarios.
+function WellnessJugador({ jugadorDbId }) {
+  const [filas, setFilas] = useState(null);
+  useEffect(() => {
+    if (!jugadorDbId) { setFilas([]); return; }
+    let vivo = true;
+    const d = new Date(); d.setDate(d.getDate() - 30);
+    supabase.from("wellness_respuestas")
+      .select("fecha, estres, sueno, doms, fatiga, escala, estado_entrenamiento, observaciones")
+      .eq("jugador_id", jugadorDbId).gte("fecha", d.toLocaleDateString("sv-SE")).order("fecha")
+      .then(({ data }) => { if (vivo) setFilas(data || []); });
+    return () => { vivo = false; };
+  }, [jugadorDbId]);
+
+  const caja = { marginBottom: 16, padding: "12px", background: "var(--h-campo)", borderRadius: 8, border: "1px solid var(--h-borde2)" };
+  const etiqueta = <div style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 8 }}>Wellness</div>;
+  if (filas === null) return <div style={caja}>{etiqueta}<div style={{ fontSize: 12.5, color: "var(--h-sub2)" }}>Cargando…</div></div>;
+  if (!filas.length) return <div style={caja}>{etiqueta}<div style={{ fontSize: 12.5, color: "var(--h-sub2)" }}>No cargó wellness en los últimos 30 días.</div></div>;
+
+  const ult = filas[filas.length - 1];
+  const pct = pctWellness(ult);
+  const r = rangoWellness(pct);
+  const esHoy = ult.fecha === hoyISO();
+  const puntos = filas.map((x) => ({ fecha: x.fecha, pct: pctWellness(x) }));
+  const prom = Math.round(puntos.reduce((a, p) => a + p.pct, 0) / puntos.length);
+  const comentarios = filas.filter((x) => x.observaciones && x.observaciones.trim()).slice(-3).reverse();
+  return (
+    <div style={caja}>
+      {etiqueta}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 12 }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 38, fontWeight: 800, color: colorRango(r), lineHeight: 1 }}>{pct}%</div>
+        <div style={{ fontSize: 12.5, color: "var(--h-texto2)", lineHeight: 1.45 }}>
+          <div style={{ fontWeight: 700, color: "var(--h-texto)" }}>{esHoy ? "Hoy" : `Último: ${dbDateToDisplay(ult.fecha)}`} · {r.titulo} ({r.sub.toLowerCase()})</div>
+          {ult.estado_entrenamiento && <div>Para entrenar: {ult.estado_entrenamiento}</div>}
+          <div>Su promedio en 30 días: {prom}% · cargó {filas.length} {filas.length === 1 ? "vez" : "veces"}</div>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginBottom: 12 }}>
+        {ITEMS_WELLNESS.map((it) => {
+          const v = pctItem(ult, it.k);
+          return (
+            <div key={it.k} style={{ minWidth: 0 }}>
+              <div style={{ height: 6, borderRadius: 3, background: "var(--h-borde)", overflow: "hidden", marginBottom: 4 }}>
+                <div style={{ width: `${Math.max(4, v)}%`, height: "100%", background: colorPct(v) }} />
+              </div>
+              <div style={{ fontSize: 11, color: "var(--h-sub)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.label} · {v}%</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--h-sub)", marginBottom: 6 }}>Últimos 30 días</div>
+      <MiniBarras puntos={puntos} alto={48} max={30} />
+      {comentarios.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          {comentarios.map((c) => (
+            <div key={c.fecha} style={{ fontSize: 12.5, color: "var(--h-texto2)", marginTop: 4 }}>
+              <span style={{ color: "var(--h-sub2)" }}>{dbDateToDisplay(c.fecha)}:</span> “{c.observaciones}”
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MiniBarras({ puntos, alto = 40, max = 14 }) {
   if (!puntos.length) return <div style={{ fontSize: 12, color: "var(--h-sub2)" }}>Sin datos todavía.</div>;
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: alto }} aria-label="Evolución de las últimas dos semanas">
-      {puntos.slice(-14).map((p, i) => (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: max > 14 ? 2 : 3, height: alto }} aria-label={max > 14 ? "Evolución del último mes" : "Evolución de las últimas dos semanas"}>
+      {puntos.slice(-max).map((p, i) => (
         <span key={i} title={`${p.fecha.split("-").reverse().slice(0, 2).join("/")}: ${p.pct}%`} style={{ flex: 1, maxWidth: 16, height: Math.max(4, (p.pct / 100) * alto), borderRadius: 3, background: colorPct(p.pct) }} />
       ))}
     </div>
