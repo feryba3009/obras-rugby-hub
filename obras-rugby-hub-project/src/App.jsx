@@ -50,7 +50,6 @@ const FONTS = `
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600&display=swap');
 `;
 
-// Cada sección tiene su ícono de línea (sin emojis). Un grupo sin nombre va sin título.
 // Menú por momentos de la semana: cada área agrupa sus secciones. "jugador" es el nombre que ve el
 // plantel (el staff ve "label"); "corto" es el que entra en la franja del celular.
 const NAV = [
