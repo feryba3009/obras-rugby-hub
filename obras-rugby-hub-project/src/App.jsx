@@ -4060,7 +4060,7 @@ function MiFichaPage({ perfil, onIrAConfiguracion }) {
     const claves = Object.keys(METRICAS_RANGOS).filter((k) => typeof ult[k] === "number" && typeof ant?.[k] === "number");
     const mejoro = claves.filter((k) => ult[k] > ant[k]).length;
     tarjetas.push({ t: "Físico", v: ant ? `Mejoraste ${mejoro} de ${claves.length}` : "Primer test",
-      d: ant ? `tests desde el ${ant.fecha}` : `Medido el ${ult.fecha}`, sube: mejoro > claves.length / 2 });
+      d: ant ? `tests desde el ${String(ant.fecha).split("-").reverse().join("/")}` : `Medido el ${String(ult.fecha).split("-").reverse().join("/")}`, sube: mejoro > claves.length / 2 });
   }
   // Partidos analizados.
   if (partidos && partidos.length) {
