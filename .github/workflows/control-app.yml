@@ -1,0 +1,38 @@
+# Control de cada cambio: compila ADN Obras y la abre en un navegador real para ver que arranque.
+# Si algo se rompió, GitHub manda el mail de "Run failed" (asunto: "Control de la app").
+# Por ahora es solo un aviso: no frena la publicación en Railway (eso se activa después del sábado).
+name: Control de la app
+
+on:
+  push:
+    branches: [main]
+    paths: ["obras-rugby-hub-project/**", ".github/workflows/control-app.yml"]
+  workflow_dispatch:
+
+jobs:
+  compilar-y-probar:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: obras-rugby-hub-project
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Instalar
+        run: npm install --no-audit --no-fund
+      - name: Compilar
+        run: npm run build
+        env:
+          # Las mismas claves públicas que usa la app en el navegador (no son secretas).
+          VITE_SUPABASE_URL: https://xnyleewcwrriodkaklqo.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable_AXWyRi8sy_ZoSA7oTkHRUQ_YrqASf5a
+          VITE_CLUB_SLUG: obras
+      - name: Instalar navegador para la prueba
+        run: npm install --no-save --no-audit --no-fund playwright@1.48.2 && npx playwright install --with-deps chromium
+      - name: Prueba de humo (la app carga y el registro abre)
+        run: |
+          npx vite preview --port 4173 --strictPort &
+          for i in $(seq 1 30); do curl -sf http://localhost:4173 >/dev/null && break; sleep 1; done
+          node scripts/prueba-humo.mjs http://localhost:4173

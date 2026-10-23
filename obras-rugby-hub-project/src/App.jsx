@@ -1,0 +1,12096 @@
+import React, { useState, useEffect, useCallback } from "react";
+import { supabase, mantenerSesion, setMantenerSesion } from "./adn/supabaseClient";
+import { CLUB_SLUG, useClub, iniciales, clubActual } from "./adn/club";
+import VideotecaPage, { extraerYoutubeId } from "./adn/VideotecaPage";
+import FeedbackPage from "./adn/FeedbackPage";
+
+// Conexión a Supabase. Vive en src/adn/supabaseClient.js; se re-exporta
+// acá para que el resto del código lo siga importando como antes.
+export { supabase };
+
+// ── Aviso de errores ──────────────────────────────────────────────────────
+// Lo que le falla a un usuario queda registrado en la base (errores_app) para que ADN lo vea
+// antes de que alguien lo tenga que contar. Sin datos personales en el mensaje; el mismo error
+// se reporta una sola vez cada 10 minutos y como mucho 20 por sesión.
+const erroresVistos = new Map();
+let erroresEnviados = 0;
+const RUIDO_ERRORES = /ResizeObserver loop|^Script error\.?$|Non-Error promise rejection|AbortError|The operation was aborted/i;
+function reportarError(origen, mensaje, detalle) {
+  try {
+    const msg = String(mensaje || "").slice(0, 500);
+    if (!msg || RUIDO_ERRORES.test(msg)) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return; // sin señal: no es una falla de la app
+    const clave = origen + "|" + msg;
+    const antes = erroresVistos.get(clave);
+    if (antes && Date.now() - antes < 600000) return;
+    if (erroresEnviados >= 20) return;
+    erroresVistos.set(clave, Date.now());
+    erroresEnviados++;
+    supabase.rpc("reportar_error", {
+      p_origen: origen,
+      p_mensaje: msg,
+      p_detalle: detalle ? String(detalle).slice(0, 4000) : null,
+      p_pantalla: typeof window !== "undefined" ? window.location.pathname + (window.location.hash ? "#" : "") : null,
+      p_agente: typeof navigator !== "undefined" ? navigator.userAgent : null,
+    }).then(() => {}, () => {});
+  } catch (e) {
+    /* reportar nunca rompe la app */
+  }
+}
+if (typeof window !== "undefined" && !window.__adnErrores) {
+  window.__adnErrores = true;
+  window.addEventListener("error", (ev) => reportarError("pantalla", ev?.message || ev?.error?.message, ev?.error?.stack || `${ev?.filename || ""}:${ev?.lineno || ""}`));
+  window.addEventListener("unhandledrejection", (ev) => {
+    const r = ev?.reason;
+    reportarError("promesa", r?.message || (typeof r === "string" ? r : JSON.stringify(r || {}).slice(0, 300)), r?.stack);
+  });
+}
+
+const FONTS = `
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600&display=swap');
+`;
+
+// Menú de la app, agrupado por función: entrenamiento, jugadores, partido y análisis.
+// Cada sección tiene su ícono de línea (sin emojis). Un grupo sin nombre va sin título.
+const NAV = [
+  {
+    group: "",
+    items: [
+      { key: "hoy", label: "Inicio", icono: "inicio" },
+      { key: "wellness", label: "Wellness", icono: "wellness" },
+      { key: "gimnasio", label: "Gimnasio", icono: "gimnasio" },
+    ],
+  },
+  {
+    group: "Entrenamiento",
+    items: [
+      { key: "calendario", label: "Agenda", icono: "calendario" },
+      { key: "sesion", label: "Práctica del día", icono: "sesion" },
+    ],
+  },
+  {
+    group: "Jugadores",
+    items: [
+      { key: "plantel-completo", label: "Plantel", icono: "plantel" },
+      { key: "disponibilidad", label: "Estado del plantel", icono: "disponibilidad" },
+      { key: "evaluaciones", label: "Tests físicos", icono: "evaluaciones" },
+      { key: "cuotas", label: "Cuotas", icono: "cuota", roles: ["Cuerpo técnico", "Manager"] },
+    ],
+  },
+  {
+    group: "Partido",
+    items: [
+      { key: "torneo", label: "Torneo", icono: "torneo" },
+      { key: "equipos", label: "Equipo del partido", icono: "equipos" },
+      { key: "videoteca", label: "Videos del rival", icono: "videoteca" },
+    ],
+  },
+  {
+    group: "Rendimiento",
+    items: [
+      { key: "reportes", label: "Estadísticas", icono: "reportes" },
+      { key: "veo", label: "Análisis de video", icono: "analisis" },
+      { key: "resumenes", label: "Resúmenes", icono: "resumen" },
+    ],
+  },
+  {
+    group: "ADN",
+    items: [{ key: "feedback-adn", label: "Ideas para ADN", icono: "feedback" }],
+  },
+];
+
+// Ítems del menú que ve este perfil (algunos son solo para ciertos roles).
+// Las cuotas son propias de Obras: no aparecen en la demo.
+const itemsVisibles = (items, perfil) => items.filter((it) => (!it.roles || it.roles.includes(perfil?.rol)) && !(ES_DEMO && it.key === "cuotas"));
+
+const CONFIG_ITEM = { key: "configuracion", label: "Ajustes", icono: "configuracion" };
+
+// Botón redondo de Ajustes (va arriba, al lado de la campana).
+function BotonAjustes({ activo, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label="Ajustes"
+      title="Ajustes"
+      aria-current={activo ? "page" : undefined}
+      style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid var(--h-borde)", background: activo ? "var(--h-club)" : "transparent", color: activo ? "var(--h-club-txt)" : "var(--h-texto2)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
+    >
+      <Icono nombre="configuracion" size={18} />
+    </button>
+  );
+}
+
+// Íconos de línea propios  de la app (24×24, trazo 1.8).
+const ICONOS = {
+  inicio: "M3 11l9-7 9 7M5 10v10h5v-6h4v6h5V10",
+  calendario: "M4 5h16v15H4zM4 9h16M9 3v4M15 3v4M8 13h3v3H8z",
+  sesion: "M5 4h14v16H5zM9 8h6M9 12h6M9 16h3",
+  gimnasio: "M3 10v4M6 8v8M18 8v8M21 10v4M6 12h12",
+  wellness: "M3 12h4l3-7 4 14 3-7h4",
+  plantel: "M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM2 20c0-3 3-5 6-5s6 2 6 5M16 11a3 3 0 1 0 0-6M18 15c2 .6 4 2.2 4 5",
+  disponibilidad: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM8 12l3 3 5-6",
+  evaluaciones: "M4 20V10M10 20V4M16 20v-7M22 20H2",
+  cuota: "M3 6h18v13H3zM3 10h18M7 15h4",
+  resumen: "M6 3h9l3 3v15H6zM15 3v3h3M9 10h6M9 14h6M9 18h4",
+  rtp: "M12 21s-8-4.5-8-11a5 5 0 0 1 8-4 5 5 0 0 1 8 4c0 6.5-8 11-8 11zM9 11h6M12 8v6",
+  equipos: "M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z",
+  torneo: "M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 20h8M10 17h4",
+  videoteca: "M3 6h13v12H3zM16 10l5-3v10l-5-3",
+  reportes: "M6 3h9l4 4v14H6zM15 3v4h4M9 12h7M9 16h7",
+  analisis: "M4 19h16M7 16V9M12 16V5M17 16v-4",
+  feedback: "M4 5h16v11H9l-5 4z",
+  configuracion: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z",
+  mas: "M4 7h16M4 12h16M4 17h16",
+  campana: "M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4",
+  buscar: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-5.2-5.2",
+};
+
+function Icono({ nombre, size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d={ICONOS[nombre] || ICONOS.inicio} />
+    </svg>
+  );
+}
+
+// Insignia de ADN Sports (hélice en círculo verde) para la firma  de la app.
+function InsigniaADN({ size = 18 }) {
+  return (
+    <span style={{ width: size, height: size, borderRadius: "50%", background: "#1FA37A", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <svg width={size * 0.33} height={size * 0.66} viewBox="-6 -6 92 172" aria-hidden="true">
+        <path d="M10 0 C10 40 70 40 70 80 C70 120 10 120 10 160" fill="none" stroke="#0E1620" strokeWidth="14" strokeLinecap="round" />
+        <path d="M70 0 C70 40 10 40 10 80 C10 120 70 120 70 160" fill="none" stroke="#F4F2EE" strokeWidth="14" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
+}
+
+const OBRAS_LOGO_SRC = "data:image/png;base64,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";
+
+// Escudo del club de este sitio: el logo cargado en ADN Sports; si no tiene, el de Obras
+// (solo para Obras) o las iniciales del club con sus colores.
+function Shield({ size = 40 }) {
+  const club = useClub();
+  const logo = club?.logo_url || (CLUB_SLUG === "obras" ? OBRAS_LOGO_SRC : null);
+  if (logo) {
+    return (
+      <img
+        src={logo}
+        alt={club?.nombre || "Escudo del club"}
+        style={{ width: size, height: size, objectFit: "contain", display: "block" }}
+      />
+    );
+  }
+  return (
+    <div
+      aria-label={club?.nombre || "Escudo del club"}
+      style={{
+        width: size, height: size, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+        background: club?.color_primario || "var(--h-acento)", color: club?.color_secundario || "var(--h-fondo)",
+        fontFamily: "var(--h-titulo)", fontWeight: 600, fontSize: Math.round(size * 0.4),
+      }}
+    >
+      {iniciales(club?.nombre_corto || club?.nombre || "")}
+    </div>
+  );
+}
+
+function Banner({ title, body, cta, onCta, onClose }) {
+  return (
+    <div style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", marginBottom: 14 }}>
+      <div style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--h-alerta-suave)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--h-alerta)", fontSize: 15, flexShrink: 0 }}>
+        !
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 500 }}>{title}</div>
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>{body}</div>
+      </div>
+      {cta && (
+        <button onClick={onCta} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
+          {cta}
+        </button>
+      )}
+      <button onClick={onClose} style={{ ...pillButton, background: "transparent", color: "var(--h-sub)" }}>
+        Ahora no
+      </button>
+    </div>
+  );
+}
+
+function StatCard({ label, value, tone }) {
+  const color = tone === "danger" ? "var(--h-error)" : tone === "warn" ? "var(--h-alerta)" : "var(--h-ok)";
+  return (
+    <div style={{ ...cardStyle, flex: 1, textAlign: "center", padding: "16px 8px" }}>
+      <div style={{ fontSize: 26, fontWeight: 600, color, fontFamily: "var(--h-titulo)" }}>{value}</div>
+      <div style={{ fontSize: 11, color: "var(--h-sub)", marginTop: 4, letterSpacing: 0.3 }}>{label}</div>
+    </div>
+  );
+}
+
+// Las fechas 19 en adelante son de la fase final (Desarrollo se divide en zonas después de la fecha 18).
+const FECHAS_FASE_REGULAR = 18;
+const etiquetaFecha = (n) => (n > FECHAS_FASE_REGULAR ? `Fase final · Fecha ${n - FECHAS_FASE_REGULAR}` : `Fecha ${n}`);
+const etiquetaFechaCorta = (n) => (n > FECHAS_FASE_REGULAR ? `FF${n - FECHAS_FASE_REGULAR}` : `F${n}`);
+// Bloques de práctica: si vienen todo en mayúsculas (cargas viejas) se muestran en minúscula con la primera en mayúscula.
+const textoBloque = (t) => { const x = String(t || ""); return x && x === x.toUpperCase() ? x.charAt(0) + x.slice(1).toLowerCase() : x; };
+
+// Datos reales · URBA · Torneo Desarrollo 2026 (urba.org.ar/fixture)
+let POSICIONES = { superior: [], intermedia: [] };
+let FIXTURE = { superior: [], intermedia: [] };
+let PROXIMOS = { superior: [], intermedia: [] };
+// Partidos que quedaron "Próximo" con la fecha ya pasada: suspendidos, a reprogramar.
+let SUSPENDIDOS = { superior: [], intermedia: [] };
+// Tabla de la zona de la fase final donde quedó el club ({ nombre, filas }).
+let ZONA_FINAL = { superior: null, intermedia: null };
+const nombreZona = (z) => { const m = String(z || "").match(/-\s*([^-]+?)\s*-\s*(Superior|Intermedia|Primera)\s*$/i); return m ? `Zona ${m[1].trim()}` : String(z || "Fase final"); };
+
+const DBDATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+function dbDateToDisplay(d) {
+  const m = DBDATE_RE.exec(d);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : d;
+}
+
+// Busca el partido de una categoría cuya fecha (dd/mm/yyyy) coincide con hoy — ya sea que
+// todavía esté "Próximo" o que ya se haya jugado hoy mismo (para saber si el MD ya terminó).
+function partidoDeHoyCategoria(categoriaNombre) {
+  const clave = categoriaNombre.toLowerCase();
+  const todos = [...(FIXTURE[clave] || []), ...(PROXIMOS[clave] || [])];
+  const hoy = new Date();
+  return todos.find((p) => {
+    const [d, m, y] = p.date.split("/").map(Number);
+    return new Date(y, m - 1, d).toDateString() === hoy.toDateString();
+  });
+}
+
+async function cargarCalendario() {
+  const { data: categorias, error: errCat } = await supabase.from("categorias").select("id, nombre");
+  if (errCat) {
+    console.error("Error cargando categorías:", errCat);
+    return;
+  }
+  const catPorNombre = Object.fromEntries(categorias.map((c) => [c.nombre, c.id]));
+
+  const { data: posRows, error: errPos } = await supabase
+    .from("posiciones")
+    .select("id, categoria_id, es_obras, pj, g, e, p, pf, pc, dif, bo, bd, pts, fase, zona, equipos_rivales(nombre)")
+    .order("pts", { ascending: false });
+  if (errPos) console.error("Error cargando posiciones:", errPos);
+
+  const { data: partidoRows, error: errPart } = await supabase
+    .from("partidos")
+    .select("id, categoria_id, fecha_numero, fecha, condicion, goles_favor, goles_contra, resultado, veo_link, informe, partido_liga_id, convocatoria_publicada_at, votacion_abre_at, equipos_rivales(nombre)")
+    .order("fecha_numero");
+  if (errPart) console.error("Error cargando partidos:", errPart);
+
+  for (const [nombreCat, claveCat] of [["Superior", "superior"], ["Intermedia", "intermedia"]]) {
+    const catId = catPorNombre[nombreCat];
+
+    const filaPos = (r) => ({
+      id: r.id,
+      equipo: r.es_obras ? "Obras Sanitarias" : r.equipos_rivales?.nombre,
+      pj: r.pj, g: r.g, e: r.e, p: r.p, pf: r.pf, pc: r.pc, dif: r.dif, bo: r.bo, bd: r.bd, pts: r.pts,
+    });
+    POSICIONES[claveCat] = (posRows || []).filter((r) => r.categoria_id === catId && (r.fase || "regular") === "regular").map(filaPos);
+    const zonaRows = (posRows || []).filter((r) => r.categoria_id === catId && r.fase === "final");
+    ZONA_FINAL[claveCat] = zonaRows.length ? { nombre: nombreZona(zonaRows[0].zona), filas: zonaRows.map(filaPos) } : null;
+
+    const partidosCat = (partidoRows || []).filter((r) => r.categoria_id === catId);
+    FIXTURE[claveCat] = partidosCat
+      .filter((r) => r.resultado !== "Próximo")
+      .map((r) => ({
+        id: r.id,
+        fecha: r.fecha_numero,
+        date: dbDateToDisplay(r.fecha),
+        rival: r.equipos_rivales?.nombre,
+        cond: r.condicion,
+        gf: r.goles_favor,
+        gc: r.goles_contra,
+        // El resultado sale del tanteo (así nunca queda "Perdido" un partido ganado).
+        res: r.goles_favor != null && r.goles_contra != null
+          ? (r.goles_favor > r.goles_contra ? "Ganado" : r.goles_favor < r.goles_contra ? "Perdido" : "Empate")
+          : r.resultado,
+        veoLink: r.veo_link,
+        votacionAbre: r.votacion_abre_at,
+        informe: r.informe,
+        partidoLigaId: r.partido_liga_id,
+      }));
+
+    // Solo los que todavía no se jugaron: uno "Próximo" con fecha pasada es un partido suspendido.
+    const hoyAR = new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
+    PROXIMOS[claveCat] = partidosCat
+      .filter((r) => r.resultado === "Próximo" && (!r.fecha || r.fecha >= hoyAR))
+      .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)))
+      .map((r) => ({
+        id: r.id,
+        publicada: r.convocatoria_publicada_at,
+        fecha: r.fecha_numero,
+        date: dbDateToDisplay(r.fecha),
+        rival: r.equipos_rivales?.nombre,
+        cond: r.condicion,
+      }));
+    SUSPENDIDOS[claveCat] = partidosCat
+      .filter((r) => r.resultado === "Próximo" && r.fecha && r.fecha < hoyAR)
+      .map((r) => ({ id: r.id, fecha: r.fecha_numero, date: dbDateToDisplay(r.fecha), rival: r.equipos_rivales?.nombre, cond: r.condicion, suspendido: true }));
+  }
+}
+
+// Guarda el resultado de un partido próximo (lo carga Cuerpo técnico / Manager) y lo pasa a jugado.
+async function guardarResultadoPartido(partidoId, gf, gc) {
+  let res = "Empate";
+  if (gf > gc) res = "Ganado";
+  else if (gf < gc) res = "Perdido";
+  const { data, error } = await supabase
+    .from("partidos")
+    .update({ goles_favor: gf, goles_contra: gc, resultado: res })
+    .eq("id", partidoId)
+    .select("categoria_id, fecha_numero")
+    .single();
+  if (error) {
+    console.error("Error guardando resultado:", error);
+    return false;
+  }
+  crearNotificacion("resultado_cargado", `Resultado cargado: ${nombreNuestro()} ${gf}-${gc}`, null);
+  if (data?.categoria_id) await recalcularPosicionObras(data.categoria_id, (data.fecha_numero || 0) > FECHAS_FASE_REGULAR ? "final" : "regular");
+  return true;
+}
+
+// Recalcula solo la fila de Obras en la tabla de posiciones, sumando todos sus partidos jugados
+// de esa categoría — así queda siempre al día sola, sin tocar las filas de los otros clubes
+// (esas las carga a mano el cuerpo técnico/manager, editando la tabla).
+async function recalcularPosicionObras(categoriaId, fase = "regular") {
+  // Cada fase tiene su tabla: la regular suma las fechas 1-18 y la de la zona final, las siguientes.
+  // (En la fase final la tabla oficial arrastra puntos de la regular: esa la trae URBA los domingos.)
+  if (fase === "final") return;
+  const { data: partidos, error: errPartidos } = await supabase
+    .from("partidos")
+    .select("resultado, goles_favor, goles_contra")
+    .eq("categoria_id", categoriaId)
+    .lte("fecha_numero", FECHAS_FASE_REGULAR)
+    .in("resultado", ["Ganado", "Empate", "Perdido"]);
+  if (errPartidos || !partidos) return;
+
+  const pj = partidos.length;
+  const g = partidos.filter((p) => p.resultado === "Ganado").length;
+  const e = partidos.filter((p) => p.resultado === "Empate").length;
+  const p = partidos.filter((p) => p.resultado === "Perdido").length;
+  const pf = partidos.reduce((acc, x) => acc + (x.goles_favor || 0), 0);
+  const pc = partidos.reduce((acc, x) => acc + (x.goles_contra || 0), 0);
+
+  const { data: filaObras } = await supabase
+    .from("posiciones")
+    .select("id, bo, bd")
+    .eq("categoria_id", categoriaId)
+    .eq("es_obras", true)
+    .eq("fase", "regular")
+    .maybeSingle();
+  if (!filaObras) return;
+
+  await guardarFilaPosicion(filaObras.id, { pj, g, e, p, pf, pc, bo: filaObras.bo || 0, bd: filaObras.bd || 0 });
+}
+
+// Agrega un partido nuevo al fixture. Si el rival no existe todavía en la base, lo crea de paso.
+// Guarda a mano una fila de la tabla de posiciones (Cuerpo técnico / Manager) — pts se recalcula
+// siempre como G*4 + E*2 + bonus, así nunca queda desincronizado de los otros campos.
+async function guardarFilaPosicion(id, campos) {
+  const pts = campos.g * 4 + campos.e * 2 + (campos.bo || 0) + (campos.bd || 0);
+  const dif = campos.pf - campos.pc;
+  const { error } = await supabase.from("posiciones").update({ ...campos, dif, pts }).eq("id", id);
+  if (error) console.error("Error guardando posición:", error);
+  return !error;
+}
+
+async function agregarPartido({ categoriaNombre, fechaNumero, fecha, rivalNombre, condicion }) {
+  let { data: rival } = await supabase.from("equipos_rivales").select("id").eq("nombre", rivalNombre).maybeSingle();
+  if (!rival) {
+    const { data: nuevo, error: errRival } = await supabase.from("equipos_rivales").insert({ nombre: rivalNombre }).select("id").single();
+    if (errRival) {
+      console.error("Error creando rival:", errRival);
+      return false;
+    }
+    rival = nuevo;
+  }
+  const { error } = await supabase.from("partidos").insert({
+    categoria_id: CATEGORIA_IDS[categoriaNombre],
+    fecha_numero: fechaNumero,
+    fecha,
+    rival_id: rival.id,
+    condicion,
+    resultado: "Próximo",
+    temporada: "2026",
+  });
+  if (error) {
+    console.error("Error agregando partido:", error);
+    return false;
+  }
+  crearNotificacion("partido_agregado", `Nuevo partido agendado: ${categoriaNombre} vs ${rivalNombre}.`, null);
+  return true;
+}
+
+
+function teamInitials(name) {
+  const stop = ["de", "del", "la", "los", "las"];
+  const words = name.split(" ").filter((w) => !stop.includes(w.toLowerCase()));
+  let letters = words
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+  if (letters.length < 2) letters = name.slice(0, 2).toUpperCase();
+  return letters;
+}
+
+// Colores distintos por rival, generados a partir del nombre — no son los escudos reales
+// de cada club (son marcas de terceros), pero cada rival queda visualmente reconocible.
+const COLORES_RIVAL = [
+  ["#7f1d1d", "#fca5a5"], ["#1e3a5f", "#93c5fd"], ["#14532d", "#86efac"],
+  ["#78350f", "#fcd34d"], ["#4c1d95", "#c4b5fd"], ["#164e63", "#67e8f9"],
+  ["#831843", "#f9a8d4"], ["#1e293b", "#cbd5e1"], ["#3f2d1a", "#d6a86a"],
+];
+function colorRival(name) {
+  const seed = [...(name || "?")].reduce((a, c) => a + c.charCodeAt(0), 0);
+  return COLORES_RIVAL[seed % COLORES_RIVAL.length];
+}
+
+// "Obras Sanitarias" es, adentro de la app, la forma de decir "nuestro club" (viene de cuando la app
+// era solo de Obras). Para mostrarlo se usa el nombre y el escudo del club que está usando la app.
+const ES_DEMO = import.meta.env.VITE_DEMO === "1";
+function nombreNuestro() {
+  const c = clubActual();
+  return c?.nombre_corto || c?.nombre || "Obras";
+}
+function escudoNuestro() {
+  return clubActual()?.logo_url || OBRAS_LOGO_SRC;
+}
+
+function TeamBadge({ name, size = 20 }) {
+  const isObras = name === "Obras Sanitarias";
+  if (isObras) {
+    return (
+      <img
+        src={escudoNuestro()}
+        alt={nombreNuestro()}
+        style={{ width: size, height: size, objectFit: "contain", flexShrink: 0, marginRight: 8 }}
+      />
+    );
+  }
+  if (ESCUDOS_RIVALES[name]) {
+    return (
+      <img
+        src={ESCUDOS_RIVALES[name]}
+        alt={name}
+        style={{ width: size, height: size, objectFit: "contain", flexShrink: 0, marginRight: 8 }}
+      />
+    );
+  }
+  const [fondo, borde] = colorRival(name);
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 26"
+      style={{ flexShrink: 0, marginRight: 8 }}
+      aria-label={name}
+    >
+      <path
+        d="M12 1 L22 4 V13 C22 19 17.5 23.5 12 25 C6.5 23.5 2 19 2 13 V4 Z"
+        fill={fondo}
+        stroke={borde}
+        strokeWidth="1"
+      />
+      <text
+        x="12"
+        y="15.5"
+        textAnchor="middle"
+        fontFamily="var(--h-titulo)"
+        fontWeight="700"
+        fontSize={size * 0.32}
+        fill={borde}
+      >
+        {teamInitials(name)}
+      </text>
+    </svg>
+  );
+}
+
+function TablaPosiciones({ data, perfil, onGuardado }) {
+  const [editando, setEditando] = useState(false);
+  const [filas, setFilas] = useState(data);
+  const [guardando, setGuardando] = useState(false);
+
+  useEffect(() => {
+    setFilas(data);
+  }, [data]);
+
+  function campo(i, clave, valor) {
+    const n = Number(valor.replace(/[^\d-]/g, "")) || 0;
+    setFilas((prev) => {
+      const next = [...prev];
+      const fila = { ...next[i], [clave]: n };
+      fila.dif = fila.pf - fila.pc;
+      fila.pts = fila.g * 4 + fila.e * 2 + (fila.bo || 0) + (fila.bd || 0);
+      next[i] = fila;
+      return next;
+    });
+  }
+
+  async function guardarTodo() {
+    setGuardando(true);
+    for (const fila of filas) {
+      if (!fila.id) continue; // sin id no se puede guardar (no debería pasar)
+      await guardarFilaPosicion(fila.id, { pj: fila.pj, g: fila.g, e: fila.e, p: fila.p, pf: fila.pf, pc: fila.pc, bo: fila.bo, bd: fila.bd });
+    }
+    setGuardando(false);
+    setEditando(false);
+    onGuardado?.();
+  }
+
+  const CampoEditable = ({ i, clave }) => (
+    <input
+      value={filas[i][clave] ?? 0}
+      onChange={(e) => campo(i, clave, e.target.value)}
+      style={{ width: 34, background: "var(--h-campo)", border: "1px solid var(--h-borde2)", borderRadius: 4, color: "var(--h-texto)", fontSize: 12, textAlign: "right", padding: "3px 4px" }}
+    />
+  );
+
+  return (
+    <div>
+      {puedeGestionar(perfil) && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          {editando ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={guardarTodo} disabled={guardando} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none", fontSize: 11.5 }}>
+                {guardando ? "Guardando…" : "Guardar cambios"}
+              </button>
+              <button
+                onClick={() => {
+                  setFilas(data);
+                  setEditando(false);
+                }}
+                style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)", fontSize: 11.5 }}
+              >
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setEditando(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)", fontSize: 11.5 }}>
+              Editar tabla
+            </button>
+          )}
+        </div>
+      )}
+      <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 640 }}>
+        <thead>
+          <tr style={{ color: "var(--h-sub)", textAlign: "left" }}>
+            <th style={{ fontWeight: 400, paddingBottom: 8, paddingRight: 8 }}>#</th>
+            <th style={{ fontWeight: 400, paddingBottom: 8 }}>Equipo</th>
+            {["PJ", "G", "E", "P", "PF", "PC", "DIF", "BO", "BD", "PTS"].map((h) => (
+              <th key={h} style={{ fontWeight: 400, paddingBottom: 8, textAlign: "right", paddingLeft: 10 }}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((t, i) => {
+            const isObras = t.equipo === "Obras Sanitarias";
+            return (
+              <tr
+                key={t.equipo}
+                style={{
+                  borderTop: "1px solid var(--h-borde)",
+                  background: isObras ? "var(--h-acento-suave)" : "transparent",
+                  color: isObras ? "var(--h-acento)" : "var(--h-texto2)",
+                }}
+              >
+                <td style={{ padding: "8px 8px 8px 0" }}>{i + 1}</td>
+                <td style={{ padding: "8px 0", fontWeight: isObras ? 600 : 400, color: isObras ? "var(--h-acento)" : "var(--h-texto)" }}>
+                  <span style={{ display: "flex", alignItems: "center" }}>
+                    <TeamBadge name={t.equipo} />
+                    {t.equipo === "Obras Sanitarias" ? nombreNuestro() : t.equipo}
+                  </span>
+                </td>
+                {editando ? (
+                  <>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="pj" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="g" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="e" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="p" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="pf" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="pc" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.dif}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="bo" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}><CampoEditable i={i} clave="bd" /></td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10, fontWeight: 600, color: isObras ? "var(--h-acento)" : "var(--h-texto)" }}>{t.pts}</td>
+                  </>
+                ) : (
+                  <>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.pj}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.g}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.e}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.p}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.pf}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.pc}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.dif}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.bo}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10 }}>{t.bd}</td>
+                    <td style={{ padding: "8px 0", textAlign: "right", paddingLeft: 10, fontWeight: 600, color: isObras ? "var(--h-acento)" : "var(--h-texto)" }}>
+                      {t.pts}
+                    </td>
+                  </>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  );
+}
+
+
+
+
+
+
+// ───────────────────────── PARTIDO EN VIVO ─────────────────────────
+// Cronómetro simple (0:00 a 40:00, se frena/reanuda), tanteador, y botones de incidencia.
+// Usa la formación confirmada del partido (titulares + suplentes) para las tarjetas.
+
+function formatoReloj(seg) {
+  const signo = seg < 0 ? "-" : "";
+  const abs = Math.abs(seg);
+  const m = Math.floor(abs / 60).toString().padStart(2, "0");
+  const s = Math.floor(abs % 60).toString().padStart(2, "0");
+  return `${signo}${m}:${s}`;
+}
+
+// Titulares + suplentes con jugador real asignado, de la formación confirmada de esa categoría.
+function convocadosPartido(categoriaNombre) {
+  return (LINEUPS_INICIALES[categoriaNombre] || [])
+    .filter((s) => s.jugadorId)
+    .map((s) => s.jugadorId)
+    .filter((nombre, i, arr) => arr.indexOf(nombre) === i);
+}
+
+function SelectorJugadorIncidencia({ jugadores, expulsados, onElegir, onCancelar, titulo, etiqueta = (j) => j }) {
+  return (
+    <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 16 }}>
+      <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 600, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+        {jugadores.map((j) => (
+          <button
+            key={j}
+            disabled={expulsados.has(j)}
+            onClick={() => onElegir(j)}
+            style={{
+              ...pillButton, fontSize: 11.5,
+              background: expulsados.has(j) ? "var(--h-panel2)" : "transparent",
+              border: "1px solid " + (expulsados.has(j) ? "var(--h-borde)" : "var(--h-borde2)"),
+              color: expulsados.has(j) ? "var(--h-sub2)" : "var(--h-texto2)",
+              textDecoration: expulsados.has(j) ? "line-through" : "none",
+              cursor: expulsados.has(j) ? "not-allowed" : "pointer",
+            }}
+          >
+            {etiqueta(j)}
+          </button>
+        ))}
+      </div>
+      <button onClick={onCancelar} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)", fontSize: 11.5 }}>
+        Cancelar
+      </button>
+    </div>
+  );
+}
+
+// Sin señal en la cancha: todo el partido se guarda en el celular a cada cambio (si se cierra la app,
+// se retoma donde quedó) y el resultado final, si no se puede subir, queda en una cola que se sube
+// sola cuando vuelve la conexión.
+const CLAVE_VIVO = (id) => `adn-vivo-${id}`;
+const CLAVE_PENDIENTES_VIVO = "adn-vivo-pendientes";
+function leerLocal(clave, porDefecto) {
+  try { const v = localStorage.getItem(clave); return v ? JSON.parse(v) : porDefecto; } catch (e) { return porDefecto; }
+}
+function escribirLocal(clave, valor) {
+  try { if (valor === null) localStorage.removeItem(clave); else localStorage.setItem(clave, JSON.stringify(valor)); } catch (e) { /* sin almacenamiento */ }
+}
+async function subirPartidoVivo(p) {
+  try {
+    const ok = await guardarResultadoPartido(p.partidoId, p.gf, p.gc);
+    if (!ok) return false;
+    const { error } = await supabase.from("partidos").update({ informe: p.informe }).eq("id", p.partidoId);
+    if (error) return false;
+    crearNotificacion("informe_partido", `Partido terminado: ${p.categoria} vs ${p.rival} (${p.gf}-${p.gc}).`, null, p.perfilId);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+let subiendoPendientesVivo = false;
+async function subirPendientesVivo() {
+  if (subiendoPendientesVivo) return 0;
+  const lista = leerLocal(CLAVE_PENDIENTES_VIVO, []);
+  if (!lista.length) return 0;
+  subiendoPendientesVivo = true;
+  const quedan = [];
+  for (const p of lista) { if (!(await subirPartidoVivo(p))) quedan.push(p); }
+  escribirLocal(CLAVE_PENDIENTES_VIVO, quedan.length ? quedan : null);
+  subiendoPendientesVivo = false;
+  if (quedan.length < lista.length) { try { await cargarCalendario(); } catch (e) { /* nada */ } }
+  return quedan.length;
+}
+// Va montado en toda la app: reintenta al volver la señal y cada minuto mientras quede algo.
+function SubidorPartidosVivo() {
+  const [pendientes, setPendientes] = useState(() => leerLocal(CLAVE_PENDIENTES_VIVO, []).length);
+  useEffect(() => {
+    let vivo = true;
+    const probar = () => subirPendientesVivo().then((n) => { if (vivo) setPendientes(n); });
+    probar();
+    window.addEventListener("online", probar);
+    const t = setInterval(() => { if (leerLocal(CLAVE_PENDIENTES_VIVO, []).length) probar(); else if (vivo) setPendientes(0); }, 60000);
+    return () => { vivo = false; window.removeEventListener("online", probar); clearInterval(t); };
+  }, []);
+  if (!pendientes) return null;
+  return (
+    <div role="status" style={{ position: "fixed", left: 12, right: 12, bottom: 84, zIndex: 60, maxWidth: 480, margin: "0 auto", background: "var(--h-alerta-suave, #FFF4D6)", color: "var(--h-texto)", border: "1px solid var(--h-alerta)", borderRadius: 12, padding: "10px 14px", fontSize: 13.5, boxShadow: "0 4px 14px rgba(0,0,0,.12)" }}>
+      {pendientes === 1 ? "1 resultado de partido" : `${pendientes} resultados de partido`} guardado en este celular. Se sube solo cuando vuelva la señal.
+    </div>
+  );
+}
+function useConexion() {
+  const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine !== false));
+  useEffect(() => {
+    const on = () => setOnline(true), off = () => setOnline(false);
+    window.addEventListener("online", on); window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
+  return online;
+}
+
+function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
+  const guardado = React.useMemo(() => leerLocal(CLAVE_VIVO(partido.id), null), [partido.id]);
+  const online = useConexion();
+  // Reloj por hora real: aunque el celular bloquee la pantalla, sigue contando bien.
+  const [acumulado, setAcumulado] = useState(guardado?.acumulado || 0);
+  const [inicio, setInicio] = useState(guardado?.inicio || null);
+  const [, setTick] = useState(0);
+  const corriendo = !!inicio;
+  const segundos = acumulado + (inicio ? Math.max(0, Math.floor((Date.now() - inicio) / 1000)) : 0);
+  const setCorriendo = (fn) => {
+    const quiere = typeof fn === "function" ? fn(corriendo) : fn;
+    if (quiere && !inicio) setInicio(Date.now());
+    if (!quiere && inicio) { setAcumulado(segundos); setInicio(null); }
+  };
+
+  const [gf, setGf] = useState(guardado?.gf || 0);
+  const [gc, setGc] = useState(guardado?.gc || 0);
+  const [incidencias, setIncidencias] = useState(guardado?.incidencias || []);
+  const [avisoFinal, setAvisoFinal] = useState("");
+
+  // acción pendiente de conversión: { equipo: "Obras"|"Rival", tipo: "Penal"|"Try"|"Drop" }
+  const [pendienteConversion, setPendienteConversion] = useState(null);
+  // tarjeta en curso: { tipo: "amarilla"|"roja", equipo: "Obras"|"Rival" } | null
+  const [pidiendoJugador, setPidiendoJugador] = useState(null);
+
+  // amarillas: { [jugador]: cantidad }; vencimientos: { [jugador]: segundo de juego en que vuelve a entrar }
+  const [amarillas, setAmarillas] = useState(guardado?.amarillas || {});
+  const [vencimientos, setVencimientos] = useState(guardado?.vencimientos || {});
+  const tiemposAfuera = Object.fromEntries(Object.entries(vencimientos).map(([j, fin]) => [j, Math.max(0, fin - segundos)]));
+  const [expulsados, setExpulsados] = useState(() => new Set(guardado?.expulsados || [])); // roja o segunda amarilla: no vuelve a entrar
+
+  const [guardando, setGuardando] = useState(false);
+
+  const jugadores = convocadosPartido(categoria);
+  // Del rival no tenemos el plantel: la tarjeta se carga por número de camiseta.
+  const prefijoRival = `${partido.rival} N.º `;
+  const numerosRival = Array.from({ length: 23 }, (_, i) => `${prefijoRival}${i + 1}`);
+  const esRival = (j) => j.startsWith(prefijoRival);
+  const enCancha = (rival) =>
+    15 - new Set([...Object.entries(tiemposAfuera).filter(([, t]) => t > 0).map(([j]) => j), ...expulsados].filter((j) => esRival(j) === rival)).size;
+
+  useEffect(() => {
+    if (!corriendo) return;
+    const t = setInterval(() => setTick((x) => x + 1), 500);
+    return () => clearInterval(t);
+  }, [corriendo]);
+
+  // Todo el partido queda guardado en el celular a cada cambio.
+  useEffect(() => {
+    escribirLocal(CLAVE_VIVO(partido.id), { gf, gc, incidencias, amarillas, vencimientos, expulsados: [...expulsados], acumulado, inicio, guardadoAt: Date.now() });
+  }, [partido.id, gf, gc, incidencias, amarillas, vencimientos, expulsados, acumulado, inicio]);
+
+  function log(texto, meta = {}) {
+    const id = Date.now() + Math.random();
+    setIncidencias((prev) => [...prev, { id, minuto: formatoReloj(segundos), texto, ...meta }]);
+    return id;
+  }
+
+  function borrarIncidencia(id) {
+    const inc = incidencias.find((i) => i.id === id);
+    if (!inc) return;
+    if (!window.confirm("¿Borrar esta incidencia? Si sumó puntos o afectó una tarjeta, también se revierte.")) return;
+
+    if (inc.puntos && inc.equipo) {
+      if (inc.equipo === "Obras") setGf((v) => Math.max(0, v - inc.puntos));
+      else setGc((v) => Math.max(0, v - inc.puntos));
+    }
+    if (inc.tarjetaJugador) {
+      const j = inc.tarjetaJugador;
+      if (inc.tarjetaTipo === "roja" || inc.segundaAmarilla) {
+        setExpulsados((prev) => {
+          const next = new Set(prev);
+          next.delete(j);
+          return next;
+        });
+      }
+      if (inc.tarjetaTipo === "amarilla") {
+        setAmarillas((prev) => ({ ...prev, [j]: Math.max(0, (prev[j] || 1) - 1) }));
+      }
+      setVencimientos((prev) => {
+        const next = { ...prev };
+        delete next[j];
+        return next;
+      });
+    }
+    setIncidencias((prev) => prev.filter((i) => i.id !== id));
+  }
+
+  function reiniciarMarcador() {
+    if (!window.confirm("¿Reiniciar el tanteador a 0-0? Esto no borra el log de incidencias.")) return;
+    setGf(0);
+    setGc(0);
+    log("↺ Tanteador reiniciado a 0-0");
+  }
+
+  function reiniciarReloj() {
+    if (!window.confirm("¿Reiniciar el cronómetro a 0:00? (para arrancar el segundo tiempo, por ejemplo)")) return;
+    // Las tarjetas que estaban corriendo siguen con el tiempo que les quedaba.
+    setVencimientos((prev) => Object.fromEntries(Object.entries(prev).map(([j, fin]) => [j, Math.max(0, fin - segundos)])));
+    setAcumulado(0);
+    setInicio(null);
+    log("— Cronómetro reiniciado —");
+  }
+
+  function pedirConversion(equipo, tipo) {
+    setPendienteConversion({ equipo, tipo });
+  }
+
+  function resolverConversion(convierte) {
+    const { equipo, tipo } = pendienteConversion;
+    let pts = 0;
+    if (tipo === "Try") pts = convierte ? 7 : 5;
+    else if (tipo === "Penal") pts = convierte ? 3 : 0;
+    else if (tipo === "Drop") pts = convierte ? 3 : 0;
+
+    if (pts > 0) {
+      if (equipo === "Obras") setGf((v) => v + pts);
+      else setGc((v) => v + pts);
+    }
+    const detalle = tipo === "Try" ? (convierte ? "convertido" : "sin convertir") : convierte ? "convertido" : "errado";
+    log(`${equipo === "Obras" ? nombreNuestro() : partido.rival}: ${tipo} ${detalle} (${pts} pts)`, { puntos: pts, equipo });
+    setPendienteConversion(null);
+  }
+
+  function aplicarAmarilla(jugador) {
+    const cantidadPrevia = amarillas[jugador] || 0;
+    const nuevaCantidad = cantidadPrevia + 1;
+    setAmarillas((prev) => ({ ...prev, [jugador]: nuevaCantidad }));
+    if (nuevaCantidad >= 2) {
+      setVencimientos((prev) => ({ ...prev, [jugador]: segundos + 1200 })); // 20 min
+      setExpulsados((prev) => new Set(prev).add(jugador));
+      log(`${jugador}: segunda amarilla — 20 min y no vuelve a entrar`, { tarjetaJugador: jugador, tarjetaTipo: "amarilla", segundaAmarilla: true });
+    } else {
+      setVencimientos((prev) => ({ ...prev, [jugador]: segundos + 600 })); // 10 min
+      log(`${jugador}: amarilla — 10 min afuera`, { tarjetaJugador: jugador, tarjetaTipo: "amarilla" });
+    }
+    setPidiendoJugador(null);
+  }
+
+  function aplicarRoja(jugador) {
+    setExpulsados((prev) => new Set(prev).add(jugador));
+    log(`${jugador}: roja — no vuelve a entrar`, { tarjetaJugador: jugador, tarjetaTipo: "roja" });
+    setPidiendoJugador(null);
+  }
+
+  const afuera = Object.entries(tiemposAfuera).filter(([, t]) => t > 0);
+
+  async function finalizarPartido() {
+    if (!window.confirm("¿Finalizar el partido y subir el resultado al calendario?")) return;
+    setGuardando(true);
+    const informe = STATS_VACIO();
+    informe.incidencias = incidencias;
+    const propias = (obj) => Object.fromEntries(Object.entries(obj).filter(([j]) => !esRival(j)));
+    const delRival = (obj) => Object.fromEntries(Object.entries(obj).filter(([j]) => esRival(j)));
+    informe.tarjetas = {
+      amarillas: propias(amarillas),
+      expulsados: [...expulsados].filter((j) => !esRival(j)),
+      rival: { amarillas: delRival(amarillas), expulsados: [...expulsados].filter(esRival) },
+    };
+
+    const pendiente = { partidoId: partido.id, gf, gc, informe, categoria, rival: partido.rival, perfilId: perfil?.id, at: Date.now() };
+    // Primero queda en la cola del celular: si no hay señal, no se pierde nada.
+    const cola = leerLocal(CLAVE_PENDIENTES_VIVO, []).filter((x) => x.partidoId !== partido.id);
+    escribirLocal(CLAVE_PENDIENTES_VIVO, [...cola, pendiente]);
+    const ok = await subirPartidoVivo(pendiente);
+    if (ok) {
+      escribirLocal(CLAVE_PENDIENTES_VIVO, leerLocal(CLAVE_PENDIENTES_VIVO, []).filter((x) => x.partidoId !== partido.id) || null);
+      escribirLocal(CLAVE_VIVO(partido.id), null);
+      try { await cargarCalendario(); } catch (e) { /* nada */ } // así el partido pasa de "Próximo" a jugado
+      setGuardando(false);
+      onSalir();
+      return;
+    }
+    escribirLocal(CLAVE_VIVO(partido.id), null);
+    setGuardando(false);
+    setAvisoFinal(`Sin señal: el resultado (${gf}-${gc}) y las incidencias quedaron guardados en este celular. Se suben solos apenas vuelva la conexión, aunque cierres la app.`);
+  }
+
+  return (
+    <div>
+      <button onClick={onSalir} style={{ background: "transparent", border: "none", color: "var(--h-acento)", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}>
+        ← Salir
+      </button>
+      {avisoFinal ? (
+        <div role="status" style={{ ...cardStyle, padding: "14px 16px", marginBottom: 16, borderLeft: "4px solid var(--h-alerta)", fontSize: 14, color: "var(--h-texto)" }}>
+          {avisoFinal}
+          <div><button onClick={onSalir} style={{ ...pillButton, marginTop: 10, background: "var(--h-club)", color: "var(--h-club-txt)", border: "none" }}>Entendido</button></div>
+        </div>
+      ) : !online && (
+        <div role="status" style={{ ...cardStyle, padding: "10px 14px", marginBottom: 12, borderLeft: "4px solid var(--h-alerta)", fontSize: 13, color: "var(--h-texto)" }}>
+          Sin señal. Seguí cargando normal: todo queda guardado en este celular y se sube cuando vuelva la conexión.
+        </div>
+      )}
+
+      <div style={{ ...cardStyle, padding: "20px", marginBottom: 16, textAlign: "center" }}>
+        <div style={{ fontSize: 12, color: "var(--h-sub)", marginBottom: 8 }}>
+          {categoria} vs {partido.rival}
+        </div>
+        <div
+          style={{
+            fontFamily: "var(--h-titulo)", fontSize: 46, fontWeight: 700, letterSpacing: 1,
+            color: segundos > 2400 ? "var(--h-error)" : "var(--h-texto)",
+          }}
+        >
+          {formatoReloj(segundos)}
+        </div>
+        <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginBottom: 12 }}>de 40:00</div>
+        <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
+          <button
+            onClick={() => setCorriendo((v) => !v)}
+            style={{ ...pillButton, background: corriendo ? "var(--h-error-suave)" : "var(--h-ok)", color: corriendo ? "var(--h-error)" : "var(--h-panel)", border: "none" }}
+          >
+            {corriendo ? "Frenar" : "▶ Reanudar"}
+          </button>
+          <button onClick={reiniciarReloj} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
+            ↺ Reiniciar
+          </button>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 24, margin: "18px 0 4px" }}>
+          <div>
+            <div style={{ fontSize: 11, color: "var(--h-sub)" }}>{nombreNuestro()}</div>
+            <div style={{ fontFamily: "var(--h-titulo)", fontSize: 40, color: "var(--h-acento)", fontWeight: 700 }}>{gf}</div>
+          </div>
+          <div style={{ color: "var(--h-sub2)", fontSize: 20 }}>—</div>
+          <div>
+            <div style={{ fontSize: 11, color: "var(--h-sub)" }}>{partido.rival}</div>
+            <div style={{ fontFamily: "var(--h-titulo)", fontSize: 40, color: "var(--h-texto)", fontWeight: 700 }}>{gc}</div>
+          </div>
+        </div>
+        {(enCancha(false) < 15 || enCancha(true) < 15) && (
+          <div style={{ fontSize: 12, color: "var(--h-sub)", marginBottom: 6 }}>
+            En cancha: {nombreNuestro()} {enCancha(false)} · {partido.rival} {enCancha(true)}
+          </div>
+        )}
+        <button
+          onClick={reiniciarMarcador}
+          style={{ background: "transparent", border: "none", color: "var(--h-sub2)", fontSize: 11, cursor: "pointer", textDecoration: "underline" }}
+        >
+          ↺ Reiniciar tanteador (0-0)
+        </button>
+      </div>
+
+      {afuera.length > 0 && (
+        <div style={{ ...cardStyle, padding: "12px 16px", marginBottom: 16, borderLeft: "3px solid var(--h-acento)" }}>
+          <div style={{ fontSize: 11, color: "var(--h-acento)", marginBottom: 6 }}>AFUERA POR TARJETA</div>
+          {afuera.map(([j, t]) => (
+            <div key={j} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0" }}>
+              <span style={{ color: "var(--h-texto2)" }}>{j}</span>
+              <span style={{ color: "var(--h-acento)", fontFamily: "var(--h-titulo)" }}>{formatoReloj(t)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {pendienteConversion ? (
+        <div style={{ ...cardStyle, padding: "16px", marginBottom: 16, textAlign: "center", border: "1px solid var(--h-acento)" }}>
+          <div style={{ fontSize: 13, color: "var(--h-texto)", marginBottom: 12 }}>
+            {pendienteConversion.equipo === "Obras" ? nombreNuestro() : partido.rival}: {pendienteConversion.tipo} — ¿convierte?
+          </div>
+          <div style={{ display: "flex", justifyContent: "center", gap: 10 }}>
+            <button onClick={() => resolverConversion(true)} style={{ ...pillButton, background: "var(--h-ok-suave)", border: "none", color: "var(--h-ok)" }}>
+              ✓ Sí
+            </button>
+            <button onClick={() => resolverConversion(false)} style={{ ...pillButton, background: "var(--h-error-suave)", border: "none", color: "var(--h-error)" }}>
+              ✗ No
+            </button>
+          </div>
+        </div>
+      ) : pidiendoJugador ? (
+        <SelectorJugadorIncidencia
+          jugadores={pidiendoJugador.equipo === "Rival" ? numerosRival : jugadores}
+          etiqueta={pidiendoJugador.equipo === "Rival" ? (j) => j.slice(prefijoRival.length) : undefined}
+          expulsados={expulsados}
+          titulo={
+                        (pidiendoJugador.equipo === "Rival"
+              ? `¿Qué número de ${partido.rival} recibe la ${pidiendoJugador.tipo}?`
+              : `¿Quién de ${nombreNuestro()} recibe la ${pidiendoJugador.tipo}?`)
+          }
+          onElegir={pidiendoJugador.tipo === "amarilla" ? aplicarAmarilla : aplicarRoja}
+          onCancelar={() => setPidiendoJugador(null)}
+        />
+      ) : (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
+          <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
+            <div style={{ fontSize: 11, color: "var(--h-ok)", marginBottom: 8, textAlign: "center" }}>{nombreNuestro().toUpperCase()}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button onClick={() => pedirConversion("Obras", "Penal")} style={{ ...pillButton, background: "var(--h-ok-suave)", border: "none", color: "var(--h-ok)" }}>
+                Penal
+              </button>
+              <button onClick={() => pedirConversion("Obras", "Try")} style={{ ...pillButton, background: "var(--h-ok-suave)", border: "none", color: "var(--h-ok)" }}>
+                Try
+              </button>
+              <button onClick={() => pedirConversion("Obras", "Drop")} style={{ ...pillButton, background: "var(--h-ok-suave)", border: "none", color: "var(--h-ok)" }}>
+                Drop
+              </button>
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
+            <div style={{ fontSize: 11, color: "var(--h-error)", marginBottom: 8, textAlign: "center" }}>{partido.rival.toUpperCase()}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button onClick={() => pedirConversion("Rival", "Penal")} style={{ ...pillButton, background: "var(--h-error-suave)", border: "none", color: "var(--h-error)" }}>
+                Penal
+              </button>
+              <button onClick={() => pedirConversion("Rival", "Try")} style={{ ...pillButton, background: "var(--h-error-suave)", border: "none", color: "var(--h-error)" }}>
+                Try
+              </button>
+              <button onClick={() => pedirConversion("Rival", "Drop")} style={{ ...pillButton, background: "var(--h-error-suave)", border: "none", color: "var(--h-error)" }}>
+                Drop
+              </button>
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: "14px 16px", flex: "1 1 220px" }}>
+            <div style={{ fontSize: 11, color: "var(--h-sub)", marginBottom: 8, textAlign: "center" }}>TARJETAS</div>
+            {[["Obras", nombreNuestro()], ["Rival", partido.rival]].map(([equipo, nombre]) => (
+              <div key={equipo} style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 4 }}>{nombre}</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => setPidiendoJugador({ tipo: "amarilla", equipo })} style={{ ...pillButton, flex: 1, background: "var(--h-alerta-suave)", border: "none", color: "var(--h-alerta)" }}>
+                    <span style={{ display: "inline-block", width: 10, height: 14, borderRadius: 2, background: "#E2B93B", marginRight: 6, verticalAlign: "-2px" }} />Amarilla
+                  </button>
+                  <button onClick={() => setPidiendoJugador({ tipo: "roja", equipo })} style={{ ...pillButton, flex: 1, background: "var(--h-error-suave)", border: "none", color: "var(--h-error)" }}>
+                    <span style={{ display: "inline-block", width: 10, height: 14, borderRadius: 2, background: "#D64545", marginRight: 6, verticalAlign: "-2px" }} />Roja
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500, marginBottom: 10 }}>Incidencias</div>
+      <div style={{ ...cardStyle, padding: "8px 16px", marginBottom: 20, maxHeight: 240, overflowY: "auto" }}>
+        {incidencias.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: "var(--h-sub2)", padding: "10px 0" }}>Todavía no hay nada cargado.</div>
+        ) : (
+          [...incidencias].reverse().map((i, idx) => (
+            <div key={i.id} style={{ padding: "8px 0", borderTop: idx === 0 ? "none" : "1px solid var(--h-borde)", display: "flex", gap: 10, alignItems: "center", fontSize: 12.5 }}>
+              <span style={{ color: "var(--h-acento)", fontFamily: "var(--h-titulo)", flexShrink: 0 }}>{i.minuto}</span>
+              <span style={{ color: "var(--h-texto2)", flex: 1 }}>{i.texto}</span>
+              <button
+                onClick={() => borrarIncidencia(i.id)}
+                title="Borrar esta incidencia"
+                style={{ background: "transparent", border: "none", color: "var(--h-sub2)", fontSize: 14, cursor: "pointer", flexShrink: 0, padding: "0 4px" }}
+              >
+                ✕
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+
+      <button onClick={finalizarPartido} disabled={guardando} style={{ ...buttonStyle, width: "100%", background: "var(--h-error)", color: "var(--h-panel)" }}>
+        {guardando ? "Guardando…" : "Finalizar partido y subir resultado"}
+      </button>
+    </div>
+  );
+}
+
+function CalendarioPage({ perfil }) {
+  const [cat, setCat] = useState("superior");
+  const [, forceUpdate] = useState(0);
+  const [cargandoResultado, setCargandoResultado] = useState(false);
+  const [gf, setGf] = useState("");
+  const [gc, setGc] = useState("");
+  const [agregando, setAgregando] = useState(false);
+  const [nuevoRival, setNuevoRival] = useState("");
+  const [nuevaFecha, setNuevaFecha] = useState("");
+  const [nuevaDate, setNuevaDate] = useState("");
+  const [nuevaCond, setNuevaCond] = useState("Local");
+  const [sincronizando, setSincronizando] = useState(false);
+  const [msgSync, setMsgSync] = useState("");
+
+  async function sincronizarUrba() {
+    setSincronizando(true);
+    setMsgSync("");
+    const { error } = await supabase.functions.invoke("smooth-api");
+    if (error) {
+      setMsgSync("No se pudo conectar con URBA. Probá de nuevo en un rato.");
+    } else {
+      await cargarCalendario();
+      forceUpdate((n) => n + 1);
+      setMsgSync("✓ Actualizado con los datos reales de URBA.");
+    }
+    setSincronizando(false);
+    setTimeout(() => setMsgSync(""), 4000);
+  }
+
+  const fixture = FIXTURE[cat];
+  const proximos = PROXIMOS[cat];
+  const suspendidos = SUSPENDIDOS[cat] || [];
+  const ultimo = fixture[fixture.length - 1];
+  const proximo = proximos[0];
+
+  const record = fixture.reduce(
+    (acc, p) => {
+      if (p.res === "Ganado") acc.ganados++;
+      else if (p.res === "Perdido") acc.perdidos++;
+      else if (p.res === "Empate") acc.empatados++;
+      acc.favor += p.gf;
+      acc.contra += p.gc;
+      return acc;
+    },
+    { ganados: 0, perdidos: 0, empatados: 0, favor: 0, contra: 0 }
+  );
+  const diferencia = record.favor - record.contra;
+
+  async function guardar() {
+    if (gf === "" || gc === "") return;
+    const ok = await guardarResultadoPartido(proximo.id, Number(gf), Number(gc));
+    if (ok) {
+      await cargarCalendario();
+      setCargandoResultado(false);
+      setGf("");
+      setGc("");
+      forceUpdate((n) => n + 1);
+    }
+  }
+
+  async function guardarPartidoNuevo() {
+    if (!nuevoRival.trim() || !nuevaFecha || !nuevaDate) return;
+    const categoriaNombre = cat === "superior" ? "Superior" : "Intermedia";
+    const ok = await agregarPartido({
+      categoriaNombre,
+      fechaNumero: Number(nuevaFecha),
+      fecha: nuevaDate,
+      rivalNombre: nuevoRival.trim(),
+      condicion: nuevaCond,
+    });
+    if (ok) {
+      await cargarCalendario();
+      setAgregando(false);
+      setNuevoRival("");
+      setNuevaFecha("");
+      setNuevaDate("");
+      forceUpdate((n) => n + 1);
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Agenda</div>
+          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
+            La semana del plantel y todos los partidos del torneo.
+          </div>
+        </div>
+        {puedeGestionar(perfil) && !agregando && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={sincronizarUrba}
+                disabled={sincronizando}
+                style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}
+              >
+                {sincronizando ? "Actualizando…" : "Actualizar desde URBA"}
+              </button>
+              <button onClick={() => setAgregando(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}>
+                + Agregar partido
+              </button>
+            </div>
+            {msgSync && <div style={{ fontSize: 11, color: msgSync.startsWith("✓") ? "var(--h-ok)" : "var(--h-error)" }}>{msgSync}</div>}
+          </div>
+        )}
+      </div>
+
+      {agregando && (
+        <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 20 }}>
+          <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500, marginBottom: 12 }}>
+            Nuevo partido · {cat === "superior" ? "Superior" : "Intermedia"}
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <label style={labelStyle}>Fecha (número)</label>
+              <input value={nuevaFecha} onChange={(e) => setNuevaFecha(e.target.value.replace(/\D/g, ""))} style={{ ...inputStyle, width: 90 }} placeholder="19" />
+            </div>
+            <div>
+              <label style={labelStyle}>Día del partido</label>
+              <input type="date" value={nuevaDate} onChange={(e) => setNuevaDate(e.target.value)} style={{ ...inputStyle, width: 160 }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Rival</label>
+              <input value={nuevoRival} onChange={(e) => setNuevoRival(e.target.value)} style={{ ...inputStyle, width: 200 }} placeholder="Nombre del club" />
+            </div>
+            <div>
+              <label style={labelStyle}>Condición</label>
+              <select value={nuevaCond} onChange={(e) => setNuevaCond(e.target.value)} style={{ ...inputStyle, width: 130 }}>
+                <option style={{ background: "var(--h-campo)" }}>Local</option>
+                <option style={{ background: "var(--h-campo)" }}>Visitante</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <button onClick={guardarPartidoNuevo} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
+              Guardar partido
+            </button>
+            <button onClick={() => setAgregando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      <SemanaPlantel />
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {[
+          { key: "superior", label: "Superior" },
+          { key: "intermedia", label: "Intermedia" },
+        ].map((t) => (
+          <button
+            key={t.key}
+            onClick={() => { setCat(t.key); setCargandoResultado(false); }}
+            style={{
+              ...pillButton, fontWeight: 700,
+              border: "1px solid " + (cat === t.key ? "var(--h-acento)" : "var(--h-borde2)"),
+              background: cat === t.key ? "var(--h-acento-suave)" : "transparent",
+              color: cat === t.key ? "var(--h-acento)" : "var(--h-texto2)",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div style={{ flex: "2 1 340px", minWidth: 0 }}>
+          {(proximos.length > 0 || suspendidos.length > 0) && (
+            <>
+              <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Lo que viene</div>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 8, marginBottom: 18 }}>
+                {proximos.map((p, i) => (
+                  <PartidoAgenda key={"p" + p.id} p={p} proximo destacado={i === 0} perfil={perfil} onGuardado={() => forceUpdate((n) => n + 1)} />
+                ))}
+                {suspendidos.map((p) => (
+                  <PartidoAgenda key={"s" + p.id} p={p} proximo perfil={perfil} onGuardado={() => forceUpdate((n) => n + 1)} />
+                ))}
+              </div>
+            </>
+          )}
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>Ya jugados</div>
+          <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 8 }}>Tocá un partido para ver y compartir su resumen.</div>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 8 }}>
+            {[...fixture].reverse().map((p) => (
+              <PartidoAgenda key={"j" + p.id} p={p} perfil={perfil} onGuardado={() => forceUpdate((n) => n + 1)} />
+            ))}
+            {fixture.length === 0 && <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay partidos jugados.</div>}
+          </div>
+        </div>
+
+        <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+          <DondeEstamos filas={ZONA_FINAL[cat]?.filas || POSICIONES[cat]} titulo={ZONA_FINAL[cat] ? `Fase final · ${ZONA_FINAL[cat].nombre}` : "Fase regular"} />
+          {ZONA_FINAL[cat] && (
+            <div style={{ marginTop: 12 }}>
+              <TablaSimple filas={ZONA_FINAL[cat].filas} titulo={`Tabla · ${ZONA_FINAL[cat].nombre}`} nota="Fase final. Puntos de la tabla oficial de URBA." />
+            </div>
+          )}
+          <details style={{ ...cardStyle, padding: "12px 14px", marginTop: 12 }}>
+            <summary style={{ cursor: "pointer", fontSize: 13.5, color: "var(--h-texto)", fontWeight: 600 }}>Tabla de la fase regular</summary>
+            <div style={{ overflowX: "auto", marginTop: 10 }}>
+              <TablaPosiciones
+                data={POSICIONES[cat]}
+                perfil={perfil}
+                onGuardado={async () => {
+                  await cargarCalendario();
+                  forceUpdate((n) => n + 1);
+                }}
+              />
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────── Torneo: el recorrido de todo el año ─────────────────────────
+const COLOR_RES = { Ganado: "var(--h-ok)", Perdido: "var(--h-error)", Empate: "#8A94A0" };
+
+function TablaSimple({ filas, titulo, nota }) {
+  const orden = [...(filas || [])].sort((a, b) => (b.pts || 0) - (a.pts || 0) || (b.dif || 0) - (a.dif || 0));
+  if (!orden.length) return null;
+  const th = { padding: "6px 4px", fontWeight: 600, color: "var(--h-sub)", fontSize: 12, textAlign: "center" };
+  const td = { padding: "8px 4px", textAlign: "center", fontSize: 13.5, color: "var(--h-texto2)" };
+  return (
+    <div style={{ ...cardStyle, padding: "14px 14px 8px", marginBottom: 14 }}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>{titulo}</div>
+      {nota && <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 2 }}>{nota}</div>}
+      <div style={{ overflowX: "auto", marginTop: 8 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 330 }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, width: 26 }}>#</th>
+              <th style={{ ...th, textAlign: "left" }}>Equipo</th>
+              <th style={th}>PJ</th><th style={th}>G</th><th style={th}>E</th><th style={th}>P</th><th style={th}>Dif</th><th style={th}>Pts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {orden.map((f, i) => {
+              const somos = f.equipo === "Obras Sanitarias";
+              const dif = f.dif ?? (f.pf || 0) - (f.pc || 0);
+              return (
+                <tr key={f.id || f.equipo} style={{ borderTop: "1px solid var(--h-borde)", background: somos ? "var(--h-acento-suave)" : "transparent" }}>
+                  <td style={{ ...td, fontWeight: 700, color: "var(--h-sub)" }}>{i + 1}</td>
+                  <td style={{ ...td, textAlign: "left", color: "var(--h-texto)", fontWeight: somos ? 800 : 500, whiteSpace: "nowrap" }}>{somos ? nombreNuestro() : f.equipo}</td>
+                  <td style={td}>{f.pj}</td><td style={td}>{f.g}</td><td style={td}>{f.e}</td><td style={td}>{f.p}</td>
+                  <td style={{ ...td, color: dif > 0 ? "var(--h-ok)" : dif < 0 ? "var(--h-error)" : td.color }}>{dif > 0 ? "+" : ""}{dif}</td>
+                  <td style={{ ...td, fontWeight: 800, color: "var(--h-texto)", fontFamily: "var(--h-titulo)", fontSize: 15 }}>{f.pts}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function TorneoPage({ perfil }) {
+  const [cat, setCat] = useState("superior");
+  const [, forceUpdate] = useState(0);
+  const [faseVer, setFaseVer] = useState("final");
+  const jugados = FIXTURE[cat] || [];
+  const proximos = PROXIMOS[cat] || [];
+  const suspendidos = SUSPENDIDOS[cat] || [];
+  const zona = ZONA_FINAL[cat];
+  const porFecha = {};
+  for (const p of jugados) porFecha[p.fecha] = { ...p, estado: p.res };
+  for (const p of suspendidos) porFecha[p.fecha] = { ...p, estado: "Suspendido" };
+  for (const p of proximos) porFecha[p.fecha] = { ...p, estado: "Próximo" };
+  const maxFecha = Math.max(FECHAS_FASE_REGULAR, ...Object.keys(porFecha).map(Number));
+  const fechas = Array.from({ length: maxFecha }, (_, i) => porFecha[i + 1] || { fecha: i + 1, estado: "Libre" });
+  const regular = fechas.filter((f) => f.fecha <= FECHAS_FASE_REGULAR);
+  const final = fechas.filter((f) => f.fecha > FECHAS_FASE_REGULAR);
+  const verFinal = faseVer === "final" && (final.length > 0 || !!zona);
+
+  const resumen = (lista) => lista.reduce((a, p) => {
+    if (!["Ganado", "Perdido", "Empate"].includes(p.estado)) return a;
+    a.pj++; a[p.estado]++; a.pf += Number(p.gf) || 0; a.pc += Number(p.gc) || 0; return a;
+  }, { pj: 0, Ganado: 0, Empate: 0, Perdido: 0, pf: 0, pc: 0 });
+  const total = resumen(fechas);
+  const ordenReg = [...(POSICIONES[cat] || [])].sort((a, b) => (b.pts || 0) - (a.pts || 0) || (b.dif || 0) - (a.dif || 0));
+  const puestoReg = ordenReg.findIndex((f) => f.equipo === "Obras Sanitarias") + 1;
+  const ordenZona = zona ? [...zona.filas].sort((a, b) => (b.pts || 0) - (a.pts || 0) || (b.dif || 0) - (a.dif || 0)) : [];
+  const puestoZona = ordenZona.findIndex((f) => f.equipo === "Obras Sanitarias") + 1;
+  const ultimos = fechas.filter((f) => COLOR_RES[f.estado]).slice(-5);
+
+  const Casilla = ({ f }) => {
+    const c = COLOR_RES[f.estado];
+    const fondo = c || (f.estado === "Próximo" ? "var(--h-club)" : f.estado === "Suspendido" ? "var(--h-alerta-suave)" : "transparent");
+    const txt = c ? "#fff" : f.estado === "Próximo" ? "var(--h-club-txt)" : "var(--h-sub)";
+    const letra = c ? f.estado[0] : f.estado === "Próximo" ? "•" : f.estado === "Suspendido" ? "S" : "–";
+    const titulo = `${etiquetaFecha(f.fecha)}: ${f.rival ? `${f.cond === "Local" ? "vs" : "en"} ${f.rival}` : "fecha libre"}${c ? ` · ${f.gf}-${f.gc}` : f.estado === "Suspendido" ? " · suspendido" : ""}`;
+    return (
+      <div title={titulo} aria-label={titulo} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+        <span style={{ width: 30, height: 30, borderRadius: 8, background: fondo, color: txt, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 13, border: c || f.estado === "Próximo" ? "none" : "1.5px dashed var(--h-borde2)" }}>{letra}</span>
+        <span style={{ fontSize: 10.5, color: "var(--h-sub2)" }}>{f.fecha > FECHAS_FASE_REGULAR ? f.fecha - FECHAS_FASE_REGULAR : f.fecha}</span>
+      </div>
+    );
+  };
+
+  const FilaLibre = ({ f }) => (
+    <div style={{ ...cardStyle, padding: "10px 12px", display: "flex", alignItems: "center", gap: 12, borderLeft: "4px solid var(--h-borde2)", opacity: 0.8 }}>
+      <div style={{ width: 44, textAlign: "center", flexShrink: 0, fontSize: 18, color: "var(--h-sub2)" }}>–</div>
+      <div style={{ fontSize: 14, color: "var(--h-sub)" }}><b style={{ color: "var(--h-texto2)" }}>{etiquetaFecha(f.fecha)}</b> · Fecha libre</div>
+    </div>
+  );
+  const listaFase = (lista) => (
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 8 }}>
+      {lista.map((f) =>
+        f.estado === "Libre" ? <FilaLibre key={"l" + f.fecha} f={f} />
+          : <PartidoAgenda key={f.estado + f.id} p={f} proximo={f.estado === "Próximo" || f.estado === "Suspendido"} perfil={perfil} onGuardado={() => forceUpdate((n) => n + 1)} />
+      )}
+    </div>
+  );
+  const tituloFase = (t, sub) => (
+    <div style={{ margin: "22px 0 10px" }}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>{t}</div>
+      {sub && <div style={{ fontSize: 13, color: "var(--h-sub)" }}>{sub}</div>}
+      <div style={{ fontSize: 12.5, color: "var(--h-sub2)" }}>Tocá un partido jugado para compartir su resumen.</div>
+    </div>
+  );
+  const resReg = resumen(regular), resFin = resumen(final);
+  const linea = (r) => `${r.Ganado} ganados · ${r.Empate} empatados · ${r.Perdido} perdidos`;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Torneo</div>
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>URBA Desarrollo 2026 · todo el recorrido del año</div>
+      </div>
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {[{ key: "superior", label: "Superior" }, { key: "intermedia", label: "Intermedia" }].map((t) => (
+          <button key={t.key} onClick={() => setCat(t.key)} aria-pressed={cat === t.key}
+            style={{ ...pillButton, fontWeight: 700, border: "1px solid " + (cat === t.key ? "var(--h-acento)" : "var(--h-borde2)"), background: cat === t.key ? "var(--h-acento-suave)" : "transparent", color: cat === t.key ? "var(--h-acento)" : "var(--h-texto2)" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 14, borderTop: "4px solid var(--h-club)" }}>
+        <div style={{ display: "flex", gap: 22, flexWrap: "wrap", alignItems: "flex-end" }}>
+          {[["Jugados", total.pj], ["Ganados", total.Ganado], ["Empatados", total.Empate], ["Perdidos", total.Perdido]].map(([l, v]) => (
+            <div key={l}>
+              <div style={{ fontFamily: "var(--h-titulo)", fontSize: 32, fontWeight: 800, lineHeight: 1, color: l === "Ganados" ? "var(--h-ok)" : l === "Perdidos" ? "var(--h-error)" : "var(--h-texto)" }}>{v}</div>
+              <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 3 }}>{l}</div>
+            </div>
+          ))}
+          <div>
+            <div style={{ fontFamily: "var(--h-titulo)", fontSize: 32, fontWeight: 800, lineHeight: 1, color: "var(--h-texto)" }}>{total.pf}<span style={{ color: "var(--h-sub2)", fontSize: 22 }}> / </span>{total.pc}</div>
+            <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 3 }}>Tantos a favor / en contra</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 14, fontSize: 13.5, color: "var(--h-texto2)" }}>
+          {puestoReg > 0 && <span>Fase regular: <b style={{ color: "var(--h-texto)" }}>{puestoReg}° de {ordenReg.length}</b></span>}
+          {zona && puestoZona > 0 && <span>Fase final · {zona.nombre}: <b style={{ color: "var(--h-texto)" }}>{puestoZona}° de {ordenZona.length}</b></span>}
+          {ultimos.length > 0 && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>Últimos:
+              {ultimos.map((f) => <span key={f.fecha} title={etiquetaFecha(f.fecha)} style={{ width: 18, height: 18, borderRadius: 5, background: COLOR_RES[f.estado], color: "#fff", fontSize: 10.5, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{f.estado[0]}</span>)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 6 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--h-texto)", marginBottom: 10 }}>El año, fecha por fecha</div>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--h-sub)", marginBottom: 6 }}>Fase regular</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(32px, 1fr))", gap: 6 }}>
+          {regular.map((f) => <Casilla key={f.fecha} f={f} />)}
+        </div>
+        {final.length > 0 && (
+          <>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--h-sub)", margin: "12px 0 6px" }}>Fase final{zona ? ` · ${zona.nombre}` : ""}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(32px, 1fr))", gap: 6 }}>
+              {final.map((f) => <Casilla key={f.fecha} f={f} />)}
+            </div>
+          </>
+        )}
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 12, fontSize: 12, color: "var(--h-sub)" }}>
+          <span><b style={{ color: "var(--h-ok)" }}>G</b> ganado</span><span><b style={{ color: "#8A94A0" }}>E</b> empate</span><span><b style={{ color: "var(--h-error)" }}>P</b> perdido</span>
+          <span><b style={{ color: "var(--h-texto)" }}>•</b> por jugar</span><span><b style={{ color: "var(--h-alerta)" }}>S</b> suspendido</span><span>– libre</span>
+        </div>
+      </div>
+
+      {(final.length > 0 || zona) && (
+        <div role="tablist" aria-label="Fase" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 14, background: "var(--h-panel)", border: "1px solid var(--h-borde)", margin: "16px 0 4px" }}>
+          {[["final", `Fase final${zona ? ` · ${zona.nombre.replace(/^Zona\s+/, "")}` : ""}`], ["regular", "Fase regular"]].map(([k, l]) => (
+            <button key={k} role="tab" aria-selected={faseVer === k} onClick={() => setFaseVer(k)}
+              style={{ padding: "10px 6px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 14, background: faseVer === k ? "var(--h-club)" : "transparent", color: faseVer === k ? "var(--h-club-txt)" : "var(--h-texto2)" }}>
+              {l}
+            </button>
+          ))}
+        </div>
+      )}
+      {verFinal ? (
+        <>
+          {zona
+            ? <div style={{ marginTop: 14 }}><TablaSimple filas={zona.filas} titulo={`Tabla · ${zona.nombre}`} nota="Fase final. Los puntos son los de la tabla oficial de URBA." /></div>
+            : <div style={{ ...cardStyle, padding: "14px 16px", marginTop: 14, fontSize: 13, color: "var(--h-sub)" }}>La tabla de la zona se actualiza con URBA los domingos.</div>}
+          {tituloFase(`Partidos · Fase final${zona ? ` · ${zona.nombre}` : ""}`, resFin.pj ? linea(resFin) : "Todavía sin partidos jugados")}
+          {listaFase(final)}
+        </>
+      ) : (
+        <>
+          <div style={{ marginTop: 14 }}>
+            {(POSICIONES[cat] || []).length
+              ? <TablaSimple filas={POSICIONES[cat]} titulo="Tabla · Fase regular" nota={`Fechas 1 a ${FECHAS_FASE_REGULAR}.`} />
+              : <div style={{ ...cardStyle, padding: "14px 16px", fontSize: 13, color: "var(--h-sub)" }}>Todavía no está la tabla del torneo.</div>}
+          </div>
+          {tituloFase("Partidos · Fase regular", `Fechas 1 a ${FECHAS_FASE_REGULAR} · ${linea(resReg)}`)}
+          {listaFase(regular)}
+        </>
+      )}
+    </div>
+  );
+}
+
+// La semana del plantel: qué hay cada día (práctica en cancha, gimnasio, partido).
+function SemanaPlantel() {
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const lunes = new Date(hoy); lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+  const nombres = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const partidos = [...(PROXIMOS.superior || []), ...(PROXIMOS.intermedia || []), ...(FIXTURE.superior || []), ...(FIXTURE.intermedia || [])];
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6, marginBottom: 18 }}>
+      {nombres.map((n, i) => {
+        const d = new Date(lunes); d.setDate(lunes.getDate() + i);
+        const ddmm = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+        const esHoy = d.getTime() === hoy.getTime();
+        const cosas = [];
+        const pr = SESIONES[n];
+        if (pr && ((pr.grupo1 || []).length || (pr.grupo2 || []).length)) cosas.push({ t: "Cancha", c: "var(--h-club)" });
+        if (DIAS_GYM.includes(n)) cosas.push({ t: "Gimnasio", c: "#6B7785" });
+        if (partidos.some((p) => p.date === ddmm)) cosas.push({ t: "Partido", c: "var(--h-error)" });
+        return (
+          <div key={n} style={{ ...cardStyle, padding: "8px 6px", textAlign: "center", border: esHoy ? "2px solid var(--h-club)" : cardStyle.border }}>
+            <div style={{ fontSize: 11, color: "var(--h-sub)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{n.slice(0, 3)}</div>
+            <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)" }}>{d.getDate()}</div>
+            <div style={{ display: "grid", gap: 3, marginTop: 4 }}>
+              {cosas.map((x) => (
+                <span key={x.t} style={{ fontSize: 10.5, fontWeight: 700, color: "#fff", background: x.c, borderRadius: 4, padding: "1px 2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.t}</span>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Un partido en la agenda: día grande a la izquierda, rival y resultado.
+function PartidoAgenda({ p, proximo, destacado, perfil, onGuardado }) {
+  const [editando, setEditando] = useState(false);
+  const [verResumen, setVerResumen] = useState(false);
+  const jugado = !proximo && p.gf != null;
+  const [gf, setGf] = useState("");
+  const [gc, setGc] = useState("");
+  const [d, m] = String(p.date || "").split("/");
+  const mes = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"][Number(m) - 1] || "";
+  const color = p.res === "Ganado" ? "var(--h-ok)" : p.res === "Perdido" ? "var(--h-error)" : "var(--h-sub)";
+  async function guardar() {
+    if (gf === "" || gc === "") return;
+    const ok = await guardarResultadoPartido(p.id, Number(gf), Number(gc));
+    if (ok) { await cargarCalendario(); setEditando(false); onGuardado(); }
+  }
+  return (
+    <>
+    {verResumen && <ResumenPartido p={p} onCerrar={() => setVerResumen(false)} />}
+    <div
+      onClick={jugado && !editando ? () => setVerResumen(true) : undefined}
+      role={jugado && !editando ? "button" : undefined}
+      tabIndex={jugado && !editando ? 0 : undefined}
+      onKeyDown={jugado && !editando ? (e) => { if (e.key === "Enter") setVerResumen(true); } : undefined}
+      aria-label={jugado && !editando ? `Ver y compartir el resumen del partido contra ${p.rival}` : undefined}
+      style={{ ...cardStyle, cursor: jugado && !editando ? "pointer" : "default", padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, minWidth: 0, maxWidth: "100%", boxSizing: "border-box", borderLeft: `4px solid ${p.suspendido ? "var(--h-alerta)" : proximo ? "var(--h-club)" : color}`, background: destacado ? "var(--h-acento-suave)" : cardStyle.background }}>
+      <div style={{ width: 38, textAlign: "center", flexShrink: 0 }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1 }}>{d}</div>
+        <div style={{ fontSize: 11, color: "var(--h-sub)", textTransform: "uppercase" }}>{mes}</div>
+      </div>
+      <span style={{ flexShrink: 0, display: "inline-flex" }}><TeamBadge name={p.rival} size={24} /></span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--h-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.cond === "Local" ? "vs" : "en"} {p.rival}</div>
+        <div style={{ fontSize: 12, color: "var(--h-sub)" }}>{etiquetaFecha(p.fecha)} · {p.cond === "Local" ? "en casa" : "de visitante"}</div>
+        {p.suspendido && <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-alerta)", marginTop: 2 }}>Suspendido · a reprogramar</div>}
+      </div>
+      {editando ? (
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <input value={gf} onChange={(e) => setGf(e.target.value.replace(/\D/g, ""))} placeholder={nombreNuestro()} style={{ ...editInputStyle, width: 44, textAlign: "center" }} />
+          <span style={{ color: "var(--h-sub2)" }}>-</span>
+          <input value={gc} onChange={(e) => setGc(e.target.value.replace(/\D/g, ""))} placeholder="Rival" style={{ ...editInputStyle, width: 44, textAlign: "center" }} />
+          <button onClick={guardar} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, cursor: "pointer" }}>OK</button>
+          <button onClick={() => setEditando(false)} aria-label="Cancelar" style={{ background: "none", border: "none", color: "var(--h-sub2)", cursor: "pointer" }}>×</button>
+        </span>
+      ) : proximo ? (
+        puedeGestionar(perfil) ? (
+          <button onClick={() => setEditando(true)} style={{ background: "none", border: "none", color: "var(--h-acento)", fontSize: 12.5, fontWeight: 600, cursor: "pointer", flexShrink: 0, padding: 0, lineHeight: 1.2, width: 64, textAlign: "right" }}>Cargar resultado</button>
+        ) : null
+      ) : (
+        <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <b style={{ fontFamily: "var(--h-titulo)", fontSize: 18, color: "var(--h-texto)", whiteSpace: "nowrap" }}>{p.gf}-{p.gc}</b>
+          <span style={{ width: 22, height: 22, borderRadius: "50%", background: color, color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{(p.res || "")[0]}</span>
+          {puedeGestionar(perfil) && <button onClick={(e) => { e.stopPropagation(); setEditando(true); }} aria-label="Corregir resultado" title="Corregir resultado" style={{ background: "none", border: "none", color: "var(--h-sub2)", fontSize: 15, cursor: "pointer", padding: "0 2px" }}>✎</button>}
+        </span>
+      )}
+    </div>
+    </>
+  );
+}
+
+// Dónde está el equipo en la tabla: el puesto grande y los equipos de alrededor.
+function DondeEstamos({ filas, titulo }) {
+  const orden = [...(filas || [])].sort((a, b) => (b.pts || 0) - (a.pts || 0) || (b.dif || 0) - (a.dif || 0));
+  const i = orden.findIndex((f) => f.equipo === "Obras Sanitarias");
+  if (i < 0) return <div style={{ ...cardStyle, padding: "14px 16px", fontSize: 13, color: "var(--h-sub)" }}>Todavía no está la tabla del torneo.</div>;
+  const desde = Math.max(0, Math.min(i - 2, orden.length - 5));
+  const vecinos = orden.slice(desde, desde + 5);
+  const nos = orden[i];
+  const arriba = i > 0 ? (orden[i - 1].pts || 0) - (nos.pts || 0) : null;
+  return (
+    <div style={{ ...cardStyle, padding: "14px 16px" }}>
+      {titulo && <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--h-sub)", marginBottom: 4 }}>{titulo}</div>}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 44, fontWeight: 800, color: "var(--h-club-tinta)", lineHeight: 1 }}>{i + 1}°</span>
+        <span style={{ fontSize: 13.5, color: "var(--h-texto2)" }}>de {orden.length} · {nos.pts} puntos</span>
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 10 }}>
+        {arriba === null ? "Primeros en el torneo." : arriba === 0 ? "Empatados en puntos con el de arriba." : `A ${arriba} ${arriba === 1 ? "punto" : "puntos"} del puesto de arriba.`}
+      </div>
+      {vecinos.map((f) => {
+        const pos = orden.indexOf(f) + 1;
+        const somos = f.equipo === "Obras Sanitarias";
+        return (
+          <div key={f.equipo} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 6px", borderRadius: 8, background: somos ? "var(--h-acento-suave)" : "transparent", fontSize: 13.5 }}>
+            <span style={{ width: 22, color: "var(--h-sub)", fontWeight: 700 }}>{pos}</span>
+            <span style={{ flex: 1, minWidth: 0, color: "var(--h-texto)", fontWeight: somos ? 800 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{somos ? nombreNuestro() : f.equipo}</span>
+            <b style={{ color: "var(--h-texto)", fontFamily: "var(--h-titulo)", fontSize: 15 }}>{f.pts}</b>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+// Plan base de Obras: se entrena en cancha martes y jueves (el gimnasio va aparte, lunes, miércoles y viernes).
+const SESIONES_INICIALES = {
+  Martes: {
+    grupo1: [
+      { t: "15'", c: "Entrada en calor con pelota", e: "Rondos de pase en grupos de 6", k: "fisico" },
+      { t: "20'", c: "Forwards y backs por separado", e: "Forwards: empuje y salto · Backs: líneas de ataque", k: "tecnico" },
+      { t: "15'", c: "Contacto", e: "Tackle y ruck, de a dos", k: "tecnico" },
+      { t: "25'", c: "Juego reducido", e: "10 contra 10 en media cancha", k: "juego" },
+    ],
+    lugar1: "Cancha 1",
+    lugar2: "Cancha 2",
+    grupo2: [
+      { t: "15'", c: "Entrada en calor con pelota", e: "Rondos de pase en grupos de 6", k: "fisico" },
+      { t: "20'", c: "Forwards y backs por separado", e: "Forwards: empuje y salto · Backs: líneas de ataque", k: "tecnico" },
+      { t: "15'", c: "Contacto", e: "Tackle y ruck, de a dos", k: "tecnico" },
+      { t: "25'", c: "Juego reducido", e: "10 contra 10 en media cancha", k: "juego" },
+    ],
+  },
+  Jueves: {
+    grupo1: [
+      { t: "15'", c: "Entrada en calor", e: "Movilidad y pasadas", k: "fisico" },
+      { t: "25'", c: "Plan de juego del sábado", e: "Ataque y defensa contra el rival", k: "tactico" },
+      { t: "15'", c: "Pelota detenida", e: "Lines, scrums y salidas", k: "tecnico" },
+    ],
+    lugar1: "Cancha 1",
+    lugar2: "Cancha 2",
+    grupo2: [
+      { t: "15'", c: "Entrada en calor", e: "Movilidad y pasadas", k: "fisico" },
+      { t: "25'", c: "Plan de juego del sábado", e: "Ataque y defensa contra el rival", k: "tactico" },
+      { t: "15'", c: "Pelota detenida", e: "Lines, scrums y salidas", k: "tecnico" },
+    ],
+  },
+};
+
+const editInputStyle = {
+  width: "100%",
+  boxSizing: "border-box",
+  background: "transparent",
+  border: "none",
+  borderBottom: "1px solid var(--h-borde2)",
+  color: "var(--h-texto)",
+  fontSize: 12.5,
+  fontFamily: "var(--h-texto-fuente)",
+  padding: "2px 0",
+  outline: "none",
+};
+
+// Plan de práctica guardado en la base (un registro por día). Arranca con el plan base y
+// se pisa con lo que haya cargado el staff.
+let SESIONES = Object.fromEntries(
+  Object.entries(SESIONES_INICIALES).map(([d, v]) => [d, { ...v }])
+);
+
+async function cargarSesiones() {
+  const { data, error } = await supabase.from("sesiones_practica").select("dia, grupos");
+  if (error) {
+    console.error("Error cargando la práctica:", error);
+    return;
+  }
+  for (const row of data || []) SESIONES[row.dia] = desdeGuardado(row.grupos);
+}
+
+// El lugar va por grupo (no por bloque). Las prácticas guardadas antes lo tenían en cada bloque:
+// se toma el del primer bloque que lo tenga.
+function desdeGuardado(g) {
+  const limpio = (filas) => (filas || []).map(({ s: _s, ...f }) => f);
+  const lugarDe = (filas) => (filas || []).map((f) => f.s).find((x) => x && String(x).trim()) || "";
+  return {
+    grupo1: limpio(g?.grupo1), grupo2: limpio(g?.grupo2),
+    lugar1: g?.lugar1 ?? lugarDe(g?.grupo1), lugar2: g?.lugar2 ?? lugarDe(g?.grupo2),
+  };
+}
+
+const TIPOS_BLOQUE = {
+  fisico: { label: "Físico", color: "#E0812C" },
+  tecnico: { label: "Técnico", color: "#2F7FD8" },
+  tactico: { label: "Táctico", color: "#7A5AD6" },
+  gimnasio: { label: "Gimnasio", color: "#6B7785" },
+  juego: { label: "Juego", color: "#1FA37A" },
+};
+
+// Tipo del bloque: el elegido por el staff o, si no tiene, el que se deduce del contenido.
+function tipoBloque(f) {
+  if (f.k && TIPOS_BLOQUE[f.k]) return f.k;
+  const c = (f.c || "").toUpperCase();
+  if (c.includes("GIMNASIO") || c.includes("GYM")) return "gimnasio";
+  if (c.includes("JUEGO") || c.includes("PARTIDO")) return "juego";
+  if (c.includes("ATAQUE") || c.includes("DEFENSA") || c.includes("TÁCTIC") || c.includes("TACTIC")) return "tactico";
+  if (c.includes("UNIDADES") || c.includes("TÉCNIC") || c.includes("TECNIC") || c.includes("BALÓN PARADO") || c.includes("SCRUM") || c.includes("LINE")) return "tecnico";
+  return "fisico";
+}
+
+function minutosBloque(f) {
+  const n = parseInt(String(f.t || "").replace(/[^0-9]/g, ""), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function BarraTipos({ filas }) {
+  const total = filas.reduce((a, f) => a + minutosBloque(f), 0);
+  if (!total) return null;
+  const porTipo = {};
+  filas.forEach((f) => { const k = tipoBloque(f); porTipo[k] = (porTipo[k] || 0) + minutosBloque(f); });
+  return (
+    <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", gap: 2, marginBottom: 14 }} aria-hidden="true">
+      {Object.keys(TIPOS_BLOQUE).filter((k) => porTipo[k]).map((k) => (
+        <span key={k} title={`${TIPOS_BLOQUE[k].label}: ${porTipo[k]}'`} style={{ flex: porTipo[k], background: TIPOS_BLOQUE[k].color }} />
+      ))}
+    </div>
+  );
+}
+
+function GrupoTabla({ titulo, lugar, onLugar, filas, editMode, onChange, onDelete, onAdd }) {
+  const total = filas.reduce((a, f) => a + minutosBloque(f), 0);
+  let acumulado = 0;
+  return (
+    <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 340px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)" }}>{titulo}</span>
+        <span style={{ fontSize: 13, color: "var(--h-sub)" }}>{total} min</span>
+      </div>
+      {editMode ? (
+        <input style={{ ...editInputStyle, marginBottom: 12 }} value={lugar || ""} placeholder="¿Dónde? (ej: Cancha 1)" aria-label="Dónde entrena este grupo" onChange={(e) => onLugar(e.target.value)} />
+      ) : lugar ? (
+        <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: -6, marginBottom: 10 }}>En {textoBloque(lugar)}</div>
+      ) : null}
+      <BarraTipos filas={filas} />
+      <div style={{ position: "relative" }}>
+        {filas.length > 0 && <span aria-hidden="true" style={{ position: "absolute", left: 5, top: 10, bottom: 10, width: 2, background: "var(--h-borde)" }} />}
+        {filas.map((f, i) => {
+          const k = tipoBloque(f);
+          const color = TIPOS_BLOQUE[k].color;
+          const desde = acumulado;
+          acumulado += minutosBloque(f);
+          return (
+            <div key={i} style={{ position: "relative", paddingLeft: 22, marginBottom: 10 }}>
+              <span aria-hidden="true" style={{ position: "absolute", left: 0, top: 12, width: 12, height: 12, borderRadius: "50%", background: color, boxShadow: "0 0 0 3px var(--h-panel)" }} />
+              <div style={{ border: "1px solid var(--h-borde)", borderLeft: `3px solid ${color}`, borderRadius: 10, padding: "10px 12px", background: "var(--h-panel)" }}>
+                {editMode ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "56px 1fr 24px", gap: 8, alignItems: "start" }}>
+                    <input style={editInputStyle} value={f.t} placeholder="15'" aria-label="Duración" onChange={(e) => onChange(i, "t", e.target.value)} />
+                    <div style={{ display: "grid", gap: 6 }}>
+                      <input style={{ ...editInputStyle, fontWeight: 600 }} value={f.c} placeholder="Qué se trabaja" aria-label="Qué se trabaja" onChange={(e) => onChange(i, "c", e.target.value)} />
+                      <input style={editInputStyle} value={f.e} placeholder="Cómo (opcional)" aria-label="Cómo" onChange={(e) => onChange(i, "e", e.target.value)} />
+                      <select value={k} onChange={(e) => onChange(i, "k", e.target.value)} aria-label="Tipo de trabajo" style={{ ...editInputStyle, width: 130 }}>
+                        {Object.entries(TIPOS_BLOQUE).map(([kk, v]) => <option key={kk} value={kk}>{v.label}</option>)}
+                      </select>
+                    </div>
+                    <button onClick={() => onDelete(i)} title="Quitar bloque" aria-label="Quitar bloque" style={{ background: "transparent", border: "none", color: "var(--h-sub2)", cursor: "pointer", fontSize: 18, padding: 0 }}>×</button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
+                      <span style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 14 }}>{textoBloque(f.c)}</span>
+                      <span style={{ fontFamily: "var(--h-titulo)", fontWeight: 800, fontSize: 16, color: "var(--h-texto)", flexShrink: 0 }}>{f.t}</span>
+                    </div>
+                    {f.e && <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 3 }}>{f.e}</div>}
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, fontSize: 11.5, color: "var(--h-sub2)" }}>
+                      <span style={{ color, fontWeight: 700 }}>{TIPOS_BLOQUE[k].label}</span>
+                      <span>·</span>
+                      <span>min {desde}–{acumulado}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {filas.length === 0 && !editMode && <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Sin bloques.</div>}
+      </div>
+      {editMode && (
+        <button
+          onClick={onAdd}
+          style={{ ...pillButton, marginTop: 4, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)", width: "100%" }}
+        >
+          + Sumar un bloque
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ───────── Confirmación de asistencia a la práctica ("Voy" / "No puedo") ─────────
+async function cargarRespuestasPractica(fecha) {
+  const { data, error } = await supabase.from("practica_respuestas").select("jugador_id, respuesta, motivo").eq("fecha", fecha);
+  if (error) { console.error("Error cargando confirmaciones de práctica:", error); return {}; }
+  return Object.fromEntries((data || []).map((r) => [r.jugador_id, r]));
+}
+async function responderPractica(fecha, jugadorDbId, respuesta, motivo) {
+  const { error } = await supabase.from("practica_respuestas").upsert(
+    { fecha, jugador_id: jugadorDbId, respuesta, motivo: motivo || null, updated_at: new Date().toISOString() },
+    { onConflict: "fecha,jugador_id" }
+  );
+  if (error) console.error("Error guardando la confirmación:", error);
+  return !error;
+}
+// Fecha ISO (de esta semana) del día de la semana elegido.
+function isoDiaSemana(dia, semanas = 0) {
+  const orden = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const hoy = new Date();
+  const lunes = new Date(hoy);
+  lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7) + 7 * semanas);
+  const d = new Date(lunes);
+  d.setDate(lunes.getDate() + orden.indexOf(dia));
+  return d.toLocaleDateString("sv-SE");
+}
+
+// Lo que ve el jugador: "¿Venís?" con Voy / No puedo (y motivo).
+function ConfirmarPractica({ perfil, fecha, diaNombre, inicial, onCambio }) {
+  const [resp, setResp] = useState(inicial || null);
+  const [pidiendo, setPidiendo] = useState(false);
+  const [motivo, setMotivo] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  useEffect(() => { setResp(inicial || null); setPidiendo(false); }, [fecha, inicial?.respuesta]);
+  const yo = POOL.find((j) => j.dbId === perfil?.jugador_id);
+  async function responder(r, mot) {
+    setGuardando(true);
+    const ok = await responderPractica(fecha, perfil.jugador_id, r, mot);
+    setGuardando(false);
+    if (!ok) return;
+    const nuevo = { respuesta: r, motivo: mot || null };
+    if (r === "no_puedo") crearNotificacion("practica_baja", `${yo?.id || "Un jugador"} no viene a la práctica del ${diaNombre.toLowerCase()}${mot ? `: ${mot}` : ""}.`, ["Cuerpo técnico", "Manager"], perfil?.id);
+    else if (resp?.respuesta === "no_puedo") crearNotificacion("practica_baja", `${yo?.id || "Un jugador"} al final sí viene a la práctica del ${diaNombre.toLowerCase()}.`, ["Cuerpo técnico", "Manager"], perfil?.id);
+    setResp(nuevo); setPidiendo(false); onCambio?.(nuevo);
+  }
+  const b = (fuerte) => ({ ...pillButton, flex: 1, minHeight: 40, fontSize: 14, fontWeight: 800, border: "2px solid var(--h-club)", background: fuerte ? "var(--h-club)" : "transparent", color: fuerte ? "var(--h-club-txt)" : "var(--h-club-tinta)" });
+  if (pidiendo) return (
+    <div style={{ marginTop: 8 }}>
+      <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="¿Por qué? (opcional)" style={{ ...inputStyle, marginBottom: 8 }} autoFocus />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => setPidiendo(false)} style={b(false)}>Volver</button>
+        <button onClick={() => responder("no_puedo", motivo.trim())} disabled={guardando} style={b(true)}>{guardando ? "Avisando…" : "Avisar"}</button>
+      </div>
+    </div>
+  );
+  if (resp) return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
+      <span style={{ fontWeight: 700, color: resp.respuesta === "voy" ? "var(--h-ok)" : "var(--h-error)" }}>{resp.respuesta === "voy" ? "✓ Confirmaste que vas" : `Avisaste que no vas${resp.motivo ? ` (${resp.motivo})` : ""}`}</span>
+      <button onClick={() => (resp.respuesta === "voy" ? setPidiendo(true) : responder("voy"))} disabled={guardando} style={{ ...pillButton, fontSize: 12, padding: "5px 10px", background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}>
+        {resp.respuesta === "voy" ? "Al final no puedo" : "Al final sí voy"}
+      </button>
+    </div>
+  );
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--h-texto)", marginBottom: 6 }}>¿Venís?</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => responder("voy")} disabled={guardando} style={b(true)}>Voy</button>
+        <button onClick={() => setPidiendo(true)} disabled={guardando} style={b(false)}>No puedo</button>
+      </div>
+    </div>
+  );
+}
+
+// Lo que ve el staff en Práctica del día: quién viene, quién no y quién no respondió.
+function ConfirmacionesPractica({ dia, perfil, semanas = 0 }) {
+  const fecha = isoDiaSemana(dia, semanas);
+  const [resp, setResp] = useState(null);
+  const [aviso, setAviso] = useState("");
+  useEffect(() => { setResp(null); cargarRespuestasPractica(fecha).then(setResp); }, [fecha]);
+  if (!resp) return null;
+  const jugadores = POOL.filter((j) => j.dbId);
+  const vienen = jugadores.filter((j) => resp[j.dbId]?.respuesta === "voy");
+  const noVienen = jugadores.filter((j) => resp[j.dbId]?.respuesta === "no_puedo");
+  const faltan = jugadores.filter((j) => !resp[j.dbId]);
+  const hoyISOv = hoyISO();
+  async function recordar() {
+    await crearNotificacion("practica_confirmar", `Confirmá si venís a la práctica del ${dia.toLowerCase()}.`, ["Jugador"], perfil?.id, faltan.map((j) => j.dbId));
+    setAviso(`Listo: se le recordó a ${faltan.length} ${faltan.length === 1 ? "jugador" : "jugadores"}.`);
+    setTimeout(() => setAviso(""), 4000);
+  }
+  return (
+    <div style={{ ...cardStyle, padding: "12px 16px", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ flex: 1, fontSize: 14.5, color: "var(--h-texto)" }}>
+          Para el {dia.toLowerCase()}: <b style={{ color: "var(--h-ok)" }}>{vienen.length}</b> vienen · <b style={{ color: noVienen.length ? "var(--h-error)" : undefined }}>{noVienen.length}</b> no pueden · <b>{faltan.length}</b> sin responder
+        </span>
+        {fecha >= hoyISOv && faltan.length > 0 && (
+          <button onClick={recordar} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)", fontSize: 12.5 }}>Recordar a los que faltan</button>
+        )}
+      </div>
+      {aviso && <div style={{ fontSize: 12.5, color: "var(--h-ok)", marginTop: 6 }}>{aviso}</div>}
+      {noVienen.length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 13.5, color: "var(--h-texto)", lineHeight: 1.6 }}>
+          {noVienen.map((j) => <div key={j.dbId}><b style={{ color: "var(--h-error)" }}>✕</b> {j.id}{resp[j.dbId].motivo ? <span style={{ color: "var(--h-sub)" }}> · {resp[j.dbId].motivo}</span> : ""}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AsistenciaPanel({ perfil }) {
+  const fecha = hoyISO();
+  const [presentes, setPresentes] = useState({});
+  const [cargando, setCargando] = useState(true);
+  const [abierto, setAbierto] = useState(false);
+  const [avisos, setAvisos] = useState({});
+
+  useEffect(() => {
+    if (!abierto) return;
+    setCargando(true);
+    Promise.all([cargarAsistenciaFecha(fecha), cargarRespuestasPractica(fecha)]).then(([m, r]) => {
+      setPresentes(m);
+      setAvisos(r);
+      setCargando(false);
+    });
+  }, [abierto]);
+  async function marcarConfirmados() {
+    const ids = Object.entries(avisos).filter(([id, r]) => r.respuesta === "voy" && presentes[id] === undefined).map(([id]) => id);
+    for (const id of ids) await marcar(id, true);
+  }
+
+  async function marcar(jugadorDbId, presente) {
+    setPresentes((prev) => ({ ...prev, [jugadorDbId]: presente }));
+    await guardarAsistencia(jugadorDbId, fecha, presente, perfil?.id);
+  }
+
+  const jugadoresOrdenados = [...POOL].sort((a, b) => a.id.localeCompare(b.id));
+  const totalMarcados = Object.keys(presentes).length;
+  const totalPresentes = Object.values(presentes).filter(Boolean).length;
+
+  if (!abierto) {
+    return (
+      <button
+        onClick={() => setAbierto(true)}
+        style={{ ...pillButton, marginBottom: 20, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}
+      >
+         Cargar asistencia de hoy
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500 }}>Asistencia de hoy</div>
+        <button onClick={() => setAbierto(false)} style={{ background: "transparent", border: "none", color: "var(--h-sub2)", fontSize: 12, cursor: "pointer" }}>
+          Cerrar
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: "var(--h-sub)", marginBottom: 12 }}>
+        {cargando ? "Cargando…" : `${totalPresentes} presentes de ${totalMarcados} marcados · ${jugadoresOrdenados.length} en el plantel`}
+      </div>
+      {!cargando && Object.values(avisos).some((r) => r.respuesta === "voy") && (
+        <button onClick={marcarConfirmados} style={{ ...pillButton, fontSize: 12, marginBottom: 10, background: "transparent", border: "1px solid var(--h-ok)", color: "var(--h-ok)" }}>
+          Marcar presentes a los que confirmaron
+        </button>
+      )}
+      {!cargando && (
+        <div style={{ maxHeight: 340, overflowY: "auto" }}>
+          {jugadoresOrdenados.map((j) => {
+            const estado = presentes[j.dbId]; // true, false, o undefined = sin marcar
+            return (
+              <div
+                key={j.dbId}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 0", borderTop: "1px solid var(--h-borde)" }}
+              >
+                <span style={{ fontSize: 12.5, color: "var(--h-texto2)" }}>
+                  {j.id}
+                  {avisos[j.dbId] && (
+                    <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: avisos[j.dbId].respuesta === "voy" ? "var(--h-ok)" : "var(--h-error)" }}>
+                      {avisos[j.dbId].respuesta === "voy" ? "· confirmó" : `· avisó que no viene${avisos[j.dbId].motivo ? ` (${avisos[j.dbId].motivo})` : ""}`}
+                    </span>
+                  )}
+                </span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    onClick={() => marcar(j.dbId, true)}
+                    style={{
+                      ...pillButton, fontSize: 11, padding: "4px 10px",
+                      border: "1px solid " + (estado === true ? "var(--h-ok)" : "var(--h-borde2)"),
+                      background: estado === true ? "var(--h-ok-suave)" : "transparent",
+                      color: estado === true ? "var(--h-ok)" : "var(--h-sub2)",
+                    }}
+                  >
+                    Presente
+                  </button>
+                  <button
+                    onClick={() => marcar(j.dbId, false)}
+                    style={{
+                      ...pillButton, fontSize: 11, padding: "4px 10px",
+                      border: "1px solid " + (estado === false ? "var(--h-error)" : "var(--h-borde2)"),
+                      background: estado === false ? "var(--h-error-suave)" : "transparent",
+                      color: estado === false ? "var(--h-error)" : "var(--h-sub2)",
+                    }}
+                  >
+                    Ausente
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Los dos grupos de la práctica (A y B): se arman solos según el criterio que elija el club,
+// y el staff puede mover a mano a cualquier jugador (eso pisa el criterio).
+let GRUPOS_CONFIG = { criterio: "equipos", ajustes: {} };
+// Internamente los grupos son 1 y 2; en pantalla, A y B.
+const letraGrupo = (g) => (String(g) === "2" ? "B" : "A");
+
+const CRITERIOS_GRUPOS = {
+  equipos: { label: "Primeros 2 equipos", desc: "Grupo A: los de las formaciones de Superior e Intermedia. Grupo B: el resto." },
+  mitades: { label: "Mitades del plantel", desc: "El plantel partido en dos mitades parejas, mezclando puestos." },
+};
+
+async function cargarGruposPractica() {
+  const { data, error } = await supabase.from("grupos_practica").select("criterio, ajustes").maybeSingle();
+  if (error) {
+    console.error("Error cargando los grupos de práctica:", error);
+    return;
+  }
+  if (data) GRUPOS_CONFIG = { criterio: data.criterio || "equipos", ajustes: data.ajustes || {} };
+}
+
+async function guardarGruposPractica(config) {
+  GRUPOS_CONFIG = config;
+  const { error } = await supabase
+    .from("grupos_practica")
+    .upsert({ criterio: config.criterio, ajustes: config.ajustes, updated_at: new Date().toISOString() }, { onConflict: "club_id" });
+  if (error) console.error("Error guardando los grupos de práctica:", error);
+  return !error;
+}
+
+// Devuelve { [dbId]: 1 | 2 } y si cada uno fue puesto a mano.
+function calcularGrupos(config = GRUPOS_CONFIG) {
+  const jugadores = [...POOL].filter((j) => j.dbId);
+  const grupo = {};
+  const enEquipos = new Set(
+    ["Superior", "Intermedia"].flatMap((c) => (LINEUPS_INICIALES[c] || []).map((sl) => sl.jugadorId).filter(Boolean))
+  );
+  if (config.criterio === "equipos" && enEquipos.size > 0) {
+    jugadores.forEach((j) => { grupo[j.dbId] = enEquipos.has(j.id) ? 1 : 2; });
+  } else {
+    // Mitades parejas: ordenados por puesto y alternando, así cada grupo tiene de todos los puestos.
+    jugadores
+      .sort((a, b) => String(a.posicionIdeal || "").localeCompare(String(b.posicionIdeal || "")) || a.id.localeCompare(b.id))
+      .forEach((j, i) => { grupo[j.dbId] = (i % 2) + 1; });
+  }
+  const aMano = {};
+  Object.entries(config.ajustes || {}).forEach(([id, g]) => {
+    if (grupo[id] !== undefined && (g === 1 || g === 2)) { grupo[id] = g; aMano[id] = true; }
+  });
+  return { grupo, aMano };
+}
+
+function PanelGrupos({ onCambio }) {
+  const [config, setConfig] = useState(GRUPOS_CONFIG);
+  const [abierto, setAbierto] = useState(false);
+  const [aviso, setAviso] = useState("");
+  const { grupo, aMano } = calcularGrupos(config);
+  const lista = (g) => POOL.filter((j) => grupo[j.dbId] === g).sort((a, b) => a.id.localeCompare(b.id));
+  const sinFormaciones = config.criterio === "equipos" && !["Superior", "Intermedia"].some((c) => (LINEUPS_INICIALES[c] || []).some((sl) => sl.jugadorId));
+
+  async function aplicar(nueva) {
+    setConfig(nueva);
+    onCambio?.(nueva);
+    const ok = await guardarGruposPractica(nueva);
+    setAviso(ok ? "Guardado." : "No se pudo guardar.");
+    setTimeout(() => setAviso(""), 2000);
+  }
+  function mover(j) {
+    const destino = grupo[j.dbId] === 1 ? 2 : 1;
+    const base = calcularGrupos({ ...config, ajustes: {} }).grupo[j.dbId];
+    const ajustes = { ...config.ajustes };
+    if (destino === base) delete ajustes[j.dbId];
+    else ajustes[j.dbId] = destino;
+    aplicar({ ...config, ajustes });
+  }
+
+  if (!abierto) {
+    return (
+      <button onClick={() => setAbierto(true)} style={{ ...pillButton, marginBottom: 16, marginLeft: 8, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}>
+         Quién está en cada grupo
+      </button>
+    );
+  }
+  return (
+    <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)" }}>Grupos de práctica</span>
+        <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          {aviso && <span style={{ fontSize: 12, color: aviso.startsWith("No") ? "var(--h-error)" : "var(--h-ok)" }}>{aviso}</span>}
+          <button onClick={() => setAbierto(false)} style={{ background: "transparent", border: "none", color: "var(--h-sub2)", fontSize: 12.5, cursor: "pointer" }}>Cerrar</button>
+        </span>
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 8 }}>Cómo se arman solos:</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+        {Object.entries(CRITERIOS_GRUPOS).map(([k, v]) => (
+          <button
+            key={k}
+            onClick={() => k !== config.criterio && aplicar({ ...config, criterio: k })}
+            style={{
+              ...pillButton,
+              border: "1px solid " + (config.criterio === k ? "var(--h-acento)" : "var(--h-borde2)"),
+              background: config.criterio === k ? "var(--h-acento-suave)" : "transparent",
+              color: config.criterio === k ? "var(--h-acento)" : "var(--h-texto2)",
+            }}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: "var(--h-sub2)", marginBottom: 12 }}>
+        {CRITERIOS_GRUPOS[config.criterio].desc}
+        {sinFormaciones && " Todavía no hay formaciones cargadas, así que por ahora se parte el plantel en mitades."}
+        {" "}Tocá un jugador para pasarlo al otro grupo.
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+        {[1, 2].map((g) => (
+          <div key={g}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--h-texto)", marginBottom: 6 }}>Grupo {letraGrupo(g)} · {lista(g).length}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {lista(g).map((j) => (
+                <button
+                  key={j.dbId}
+                  onClick={() => mover(j)}
+                  title={`Pasar al Grupo ${letraGrupo(g === 1 ? 2 : 1)}`}
+                  style={{
+                    ...tagStyle, borderRadius: 999, cursor: "pointer", fontFamily: "var(--h-texto-fuente)",
+                    border: "1px solid " + (aMano[j.dbId] ? "var(--h-acento)" : "var(--h-borde)"),
+                    background: aMano[j.dbId] ? "var(--h-acento-suave)" : "transparent", color: "var(--h-texto2)",
+                  }}
+                >
+                  {j.id}{aMano[j.dbId] ? " " : ""}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {Object.keys(config.ajustes || {}).length > 0 && (
+        <button onClick={() => aplicar({ ...config, ajustes: {} })} style={{ ...pillButton, marginTop: 12, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
+          Volver a armarlos solos (sacar los )
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Fecha (de esta semana) del día elegido: "Martes 14".
+function fechaDiaSemana(dia, semanas = 0) {
+  const orden = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const hoy = new Date();
+  const lunes = new Date(hoy);
+  lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7) + 7 * semanas);
+  const d = new Date(lunes);
+  d.setDate(lunes.getDate() + orden.indexOf(dia));
+  return `${dia} ${d.getDate()}`;
+}
+
+function SesionPage({ perfil }) {
+  const puedeEditar = puedeGestionar(perfil);
+  const [sesiones, setSesiones] = useState(() => ({ ...SESIONES }));
+  // Abre en la próxima práctica: hoy si hay, si no la siguiente de la semana; si ya no quedan
+  // prácticas esta semana (ej. viernes), muestra la semana que viene.
+  const conPractica = (d) => ((SESIONES[d]?.grupo1 || []).length + (SESIONES[d]?.grupo2 || []).length) > 0;
+  const ORDEN_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const idxHoy = (new Date().getDay() + 6) % 7;
+  const proximaEstaSemana = DIAS_SEMANA.find((d) => ORDEN_SEMANA.indexOf(d) >= idxHoy && conPractica(d));
+  const [semanas] = useState(() => (proximaEstaSemana || !DIAS_SEMANA.some(conPractica) ? 0 : 1));
+  const [dia, setDia] = useState(() => proximaEstaSemana || DIAS_SEMANA.find(conPractica) || "Lunes");
+  const [editMode, setEditMode] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [aviso, setAviso] = useState("");
+  const sesion = sesiones[dia] || { grupo1: [], grupo2: [] };
+  const [gruposConfig, setGruposConfig] = useState(GRUPOS_CONFIG);
+  const { grupo: grupoDe } = calcularGrupos(gruposConfig);
+  const miGrupo = perfil?.rol === "Jugador" && perfil?.jugador_id ? grupoDe[perfil.jugador_id] || null : null;
+  const cantidad = (g) => Object.values(grupoDe).filter((x) => x === g).length;
+
+  useEffect(() => {
+    cargarSesiones().then(() => setSesiones({ ...SESIONES }));
+    cargarGruposPractica().then(() => setGruposConfig(GRUPOS_CONFIG));
+  }, []);
+
+  function cambiarDia(grupo, fn) {
+    setSesiones((prev) => {
+      const actual = prev[dia] || { grupo1: [], grupo2: [] };
+      return { ...prev, [dia]: { ...actual, [grupo]: fn(actual[grupo] || []) } };
+    });
+  }
+  const updateFila = (grupo, index, field, value) => cambiarDia(grupo, (filas) => filas.map((f, i) => (i === index ? { ...f, [field]: value } : f)));
+  const addFila = (grupo) => cambiarDia(grupo, (filas) => [...filas, { t: "", c: "", e: "", k: "fisico" }]);
+  const cambiarLugar = (n, valor) => setSesiones((prev) => ({ ...prev, [dia]: { ...(prev[dia] || { grupo1: [], grupo2: [] }), ["lugar" + n]: valor } }));
+  const deleteFila = (grupo, index) => cambiarDia(grupo, (filas) => filas.filter((_, i) => i !== index));
+
+  async function guardar() {
+    setGuardando(true);
+    const limpiar = (filas) => (filas || []).filter((f) => (f.c || "").trim() || (f.t || "").trim()).map((f) => ({ ...f, k: tipoBloque(f) }));
+    const grupos = { grupo1: limpiar(sesion.grupo1), grupo2: limpiar(sesion.grupo2), lugar1: (sesion.lugar1 || "").trim(), lugar2: (sesion.lugar2 || "").trim() };
+    const { error } = await supabase
+      .from("sesiones_practica")
+      .upsert({ dia, grupos, updated_at: new Date().toISOString() }, { onConflict: "club_id,dia" });
+    setGuardando(false);
+    if (error) {
+      console.error("Error guardando la práctica:", error);
+      setAviso("No se pudo guardar. Probá de nuevo.");
+      return;
+    }
+    SESIONES[dia] = grupos;
+    setSesiones((prev) => ({ ...prev, [dia]: grupos }));
+    setEditMode(false);
+    setAviso("Práctica guardada.");
+    setTimeout(() => setAviso(""), 2500);
+  }
+
+  const min1 = (sesion.grupo1 || []).reduce((a, f) => a + minutosBloque(f), 0);
+  const min2 = (sesion.grupo2 || []).reduce((a, f) => a + minutosBloque(f), 0);
+  const gruposConBloques = [sesion.grupo1, sesion.grupo2].filter((g) => g && g.length).length;
+  const vacia = gruposConBloques === 0;
+  const todas = [...(sesion.grupo1 || []), ...(sesion.grupo2 || [])];
+  const tiposUsados = Object.keys(TIPOS_BLOQUE).filter((k) => todas.some((f) => tipoBloque(f) === k));
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Práctica del día</div>
+          <div style={{ fontSize: 14, color: "var(--h-sub)", marginTop: 4 }}>
+            {fechaDiaSemana(dia, semanas)}{semanas ? " (semana que viene)" : ""}
+            {!vacia && ` · ${Math.max(min1, min2)} minutos · ${gruposConBloques} ${gruposConBloques === 1 ? "grupo" : "grupos"}`}
+          </div>
+        </div>
+        {puedeEditar && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {aviso && <span style={{ fontSize: 12.5, color: aviso.startsWith("No") ? "var(--h-error)" : "var(--h-ok)" }}>{aviso}</span>}
+            {editMode ? (
+              <>
+                <button onClick={() => { setSesiones({ ...SESIONES }); setEditMode(false); }} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
+                  Cancelar
+                </button>
+                <button onClick={guardar} disabled={guardando} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
+                  {guardando ? "Guardando…" : "Guardar"}
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => setEditMode(true)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}>
+                  {vacia ? "Armar práctica" : "Editar"}
+                </button>
+                {!vacia && (
+                  <button
+                    onClick={() => crearNotificacion("sesion_planificada", `Práctica del ${dia.toLowerCase()} lista — revisala.`, null, perfil?.id)}
+                    style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}
+                  >
+                    Mandarla al staff
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {puedeEditar && !vacia && <ConfirmacionesPractica dia={dia} perfil={perfil} semanas={semanas} />}
+      {puedeEditar && (
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start" }}>
+          <AsistenciaPanel perfil={perfil} />
+          <PanelGrupos onCambio={setGruposConfig} />
+        </div>
+      )}
+
+      {miGrupo && (
+        <div style={{ ...cardStyle, padding: "12px 16px", marginBottom: 14, borderLeft: "4px solid var(--h-club)", fontSize: 14, color: "var(--h-texto)" }}>
+          Esta semana estás en el <b>Grupo {letraGrupo(miGrupo)}</b>. Abajo tenés tu práctica.
+        </div>
+      )}
+
+      <TiraSemana
+        dia={dia}
+        semanas={semanas}
+        onDia={(d) => { setDia(d); setEditMode(false); }}
+        habilitado={(d) => DIAS_SEMANA.includes(d) && (puedeEditar || (sesiones[d]?.grupo1?.length || 0) + (sesiones[d]?.grupo2?.length || 0) > 0)}
+        marcado={(d) => (sesiones[d]?.grupo1?.length || 0) + (sesiones[d]?.grupo2?.length || 0) > 0}
+      />
+
+      {tiposUsados.length > 0 && (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14, fontSize: 12, color: "var(--h-sub)" }}>
+          {tiposUsados.map((k) => (
+            <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: TIPOS_BLOQUE[k].color }} />
+              {TIPOS_BLOQUE[k].label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {vacia && !editMode ? (
+        <div style={{ ...cardStyle, padding: "22px 20px", fontSize: 14, color: "var(--h-sub)" }}>
+          No hay práctica cargada para el {dia.toLowerCase()}.
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          {["grupo1", "grupo2"].filter((g, gi) => !miGrupo || miGrupo === gi + 1).map((g) => (
+            <GrupoTabla
+              key={g}
+              titulo={`Grupo ${letraGrupo(g.slice(-1))}${cantidad(+g.slice(-1)) ? ` · ${cantidad(+g.slice(-1))} jugadores` : ""}`}
+              filas={sesion[g] || []}
+              lugar={sesion["lugar" + g.slice(-1)]}
+              onLugar={(v) => cambiarLugar(g.slice(-1), v)}
+              editMode={editMode}
+              onChange={(i, field, value) => updateFila(g, i, field, value)}
+              onDelete={(i) => deleteFila(g, i)}
+              onAdd={() => addFila(g)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const DIAS_GYM = ["Lunes", "Miércoles", "Viernes"];
+
+const PLAN_GYM_INICIAL = {
+  Lunes: [
+    { titulo: "Entrada en calor", ejercicios: [
+      { nombre: "Bicicleta", detalle: "Ritmo suave", valor: "6'" },
+      { nombre: "Saltos a la soga", detalle: "", valor: "3x30\"" },
+    ] },
+    { titulo: "Trabajo principal", descanso: "2'", ejercicios: [
+      { nombre: "Sentadilla trasera", detalle: "", valor: "4x6" },
+      { nombre: "Peso muerto rumano", detalle: "", valor: "3x8" },
+      { nombre: "Estocada con mancuernas", detalle: "c/pierna", valor: "3x8" },
+    ] },
+    { titulo: "Complementos", ejercicios: [
+      { nombre: "Hip thrust", detalle: "", valor: "3x10" },
+      { nombre: "Pallof press", detalle: "c/lado", valor: "3x10" },
+    ] },
+  ],
+  Miércoles: [
+    { titulo: "Entrada en calor", ejercicios: [
+      { nombre: "Remo ergómetro", detalle: "", valor: "5'" },
+      { nombre: "Rotaciones con banda", detalle: "Hombros", valor: "2x12" },
+    ] },
+    { titulo: "Trabajo principal", descanso: "2'", ejercicios: [
+      { nombre: "Press banca", detalle: "", valor: "4x6" },
+      { nombre: "Remo con barra", detalle: "", valor: "4x8" },
+      { nombre: "Press militar", detalle: "", valor: "3x8" },
+      { nombre: "Dominadas", detalle: "Con ayuda si hace falta", valor: "3xmáx" },
+    ] },
+    { titulo: "Complementos", ejercicios: [
+      { nombre: "Curl femoral nórdico", detalle: "", valor: "3x6" },
+      { nombre: "Face pull", detalle: "", valor: "3x12" },
+    ] },
+  ],
+  Viernes: [
+    { titulo: "Entrada en calor", ejercicios: [
+      { nombre: "Trote y skipping", detalle: "Liviano, se juega mañana", valor: "8'" },
+    ] },
+    { titulo: "Trabajo principal", ejercicios: [
+      { nombre: "Salto al cajón", detalle: "", valor: "4x4" },
+      { nombre: "Cargada de potencia", detalle: "Poco peso, buena técnica", valor: "4x3" },
+    ] },
+    { titulo: "Complementos", ejercicios: [
+      { nombre: "Dead bug", detalle: "c/lado", valor: "3x10" },
+      { nombre: "Plancha lateral", detalle: "c/lado", valor: "3x30\"" },
+    ] },
+  ],
+};
+
+// Tira de la semana (lunes a domingo) con el número de día. Solo se pueden tocar los días que tienen algo.
+function TiraSemana({ dia, onDia, habilitado, marcado, semanas = 0 }) {
+  const orden = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const hoy = new Date();
+  const lunes = new Date(hoy);
+  lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7) + 7 * semanas);
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 18, maxWidth: 460 }}>
+      {orden.map((d, i) => {
+        const f = new Date(lunes);
+        f.setDate(lunes.getDate() + i);
+        const esHoy = f.toDateString() === hoy.toDateString();
+        const ok = habilitado(d);
+        const sel = dia === d;
+        return (
+          <button
+            key={d}
+            onClick={() => ok && onDia(d)}
+            disabled={!ok}
+            aria-pressed={sel}
+            aria-label={d}
+            style={{
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "7px 0 6px",
+              borderRadius: 12, border: "none", cursor: ok ? "pointer" : "default",
+              background: sel ? "var(--h-club)" : "transparent",
+              color: sel ? "var(--h-club-txt)" : ok ? "var(--h-texto)" : "var(--h-sub2)",
+              opacity: ok ? 1 : 0.55,
+            }}
+          >
+            <span style={{ fontSize: 11, fontWeight: 600 }}>{d.charAt(0)}</span>
+            <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--h-titulo)", lineHeight: 1.1 }}>{f.getDate()}</span>
+            <span style={{ width: 5, height: 5, borderRadius: "50%", background: esHoy ? (sel ? "var(--h-club-txt)" : "var(--h-club)") : marcado?.(d) && !sel ? "var(--h-borde2)" : "transparent" }} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Plan del gimnasio por día → grupo (1 y 2) → puesto. Cada grupo tiene su plan general ("todos") y
+// cualquier puesto puede tener un plan propio que reemplaza al general para los jugadores de ese puesto.
+// { Lunes: { g1: { todos: [bloques], "Medio scrum": [bloques] }, g2: { todos: [...] } }, ... }
+const clonar = (x) => JSON.parse(JSON.stringify(x));
+function normalizarDiaGym(v) {
+  if (Array.isArray(v)) return { g1: { todos: v }, g2: { todos: clonar(v) } };
+  if (v && typeof v === "object") return { g1: { todos: [], ...(v.g1 || {}) }, g2: { todos: [], ...(v.g2 || {}) } };
+  return { g1: { todos: [] }, g2: { todos: [] } };
+}
+function normalizarPlanGym(plan) {
+  return Object.fromEntries(DIAS_GYM.map((d) => [d, normalizarDiaGym(plan?.[d])]));
+}
+function bloquesGym(plan, dia, grupo, puesto) {
+  const g = plan?.[dia]?.[`g${grupo}`];
+  if (!g) return [];
+  return puesto && Array.isArray(g[puesto]) ? g[puesto] : g.todos || [];
+}
+function grupoYPuestoDe(jugadorDbId) {
+  const j = POOL.find((x) => x.dbId === jugadorDbId);
+  return { grupo: calcularGrupos().grupo[jugadorDbId] || 1, puesto: j?.posicionIdeal || null };
+}
+// El plan que le toca a un jugador ese día (sin jugador: el general del Grupo A).
+function planGymDe(dia, jugadorDbId) {
+  if (!jugadorDbId) return bloquesGym(PLAN_GYM, dia, 1, null);
+  const { grupo, puesto } = grupoYPuestoDe(jugadorDbId);
+  return bloquesGym(PLAN_GYM, dia, grupo, puesto);
+}
+
+// Plan vigente del club (lo que se ve en Gimnasio, en Inicio y en "Tu semana"). Arranca con el de base.
+let PLAN_GYM = normalizarPlanGym(PLAN_GYM_INICIAL);
+async function cargarPlanGym() {
+  const { data, error } = await supabase.from("plan_gimnasio_club").select("plan").maybeSingle();
+  if (error) { console.error("Error cargando el plan de gimnasio:", error); return; }
+  if (data?.plan && typeof data.plan === "object") PLAN_GYM = normalizarPlanGym({ ...PLAN_GYM_INICIAL, ...data.plan });
+}
+
+// ── Videos de los ejercicios ──
+function idYoutube(url) {
+  const m = String(url || "").match(/(?:youtu\.be\/|[?&]v=|shorts\/|embed\/|live\/)([\w-]{11})/);
+  return m ? m[1] : null;
+}
+const busquedaVideo = (nombre) => `https://www.youtube.com/results?search_query=${encodeURIComponent(nombre + " ejercicio técnica")}`;
+function prescripcion(e) {
+  const m = String(e.valor || "").match(/^\s*(\d+)\s*x\s*(.+)$/i);
+  return m ? `${m[1]} × ${m[2].trim()}` : e.valor || "";
+}
+function seriesDe(e) {
+  const m = String(e.valor || "").match(/^(\d+)\s*x\s*(\d+)/i);
+  if (!m || /["'’”]/.test(String(e.valor))) return null; // los de tiempo no llevan peso
+  return { series: Math.min(10, Number(m[1])), reps: Number(m[2]) };
+}
+
+// Edición (solo staff): por ejercicio, nombre, series, detalle, link del video y superserie.
+function BloqueGym({ bloque, editMode, onChangeTitulo, onChangeBloque, onChangeEjercicio, onDeleteEjercicio, onAddEjercicio, onDeleteBloque }) {
+  const campo = (lbl, el, flex) => (
+    <label style={{ display: "flex", flexDirection: "column", gap: 3, flex, minWidth: 0 }}>
+      <span style={{ fontSize: 11, color: "var(--h-sub2)" }}>{lbl}</span>
+      {el}
+    </label>
+  );
+  return (
+    <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 14, borderLeft: "4px solid var(--h-club)" }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 12 }}>
+        {campo("Bloque", <input style={{ ...editInputStyle, fontWeight: 700 }} value={bloque.titulo} onChange={(e) => onChangeTitulo(e.target.value)} />, "2 1 200px")}
+        {campo("Pausa entre series", <input style={editInputStyle} value={bloque.descanso || ""} placeholder={"ej. 90\" o 2'"} onChange={(e) => onChangeBloque("descanso", e.target.value)} />, "1 1 120px")}
+        <button onClick={onDeleteBloque} style={{ background: "transparent", border: "none", color: "var(--h-sub2)", cursor: "pointer", fontSize: 12.5, padding: "8px 0" }}>Eliminar bloque</button>
+      </div>
+      {bloque.ejercicios.map((e, i) => (
+        <div key={i} style={{ borderTop: "1px solid var(--h-borde)", padding: "10px 0", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+          {campo("Ejercicio", <input style={editInputStyle} value={e.nombre} onChange={(ev) => onChangeEjercicio(i, "nombre", ev.target.value)} />, "2 1 180px")}
+          {campo("Series", <input style={editInputStyle} value={e.valor} placeholder="4x6" onChange={(ev) => onChangeEjercicio(i, "valor", ev.target.value)} />, "0 1 80px")}
+          {campo("Superserie", <input style={{ ...editInputStyle, textTransform: "uppercase" }} maxLength={1} value={e.grupo || ""} placeholder="A" onChange={(ev) => onChangeEjercicio(i, "grupo", ev.target.value.toUpperCase())} />, "0 1 70px")}
+          {campo("Detalle", <input style={editInputStyle} value={e.detalle} placeholder="RIR 2-3, c/pierna…" onChange={(ev) => onChangeEjercicio(i, "detalle", ev.target.value)} />, "2 1 160px")}
+          {campo("Link del video (YouTube)", <input style={editInputStyle} value={e.video || ""} placeholder="https://youtu.be/…" onChange={(ev) => onChangeEjercicio(i, "video", ev.target.value.trim())} />, "3 1 220px")}
+          <button onClick={() => onDeleteEjercicio(i)} aria-label="Quitar ejercicio" style={{ background: "transparent", border: "none", color: "var(--h-sub2)", cursor: "pointer", fontSize: 18, padding: "6px 4px" }}>×</button>
+        </div>
+      ))}
+      <button onClick={onAddEjercicio} style={{ ...pillButton, marginTop: 12, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)", width: "100%" }}>
+        + Agregar ejercicio
+      </button>
+    </div>
+  );
+}
+
+// Vista del plan: bloques plegables, cada ejercicio se toca para ver el video y cargar las series.
+function BloqueGymVista({ bloque, inicio, hechos, onAbrir }) {
+  const [abierto, setAbierto] = useState(true);
+  const total = bloque.ejercicios.length;
+  const listos = bloque.ejercicios.filter((e) => hechos.has(e.nombre)).length;
+  return (
+    <div style={{ ...cardStyle, padding: 0, marginBottom: 12, overflow: "hidden" }}>
+      <button
+        onClick={() => setAbierto((v) => !v)}
+        aria-expanded={abierto}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "var(--h-club)", color: "var(--h-club-txt)", border: "none", cursor: "pointer", textAlign: "left" }}
+      >
+        <span style={{ flex: 1, fontFamily: "var(--h-titulo)", fontSize: 18, fontWeight: 800 }}>{bloque.titulo}</span>
+        {listos > 0 && <span style={{ fontSize: 12.5, fontWeight: 700, opacity: 0.9 }}>{listos}/{total}</span>}
+        <span aria-hidden style={{ fontSize: 14, transform: abierto ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
+      </button>
+      {abierto && (
+        <div style={{ padding: "4px 0" }}>
+          {bloque.ejercicios.map((e, i) => {
+            const hecho = hechos.has(e.nombre);
+            const ultimo = i === total - 1;
+            return (
+              <button
+                key={i}
+                onClick={() => onAbrir(inicio + i)}
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left", position: "relative" }}
+              >
+                {!ultimo && <span aria-hidden style={{ position: "absolute", left: 35, top: 46, bottom: -10, width: 2, background: "var(--h-borde)" }} />}
+                <span style={{
+                  position: "relative", flexShrink: 0, width: 40, height: 40, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                  background: hecho ? "var(--h-ok)" : "var(--h-panel)", border: hecho ? "none" : "2px solid var(--h-borde2)",
+                  color: hecho ? "#fff" : "var(--h-sub)", fontSize: hecho ? 18 : 14, fontWeight: 800,
+                }}>
+                  {hecho ? "✓" : inicio + i + 1}
+                  {e.grupo && (
+                    <span style={{ position: "absolute", right: -4, bottom: -4, minWidth: 18, height: 18, borderRadius: 9, background: "var(--h-club)", color: "var(--h-club-txt)", fontSize: 10.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid var(--h-panel)" }}>{e.grupo}</span>
+                  )}
+                </span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: 15, fontWeight: 600, color: "var(--h-texto)" }}>{e.nombre || "(sin nombre)"}</span>
+                  <span style={{ display: "block", fontSize: 13, color: "var(--h-sub)", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {[prescripcion(e), e.detalle].filter(Boolean).join(" · ")}
+                  </span>
+                </span>
+                {e.video && <span aria-label="Tiene video" style={{ fontSize: 12, fontWeight: 700, color: "var(--h-acento)", border: "1.5px solid var(--h-acento)", borderRadius: 999, padding: "2px 8px" }}>▶ Video</span>}
+                <span aria-hidden style={{ color: "var(--h-sub2)", fontSize: 18 }}>›</span>
+              </button>
+            );
+          })}
+          {bloque.descanso && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 16px 12px", color: "var(--h-sub)", fontSize: 13.5 }}>
+              <span aria-hidden style={{ width: 40, textAlign: "center", fontSize: 18 }}>⏱</span>
+              Pausa de {bloque.descanso} entre series
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Pantalla de un ejercicio: video, indicación y tabla de series para cargar kilos y repeticiones.
+function EjercicioGym({ lista, idx, setIdx, onCerrar, jugadorId, dia, puedeEditar, onGuardado }) {
+  const item = lista[idx];
+  const e = item.ej;
+  const sr = seriesDe(e);
+  const vid = idYoutube(e.video);
+  const hoy = fechaHoyGym();
+  const [historial, setHistorial] = useState([]);
+  const [filas, setFilas] = useState([]);
+  const [msg, setMsg] = useState("");
+  const [guardando, setGuardando] = useState(false);
+
+  async function cargarHistorial() {
+    if (!jugadorId || !sr) { setHistorial([]); return; }
+    const { data } = await supabase.from("registros_gimnasio").select("fecha, serie, repeticiones, peso_kg")
+      .eq("jugador_id", jugadorId).eq("ejercicio", e.nombre).order("fecha", { ascending: false }).order("serie").limit(200);
+    setHistorial(data || []);
+  }
+  useEffect(() => {
+    setMsg("");
+    setFilas(sr ? Array.from({ length: sr.series }, () => ({ kg: "", reps: String(sr.reps) })) : []);
+    cargarHistorial();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx, jugadorId]);
+  useEffect(() => {
+    function tecla(ev) {
+      if (ev.key === "Escape") onCerrar();
+      if (ev.target?.tagName === "INPUT") return;
+      if (ev.key === "ArrowRight" && idx < lista.length - 1) setIdx(idx + 1);
+      if (ev.key === "ArrowLeft" && idx > 0) setIdx(idx - 1);
+    }
+    window.addEventListener("keydown", tecla);
+    const ov = document.body.style.overflow; document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", tecla); document.body.style.overflow = ov; };
+  }, [idx, lista.length]);
+
+  const deHoy = historial.filter((r) => r.fecha === hoy).sort((a, b) => a.serie - b.serie);
+  const fechaAnt = historial.find((r) => r.fecha < hoy)?.fecha;
+  const anterior = fechaAnt ? historial.filter((r) => r.fecha === fechaAnt).sort((a, b) => a.serie - b.serie) : [];
+  const mejor = Math.max(0, ...historial.map((r) => Number(r.peso_kg) || 0));
+
+  async function guardar() {
+    const nuevas = filas.map((f, i) => ({ ...f, i })).filter((f) => f.kg !== "")
+      .map((f) => ({ jugador_id: jugadorId, fecha: hoy, dia_plan: dia, ejercicio: e.nombre, serie: f.i + 1, repeticiones: Number(f.reps) || null, peso_kg: Number(String(f.kg).replace(",", ".")) }));
+    if (!nuevas.length) { setMsg("Anotá los kilos de al menos una serie."); return; }
+    if (nuevas.some((f) => !(f.peso_kg >= 0 && f.peso_kg <= 1000))) { setMsg("Revisá los kilos: números entre 0 y 1000."); return; }
+    setGuardando(true);
+    const { error } = await supabase.from("registros_gimnasio").insert(nuevas);
+    setGuardando(false);
+    if (error) { setMsg("No se pudo guardar. Probá de nuevo."); return; }
+    onGuardado(e.nombre);
+    if (idx < lista.length - 1) setIdx(idx + 1); else { await cargarHistorial(); setMsg("✓ Guardado. ¡Terminaste la sesión!"); }
+  }
+  async function corregir() {
+    await supabase.from("registros_gimnasio").delete().eq("jugador_id", jugadorId).eq("fecha", hoy).eq("ejercicio", e.nombre);
+    onGuardado(e.nombre, true);
+    cargarHistorial();
+  }
+
+  const celda = { ...inputStyle, padding: "12px 8px", fontSize: 17, fontWeight: 700, textAlign: "center", width: "100%", marginTop: 0 };
+  const navBtn = (lbl, onClick, dis, aria) => (
+    <button onClick={onClick} disabled={dis} aria-label={aria}
+      style={{ width: 52, height: 52, borderRadius: "50%", border: "1px solid var(--h-borde2)", background: "var(--h-panel)", color: dis ? "var(--h-sub2)" : "var(--h-texto)", fontSize: 20, cursor: dis ? "default" : "pointer", opacity: dis ? 0.5 : 1 }}>{lbl}</button>
+  );
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label={e.nombre} style={{ position: "fixed", inset: 0, zIndex: 120, background: "var(--h-fondo)", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid var(--h-borde)", background: "var(--h-panel)" }}>
+        <span style={{ flex: 1, fontSize: 13, color: "var(--h-sub)", fontWeight: 600 }}>{item.bloque} · {idx + 1} de {lista.length}</span>
+        <button onClick={onCerrar} aria-label="Cerrar" style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid var(--h-borde2)", background: "transparent", color: "var(--h-texto)", fontSize: 18, cursor: "pointer" }}>×</button>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "16px 16px 24px" }}>
+          {vid ? (
+            <div style={{ position: "relative", paddingTop: "56.25%", borderRadius: 14, overflow: "hidden", background: "#000", marginBottom: 16 }}>
+              <iframe
+                key={vid}
+                src={`https://www.youtube-nocookie.com/embed/${vid}?rel=0&playsinline=1&modestbranding=1`}
+                title={`Video: ${e.nombre}`}
+                allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                allowFullScreen
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }}
+              />
+            </div>
+          ) : (
+            <a href={e.video || busquedaVideo(e.nombre)} target="_blank" rel="noopener noreferrer"
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, minHeight: 120, borderRadius: 14, marginBottom: 16, textDecoration: "none", background: "var(--h-panel)", border: "1px dashed var(--h-borde2)", color: "var(--h-acento)", fontWeight: 700, fontSize: 15, textAlign: "center", padding: 16 }}>
+              ▶ {e.video ? "Ver el video del ejercicio" : "Buscar un video del ejercicio"}
+            </a>
+          )}
+          {!e.video && puedeEditar && (
+            <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: -8, marginBottom: 14 }}>Para que se vea acá adentro, pegá el link de YouTube en Editar › Link del video.</div>
+          )}
+
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 28, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1.1 }}>{e.nombre}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+            {e.valor && <span style={{ ...tagStyle, fontSize: 14, padding: "4px 10px" }}>{prescripcion(e)}</span>}
+            {e.grupo && <span style={{ fontSize: 13, color: "var(--h-sub)" }}>Superserie {e.grupo}</span>}
+            {mejor > 0 && <span style={{ fontSize: 13, color: "var(--h-sub)" }}>Mejor marca: <b style={{ color: "var(--h-texto)" }}>{mejor} kg</b></span>}
+          </div>
+          {e.detalle && <div style={{ fontSize: 15, color: "var(--h-texto2)", marginTop: 10 }}>{e.detalle}</div>}
+
+          {sr && jugadorId && (
+            <div style={{ marginTop: 20 }}>
+              {deHoy.length ? (
+                <div style={{ ...cardStyle, padding: "14px 16px" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--h-ok)", marginBottom: 8 }}>✓ Cargado hoy</div>
+                  {deHoy.map((r) => (
+                    <div key={r.serie} style={{ display: "flex", justifyContent: "space-between", fontSize: 15, padding: "6px 0", borderTop: "1px solid var(--h-borde)", color: "var(--h-texto)" }}>
+                      <span>Serie {r.serie}</span><span><b>{Number(r.peso_kg)} kg</b> × {r.repeticiones ?? "–"}</span>
+                    </div>
+                  ))}
+                  <button onClick={corregir} style={{ background: "transparent", border: "none", color: "var(--h-sub)", fontSize: 13, textDecoration: "underline", cursor: "pointer", padding: "8px 0 0" }}>Corregir</button>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "56px 1fr 1fr", gap: 10, fontSize: 12, fontWeight: 700, color: "var(--h-sub)", textAlign: "center", marginBottom: 6 }}>
+                    <span>Serie</span><span>Kilos</span><span>Reps</span>
+                  </div>
+                  {filas.map((f, i) => (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "56px 1fr 1fr", gap: 10, alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ textAlign: "center", fontSize: 17, fontWeight: 800, color: "var(--h-texto)" }}>{i + 1}</span>
+                      <input type="number" inputMode="decimal" min="0" step="0.5" aria-label={`Serie ${i + 1}, kilos`}
+                        placeholder={anterior[i] ? String(Number(anterior[i].peso_kg)) : "kg"} value={f.kg}
+                        onChange={(ev) => setFilas((p) => p.map((x, j) => (j === i ? { ...x, kg: ev.target.value } : x)))} style={celda} />
+                      <input type="number" inputMode="numeric" min="0" step="1" aria-label={`Serie ${i + 1}, repeticiones`} value={f.reps}
+                        onChange={(ev) => setFilas((p) => p.map((x, j) => (j === i ? { ...x, reps: ev.target.value } : x)))} style={{ ...celda, color: "var(--h-texto2)" }} />
+                    </div>
+                  ))}
+                  {anterior.length > 0 && (
+                    <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 2 }}>
+                      La vez anterior ({fechaCorta(fechaAnt)}): {anterior.map((r) => `${Number(r.peso_kg)}×${r.repeticiones ?? "–"}`).join(" · ")}
+                    </div>
+                  )}
+                  <button onClick={guardar} disabled={guardando} style={{ ...buttonStyle, marginTop: 14 }}>
+                    {guardando ? "Guardando…" : idx < lista.length - 1 ? "Guardar y seguir" : "Guardar"}
+                  </button>
+                </>
+              )}
+              {msg && <div style={{ fontSize: 13.5, marginTop: 10, color: msg.startsWith("✓") ? "var(--h-ok)" : "var(--h-error)" }}>{msg}</div>}
+            </div>
+          )}
+        </div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "center", gap: 18, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", borderTop: "1px solid var(--h-borde)", background: "var(--h-panel)" }}>
+        {navBtn("←", () => setIdx(idx - 1), idx === 0, "Ejercicio anterior")}
+        {navBtn("×", onCerrar, false, "Cerrar")}
+        {navBtn("→", () => setIdx(idx + 1), idx === lista.length - 1, "Ejercicio siguiente")}
+      </div>
+    </div>
+  );
+}
+
+function GimnasioPage({ perfil }) {
+  const [plan, setPlan] = useState(PLAN_GYM);
+  const puedeEditarGym = puedeGestionar(perfil);
+  const [guardandoGym, setGuardandoGym] = useState(false);
+  const [avisoGym, setAvisoGym] = useState("");
+  useEffect(() => { cargarPlanGym().then(() => setPlan(PLAN_GYM)); }, []);
+  async function guardarPlan() {
+    setGuardandoGym(true);
+    const { error } = await supabase.from("plan_gimnasio_club").upsert({ plan, updated_at: new Date().toISOString() }, { onConflict: "club_id" });
+    setGuardandoGym(false);
+    if (error) { console.error("Error guardando el plan:", error); setAvisoGym("No se pudo guardar. Probá de nuevo."); return; }
+    PLAN_GYM = plan;
+    setEditMode(false);
+    setAvisoGym("Plan guardado. Ya lo ve todo el plantel.");
+    setTimeout(() => setAvisoGym(""), 3000);
+  }
+  // Abre en el día de gimnasio de hoy si corresponde (lunes, miércoles o viernes).
+  const [dia, setDia] = useState(() => {
+    const hoy = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date().getDay()];
+    return DIAS_GYM.includes(hoy) ? hoy : "Lunes";
+  });
+  const [editMode, setEditMode] = useState(false);
+  const jugadorPropio = perfil?.jugador_id || "";
+  const mio = jugadorPropio ? grupoYPuestoDe(jugadorPropio) : null;
+  // Qué plan se ve / edita: el jugador ve el suyo; el staff elige grupo y puesto.
+  const [sel, setSel] = useState(() => (mio && !puedeEditarGym ? { grupo: mio.grupo, puesto: mio.puesto } : { grupo: 1, puesto: null }));
+  const grupoDia = plan[dia]?.[`g${sel.grupo}`] || { todos: [] };
+  const tienePropio = !!(sel.puesto && Array.isArray(grupoDia[sel.puesto]));
+  const clave = sel.puesto && tienePropio ? sel.puesto : "todos";
+  const bloques = editMode ? grupoDia[clave] || [] : bloquesGym(plan, dia, sel.grupo, sel.puesto);
+  // Cambia el plan que se está editando (día + grupo + puesto, o el general del grupo).
+  function mutar(fn) {
+    setPlan((prev) => {
+      const next = clonar(prev);
+      next[dia] = normalizarDiaGym(next[dia]);
+      const g = next[dia][`g${sel.grupo}`];
+      g[clave] = fn(g[clave] || []);
+      return next;
+    });
+  }
+  function armarPropio() {
+    setPlan((prev) => {
+      const next = clonar(prev);
+      const g = next[dia][`g${sel.grupo}`];
+      g[sel.puesto] = clonar(g.todos || []);
+      return next;
+    });
+  }
+  function quitarPropio() {
+    if (!window.confirm(`¿Borrar el plan propio de ${sel.puesto}? Vuelve a usar el general del Grupo ${letraGrupo(sel.grupo)}.`)) return;
+    setPlan((prev) => {
+      const next = clonar(prev);
+      delete next[dia][`g${sel.grupo}`][sel.puesto];
+      return next;
+    });
+  }
+  function copiarAlOtroGrupo() {
+    const otro = sel.grupo === 1 ? 2 : 1;
+    if (!window.confirm(`¿Copiar este plan del ${dia.toLowerCase()} (${sel.puesto || "general"}) al Grupo ${letraGrupo(otro)}? Reemplaza lo que tenga.`)) return;
+    setPlan((prev) => {
+      const next = clonar(prev);
+      next[dia][`g${otro}`][clave] = clonar(next[dia][`g${sel.grupo}`][clave] || []);
+      return next;
+    });
+  }
+  const [abiertoIdx, setAbiertoIdx] = useState(null);
+  const [hechos, setHechos] = useState(new Set());
+  const [versionCargas, setVersionCargas] = useState(0);
+  const lista = bloques.flatMap((b) => b.ejercicios.map((ej) => ({ ej, bloque: b.titulo })));
+  useEffect(() => {
+    if (!jugadorPropio) return;
+    supabase.from("registros_gimnasio").select("ejercicio").eq("jugador_id", jugadorPropio).eq("fecha", fechaHoyGym())
+      .then(({ data }) => setHechos(new Set((data || []).map((r) => r.ejercicio))));
+  }, [jugadorPropio, versionCargas]);
+  useEffect(() => { setAbiertoIdx(null); }, [dia]);
+
+  function updateBloque(bi, field, value) {
+    mutar((bs) => bs.map((b, i) => (i === bi ? { ...b, [field]: value } : b)));
+  }
+  function updateTitulo(bi, value) { updateBloque(bi, "titulo", value); }
+  function updateEjercicio(bi, ei, field, value) {
+    mutar((bs) => bs.map((b, i) => (i === bi ? { ...b, ejercicios: b.ejercicios.map((e, j) => (j === ei ? { ...e, [field]: value } : e)) } : b)));
+  }
+  function addEjercicio(bi) {
+    mutar((bs) => bs.map((b, i) => (i === bi ? { ...b, ejercicios: [...b.ejercicios, { nombre: "", detalle: "", valor: "" }] } : b)));
+  }
+  function deleteEjercicio(bi, ei) {
+    mutar((bs) => bs.map((b, i) => (i === bi ? { ...b, ejercicios: b.ejercicios.filter((_, j) => j !== ei) } : b)));
+  }
+  function deleteBloque(bi) { mutar((bs) => bs.filter((_, i) => i !== bi)); }
+  function addBloque() { mutar((bs) => [...bs, { titulo: "Nuevo bloque", ejercicios: [] }]); }
+
+  // Selector de grupo y puesto (staff) / a qué plan corresponde lo que ve el jugador.
+  const chip = (activo) => ({
+    ...pillButton, fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, padding: "6px 12px",
+    border: "1px solid " + (activo ? "var(--h-acento)" : "var(--h-borde2)"),
+    background: activo ? "var(--h-acento-suave)" : "transparent",
+    color: activo ? "var(--h-acento)" : "var(--h-texto2)",
+  });
+  const selector = puedeEditarGym ? (
+    <div style={{ marginBottom: 14 }}>
+      <div role="tablist" aria-label="Grupo" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 12, background: "var(--h-panel)", border: "1px solid var(--h-borde)", maxWidth: 420 }}>
+        {[1, 2].map((g) => (
+          <button key={g} role="tab" aria-selected={sel.grupo === g} onClick={() => setSel((x) => ({ ...x, grupo: g }))}
+            style={{ padding: "9px 6px", borderRadius: 9, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 14, background: sel.grupo === g ? "var(--h-club)" : "transparent", color: sel.grupo === g ? "var(--h-club-txt)" : "var(--h-texto2)" }}>
+            Grupo {letraGrupo(g)}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "10px 0 2px", WebkitOverflowScrolling: "touch" }}>
+        <button onClick={() => setSel((x) => ({ ...x, puesto: null }))} style={chip(!sel.puesto)}>Todos los puestos</button>
+        {POSICIONES_LISTA.map((pu) => {
+          const propio = Array.isArray(plan[dia]?.[`g${sel.grupo}`]?.[pu]);
+          return (
+            <button key={pu} onClick={() => setSel((x) => ({ ...x, puesto: pu }))} style={chip(sel.puesto === pu)} aria-label={`${pu}${propio ? " (plan propio)" : ""}`}>
+              {pu}{propio ? " ●" : ""}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 4 }}>
+        {!sel.puesto
+          ? `Plan general del Grupo ${letraGrupo(sel.grupo)}: lo hacen todos los puestos que no tienen uno propio (●).`
+          : tienePropio
+            ? `${sel.puesto} del Grupo ${letraGrupo(sel.grupo)} tiene su plan propio.`
+            : `${sel.puesto} del Grupo ${letraGrupo(sel.grupo)} hace el plan general del grupo.`}
+      </div>
+    </div>
+  ) : mio ? (
+    <div style={{ fontSize: 13, color: "var(--h-texto2)", marginBottom: 12 }}>
+      Tu plan: <b>Grupo {letraGrupo(mio.grupo)}{mio.puesto ? ` · ${mio.puesto}` : ""}</b>
+    </div>
+  ) : null;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Gimnasio</div>
+          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>{fechaDiaSemana(dia)} · {bloques.reduce((n, b) => n + b.ejercicios.length, 0)} ejercicios</div>
+        </div>
+        {puedeEditarGym && (editMode ? (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => { setPlan(PLAN_GYM); setEditMode(false); }} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>Cancelar</button>
+            <button onClick={guardarPlan} disabled={guardandoGym} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
+              {guardandoGym ? "Guardando…" : "Guardar cambios"}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setEditMode(true)}
+            style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}
+          >
+            Editar
+          </button>
+        ))}
+      </div>
+      {avisoGym && <div style={{ fontSize: 13, color: avisoGym.startsWith("No") ? "var(--h-error)" : "var(--h-ok)", marginBottom: 10 }}>{avisoGym}</div>}
+
+      <TiraSemana dia={dia} onDia={setDia} habilitado={(d) => DIAS_GYM.includes(d)} />
+
+      {selector}
+
+      {editMode && sel.puesto && !tienePropio && (
+        <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+          <div style={{ fontSize: 14, color: "var(--h-texto)" }}>Hoy <b>{sel.puesto}</b> del Grupo {letraGrupo(sel.grupo)} hace el plan general del grupo.</div>
+          <button onClick={armarPropio} style={{ ...pillButton, marginTop: 10, background: "var(--h-acento)", color: "var(--h-panel)", border: "none", fontWeight: 700 }}>
+            Armar un plan propio para {sel.puesto}
+          </button>
+          <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 6 }}>Arranca como copia del general y lo cambiás a gusto.</div>
+        </div>
+      )}
+      {editMode && (!sel.puesto || tienePropio) && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          <button onClick={copiarAlOtroGrupo} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)", fontSize: 12.5 }}>
+            Copiar al Grupo {letraGrupo(sel.grupo === 1 ? 2 : 1)}
+          </button>
+          {tienePropio && (
+            <button onClick={quitarPropio} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-error-suave)", color: "var(--h-error)", fontSize: 12.5 }}>
+              Quitar el plan propio de {sel.puesto}
+            </button>
+          )}
+        </div>
+      )}
+
+      {!editMode && (
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: -6, marginBottom: 12 }}>
+          Tocá un ejercicio para ver el video{jugadorPropio ? " y anotar tus kilos" : ""}.
+        </div>
+      )}
+      {!editMode && bloques.length === 0 && (
+        <div style={{ ...cardStyle, padding: "14px 16px", fontSize: 13.5, color: "var(--h-sub)" }}>Todavía no hay plan cargado para este día.</div>
+      )}
+      {!editMode && bloques.map((b, bi) => (
+        <BloqueGymVista
+          key={dia + bi}
+          bloque={b}
+          inicio={bloques.slice(0, bi).reduce((n, x) => n + x.ejercicios.length, 0)}
+          hechos={hechos}
+          onAbrir={setAbiertoIdx}
+        />
+      ))}
+      {!editMode && abiertoIdx !== null && lista[abiertoIdx] && (
+        <EjercicioGym
+          lista={lista}
+          idx={abiertoIdx}
+          setIdx={setAbiertoIdx}
+          onCerrar={() => setAbiertoIdx(null)}
+          jugadorId={jugadorPropio}
+          dia={dia}
+          puedeEditar={puedeEditarGym}
+          onGuardado={() => setVersionCargas((v) => v + 1)}
+        />
+      )}
+      {editMode && (!sel.puesto || tienePropio) && bloques.map((b, bi) => (
+        <BloqueGym
+          key={bi}
+          bloque={b}
+          editMode={editMode}
+          onChangeTitulo={(v) => updateTitulo(bi, v)}
+          onChangeBloque={(f, v) => updateBloque(bi, f, v)}
+          onChangeEjercicio={(ei, field, v) => updateEjercicio(bi, ei, field, v)}
+          onDeleteEjercicio={(ei) => deleteEjercicio(bi, ei)}
+          onAddEjercicio={() => addEjercicio(bi)}
+          onDeleteBloque={() => deleteBloque(bi)}
+        />
+      ))}
+
+      {editMode && (!sel.puesto || tienePropio) && (
+        <button
+          onClick={addBloque}
+          style={{ ...pillButton, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)", width: "100%" }}
+        >
+          + Sumar un bloque
+        </button>
+      )}
+
+      {!editMode && <RegistroCargas key={versionCargas} perfil={perfil} dia={dia} bloques={bloques} />}
+    </div>
+  );
+}
+
+// ───────────────────────── Registro de cargas del gimnasio ─────────────────────────
+// El jugador anota peso y repeticiones de cada serie; el staff ve y carga los de todos.
+// Solo se registran los ejercicios con formato "series x repeticiones" (ej. 4x6).
+const fechaHoyGym = () => new Date().toLocaleDateString("sv-SE");
+const fechaCorta = (iso) => { const [, m, d] = iso.split("-"); return `${d}/${m}`; };
+function ejerciciosConCarga(bloques) {
+  return bloques.flatMap((b) =>
+    b.ejercicios
+      .map((e) => ({ ...e, m: String(e.valor || "").match(/^(\d+)\s*x\s*(\d+)/i) }))
+      .filter((e) => e.nombre && e.m && !/["'’”]/.test(String(e.valor))) // los de tiempo (3x40") no llevan peso
+      .map((e) => ({ nombre: e.nombre, series: Math.min(10, Number(e.m[1])), reps: Number(e.m[2]), valor: e.valor }))
+  );
+}
+// Agrupa los registros por fecha: mejor peso y volumen (kg x reps) de cada día.
+function resumenPorFecha(registros) {
+  const porFecha = {};
+  for (const r of registros) {
+    if (!porFecha[r.fecha]) porFecha[r.fecha] = { fecha: r.fecha, max: 0, volumen: 0, series: 0 };
+    const f = porFecha[r.fecha];
+    const kg = Number(r.peso_kg) || 0;
+    f.max = Math.max(f.max, kg);
+    f.volumen += kg * (Number(r.repeticiones) || 0);
+    f.series += 1;
+  }
+  return Object.values(porFecha).sort((a, b) => a.fecha.localeCompare(b.fecha));
+}
+
+function RegistroCargas({ perfil, dia, bloques }) {
+  const staff = esStaff(perfil);
+  const [jugadores, setJugadores] = useState([]);
+  const [jugadorId, setJugadorId] = useState(staff ? "" : perfil?.jugador_id || "");
+  const [registros, setRegistros] = useState([]);
+  const [cargando, setCargando] = useState(false);
+  const [borrador, setBorrador] = useState({});
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [ejercicioVer, setEjercicioVer] = useState("");
+  // El staff carga con el plan que le toca a ese jugador (su grupo y su puesto).
+  const ejercicios = ejerciciosConCarga(staff && jugadorId ? planGymDe(dia, jugadorId) : bloques);
+
+  useEffect(() => {
+    if (!staff) return;
+    supabase.from("jugadores").select("id, nombre").order("nombre").then(({ data }) => setJugadores(data || []));
+  }, [staff]);
+
+  async function cargar() {
+    if (!jugadorId) { setRegistros([]); return; }
+    setCargando(true);
+    const { data } = await supabase
+      .from("registros_gimnasio")
+      .select("id, fecha, ejercicio, serie, repeticiones, peso_kg")
+      .eq("jugador_id", jugadorId)
+      .order("fecha", { ascending: true })
+      .limit(2000);
+    setRegistros(data || []);
+    setCargando(false);
+  }
+  useEffect(() => { cargar(); setBorrador({}); setMsg(""); }, [jugadorId]);
+
+  if (!staff && !perfil?.jugador_id) return null;
+
+  const hoy = fechaHoyGym();
+  const deHoy = (ej) => registros.filter((r) => r.ejercicio === ej && r.fecha === hoy);
+  const ultimaVez = (ej) => {
+    const previos = registros.filter((r) => r.ejercicio === ej && r.fecha < hoy);
+    if (!previos.length) return null;
+    const f = previos[previos.length - 1].fecha;
+    const del = previos.filter((r) => r.fecha === f);
+    return { fecha: f, max: Math.max(...del.map((r) => Number(r.peso_kg) || 0)), reps: del.map((r) => r.repeticiones).join("-") };
+  };
+  const record = (ej) => Math.max(0, ...registros.filter((r) => r.ejercicio === ej).map((r) => Number(r.peso_kg) || 0));
+
+  function valor(ej, i, campo, def) {
+    const v = borrador[ej]?.[i]?.[campo];
+    return v === undefined ? def : v;
+  }
+  function cambiar(ej, i, campo, v) {
+    setBorrador((b) => ({ ...b, [ej]: { ...(b[ej] || {}), [i]: { ...(b[ej]?.[i] || {}), [campo]: v } } }));
+  }
+
+  async function guardar() {
+    const filas = [];
+    for (const e of ejercicios) {
+      if (deHoy(e.nombre).length) continue;
+      for (let i = 0; i < e.series; i++) {
+        const kg = valor(e.nombre, i, "kg", "");
+        if (kg === "" || kg === null) continue;
+        filas.push({
+          jugador_id: jugadorId, fecha: hoy, dia_plan: dia, ejercicio: e.nombre, serie: i + 1,
+          repeticiones: Number(valor(e.nombre, i, "reps", e.reps)) || null, peso_kg: Number(String(kg).replace(",", ".")),
+        });
+      }
+    }
+    if (!filas.length) { setMsg("Cargá el peso de al menos una serie."); return; }
+    if (filas.some((f) => !(f.peso_kg >= 0 && f.peso_kg <= 1000))) { setMsg("Revisá los pesos: tienen que ser números entre 0 y 1000."); return; }
+    setGuardando(true);
+    const { error } = await supabase.from("registros_gimnasio").insert(filas);
+    setGuardando(false);
+    if (error) { setMsg("No se pudo guardar: " + error.message); return; }
+    setBorrador({});
+    setMsg(`✓ Guardado: ${filas.length} series.`);
+    cargar();
+  }
+  async function borrarDeHoy(ej) {
+    if (!window.confirm(`¿Borrar lo cargado hoy en ${ej}?`)) return;
+    await supabase.from("registros_gimnasio").delete().eq("jugador_id", jugadorId).eq("fecha", hoy).eq("ejercicio", ej);
+    cargar();
+  }
+
+  const ejerciciosConHistoria = [...new Set(registros.map((r) => r.ejercicio))];
+  const verEj = ejercicioVer || ejerciciosConHistoria[0] || "";
+  const serie = resumenPorFecha(registros.filter((r) => r.ejercicio === verEj)).slice(-10);
+  const maxSerie = Math.max(1, ...serie.map((x) => x.max));
+  const numInput = { ...inputStyle, padding: "8px 8px", fontSize: 14, width: "100%", textAlign: "center" };
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ fontSize: 24, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", lineHeight: 1.1 }}>
+        {staff ? "Cargas del plantel" : "Mis cargas"}
+      </div>
+      <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2, marginBottom: 14 }}>
+        {staff ? "Elegí un jugador para ver su progreso o cargar su sesión." : "Tus kilos se anotan desde cada ejercicio. Tu preparador físico ve tu progreso."}
+      </div>
+
+      {staff && (
+        <select value={jugadorId} onChange={(e) => setJugadorId(e.target.value)} style={{ ...inputStyle, maxWidth: 360, marginBottom: 16 }} aria-label="Jugador">
+          <option value="">Elegí un jugador…</option>
+          {jugadores.map((j) => <option key={j.id} value={j.id}>{j.nombre}</option>)}
+        </select>
+      )}
+
+      {jugadorId && (
+        <>
+          {staff && (
+          <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 16 }}>
+            <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 600, marginBottom: 4 }}>Cargas de hoy · plan del {dia.toLowerCase()}</div>
+            {ejercicios.length === 0 ? (
+              <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Este día no tiene ejercicios con series y repeticiones para registrar.</div>
+            ) : (
+              ejercicios.map((e) => {
+                const cargadoHoy = deHoy(e.nombre);
+                const ult = ultimaVez(e.nombre);
+                const pr = record(e.nombre);
+                return (
+                  <div key={e.nombre} style={{ borderTop: "1px solid var(--h-borde)", padding: "12px 0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
+                      <span style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600 }}>{e.nombre} <span style={tagStyle}>{e.valor}</span></span>
+                      <span style={{ fontSize: 12, color: "var(--h-sub)" }}>
+                        {ult ? `Última vez (${fechaCorta(ult.fecha)}): ${ult.max} kg · ${ult.reps}` : "Primera vez"}{pr > 0 ? ` · Mejor marca ${pr} kg` : ""}
+                      </span>
+                    </div>
+                    {cargadoHoy.length ? (
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8, fontSize: 13, color: "var(--h-ok)" }}>
+                        ✓ {cargadoHoy.sort((a, b) => a.serie - b.serie).map((r) => `${Number(r.peso_kg)} kg × ${r.repeticiones ?? "–"}`).join(" · ")}
+                        <button onClick={() => borrarDeHoy(e.nombre)} style={{ background: "transparent", border: "none", color: "var(--h-sub2)", cursor: "pointer", fontSize: 12, textDecoration: "underline" }}>corregir</button>
+                      </div>
+                    ) : (
+                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${e.series}, minmax(64px, 1fr))`, gap: 8, marginTop: 8, overflowX: "auto" }}>
+                        {Array.from({ length: e.series }, (_, i) => (
+                          <div key={i}>
+                            <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginBottom: 3, textAlign: "center" }}>Serie {i + 1}</div>
+                            <input
+                              type="number" inputMode="decimal" min="0" step="0.5" placeholder={ult ? String(ult.max) : "kg"}
+                              aria-label={`${e.nombre}, serie ${i + 1}, kilos`}
+                              value={valor(e.nombre, i, "kg", "")} onChange={(ev) => cambiar(e.nombre, i, "kg", ev.target.value)}
+                              style={numInput}
+                            />
+                            <input
+                              type="number" inputMode="numeric" min="0" step="1"
+                              aria-label={`${e.nombre}, serie ${i + 1}, repeticiones`}
+                              value={valor(e.nombre, i, "reps", e.reps)} onChange={(ev) => cambiar(e.nombre, i, "reps", ev.target.value)}
+                              style={{ ...numInput, marginTop: 4, fontSize: 12, padding: "5px 6px", color: "var(--h-sub)" }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+            {ejercicios.length > 0 && (
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
+                <button onClick={guardar} disabled={guardando} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none", fontWeight: 600 }}>
+                  {guardando ? "Guardando…" : "Guardar cargas de hoy"}
+                </button>
+                <span style={{ fontSize: 11.5, color: "var(--h-sub2)" }}>Arriba los kilos, abajo las repeticiones.</span>
+                {msg && <span style={{ fontSize: 12.5, color: msg.startsWith("✓") ? "var(--h-ok)" : "var(--h-error)" }}>{msg}</span>}
+              </div>
+            )}
+          </div>
+          )}
+
+          <div style={{ ...cardStyle, padding: "16px 18px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 600 }}>Progreso</div>
+              {ejerciciosConHistoria.length > 0 && (
+                <select value={verEj} onChange={(e) => setEjercicioVer(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "6px 10px", fontSize: 13 }} aria-label="Ejercicio">
+                  {ejerciciosConHistoria.map((x) => <option key={x}>{x}</option>)}
+                </select>
+              )}
+            </div>
+            {cargando ? (
+              <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Cargando…</div>
+            ) : serie.length === 0 ? (
+              <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay cargas registradas. Cuando se guarden, acá se ve la evolución.</div>
+            ) : (
+              <>
+                <div role="img" aria-label={`Peso máximo por sesión en ${verEj}: ${serie.map((x) => x.max + " kg").join(", ")}`}
+                  style={{ display: "grid", gridTemplateColumns: `repeat(${serie.length}, minmax(0, 1fr))`, gap: 6, alignItems: "end", height: 140 }}>
+                  {serie.map((x) => (
+                    <div key={x.fecha} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, height: "100%", justifyContent: "flex-end" }}>
+                      <span style={{ fontSize: 11, color: "var(--h-texto2)", fontWeight: 600 }}>{x.max}</span>
+                      <span style={{ width: "70%", maxWidth: 34, height: `${Math.max(4, (x.max / maxSerie) * 100)}%`, background: "var(--h-acento)", borderRadius: "4px 4px 0 0" }} />
+                      <span style={{ fontSize: 10.5, color: "var(--h-sub2)" }}>{fechaCorta(x.fecha)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 12, fontSize: 12.5, color: "var(--h-sub)" }}>
+                  <span>Mejor marca: <b style={{ color: "var(--h-texto)" }}>{record(verEj)} kg</b></span>
+                  {serie.length > 1 && (
+                    <span>Cambio desde {fechaCorta(serie[0].fecha)}: <b style={{ color: serie[serie.length - 1].max >= serie[0].max ? "var(--h-ok)" : "var(--h-error)" }}>
+                      {serie[serie.length - 1].max - serie[0].max >= 0 ? "+" : ""}{Math.round((serie[serie.length - 1].max - serie[0].max) * 10) / 10} kg</b></span>
+                  )}
+                  <span>Volumen última sesión: <b style={{ color: "var(--h-texto)" }}>{Math.round(serie[serie.length - 1].volumen)} kg</b></span>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Plantel único del club — los mismos jugadores rotan entre Superior e Intermedia según la semana.
+const POSICIONES_ALT = {
+  "Primera línea": ["Hooker", "Segunda línea"],
+  Hooker: ["Primera línea", "Tercera línea"],
+  "Segunda línea": ["Tercera línea", "Primera línea"],
+  "Tercera línea": ["Segunda línea", "Centro"],
+  "Medio scrum": ["Apertura", "Wing"],
+  Apertura: ["Medio scrum", "Centro"],
+  Centro: ["Wing", "Apertura"],
+  Wing: ["Fullback", "Centro"],
+  Fullback: ["Wing", "Apertura"],
+};
+
+// Altura y peso salen de datos que cargaría cada jugador al registrarse — acá los derivamos
+// de forma determinística según el puesto para tener valores de prueba realistas.
+
+let POOL = [];
+
+async function cargarJugadores() {
+  const { data, error } = await supabase
+    .from("jugadores")
+    .select("id, nombre, posicion_ideal, posicion_alternativa, posicion_emergencia, altura_cm, peso_kg, apto, estado, zona_lesion, foto_url, fecha_nacimiento, historial_medico(descripcion)")
+    .order("nombre");
+  if (error) {
+    console.error("Error cargando jugadores:", error);
+    return;
+  }
+  POOL = data.map((row) => ({
+    dbId: row.id,
+    id: row.nombre,
+    puestoHabitual: row.posicion_ideal,
+    posicionIdeal: row.posicion_ideal,
+    posicionAlternativa: row.posicion_alternativa,
+    posicionEmergencia: row.posicion_emergencia,
+    altura: row.altura_cm,
+    nacimiento: row.fecha_nacimiento,
+    peso: row.peso_kg,
+    apto: row.apto,
+    estado: row.estado,
+    zona: row.zona_lesion || undefined,
+    foto: row.foto_url || null,
+    historial: (row.historial_medico || []).map((h) => h.descripcion),
+  }));
+}
+
+function coincidePosicion(p, puesto) {
+  return p.posicionIdeal === puesto || p.posicionAlternativa === puesto || p.posicionEmergencia === puesto;
+}
+
+
+
+let LINEUPS_INICIALES = { Superior: [], Intermedia: [] };
+let CATEGORIA_IDS = {}; // nombre -> uuid, para poder escribir cambios de vuelta
+
+async function cargarFormaciones() {
+  const { data: categorias, error: errCat } = await supabase.from("categorias").select("id, nombre");
+  if (errCat) {
+    console.error("Error cargando categorías:", errCat);
+    return;
+  }
+  CATEGORIA_IDS = Object.fromEntries(categorias.map((c) => [c.nombre, c.id]));
+
+  const { data: slots, error: errSlots } = await supabase
+    .from("lineup_slots")
+    .select("categoria_id, numero, puesto, grupo, jugadores(nombre)")
+    .order("numero");
+  if (errSlots) {
+    console.error("Error cargando formaciones:", errSlots);
+    return;
+  }
+
+  for (const nombreCat of ["Superior", "Intermedia"]) {
+    const catId = CATEGORIA_IDS[nombreCat];
+    LINEUPS_INICIALES[nombreCat] = (slots || [])
+      .filter((s) => s.categoria_id === catId)
+      .map((s) => ({ numero: s.numero, puesto: s.puesto, grupo: s.grupo, jugadorId: s.jugadores?.nombre }));
+  }
+}
+
+async function guardarSlotFormacion(categoriaNombre, numero, jugadorNombre) {
+  const jugador = POOL.find((j) => j.id === jugadorNombre);
+  const { error } = await supabase
+    .from("lineup_slots")
+    .update({ jugador_id: jugador ? jugador.dbId : null })
+    .eq("categoria_id", CATEGORIA_IDS[categoriaNombre])
+    .eq("numero", numero);
+  if (error) console.error("Error guardando formación:", error);
+}
+
+async function guardarPuestoFormacion(categoriaNombre, numero, puesto) {
+  const { error } = await supabase
+    .from("lineup_slots")
+    .update({ puesto })
+    .eq("categoria_id", CATEGORIA_IDS[categoriaNombre])
+    .eq("numero", numero);
+  if (error) console.error("Error guardando puesto:", error);
+}
+
+function AvatarPlaceholder({ size = 26, foto }) {
+  if (foto) {
+    return (
+      <img
+        src={foto}
+        alt=""
+        style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
+      />
+    );
+  }
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: "50%",
+        background: "var(--h-borde2)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        overflow: "hidden",
+      }}
+    >
+      <svg width={size * 0.6} height={size * 0.6} viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="8" r="4" fill="var(--h-sub2)" />
+        <path d="M4 21c0-4.5 3.6-8 8-8s8 3.5 8 8" fill="var(--h-sub2)" />
+      </svg>
+    </div>
+  );
+}
+
+
+const POSICIONES_LISTA = [
+  "Primera línea",
+  "Hooker",
+  "Segunda línea",
+  "Tercera línea",
+  "Medio scrum",
+  "Apertura",
+  "Centro",
+  "Wing",
+  "Fullback",
+];
+
+const APTO_TAG = {
+  Apto: { bg: "var(--h-ok-suave)", color: "var(--h-ok)" },
+  "No apto": { bg: "var(--h-error-suave)", color: "var(--h-error)" },
+  Pendiente: { bg: "var(--h-alerta-suave)", color: "var(--h-alerta)" },
+};
+
+// Fecha (real, de hoy) del primer partido de la temporada activa — se usa para la regla del "apto pendiente".
+function primerFechaTemporada() {
+  const todas = [...(FIXTURE.superior || []), ...(FIXTURE.intermedia || []), ...(PROXIMOS.superior || []), ...(PROXIMOS.intermedia || [])];
+  if (todas.length === 0) return null;
+  const primera = todas.reduce((min, p) => (p.fecha < min.fecha ? p : min), todas[0]);
+  const [d, m, y] = primera.date.split("/").map(Number);
+  return new Date(y, m - 1, d);
+}
+function antesDelPrimerPartido() {
+  const primera = primerFechaTemporada();
+  if (!primera) return true; // sin fixture cargado todavía, no bloqueamos a nadie por las dudas
+  return new Date() < primera;
+}
+
+// Disponibilidad real de un jugador: primero manda el estado físico (RTP);
+// si está "Disponible" ahí, todavía depende de que el cuerpo médico lo haya habilitado (apto).
+// Un "Pendiente" puede jugar con el apto de la temporada anterior hasta el debut del torneo;
+// pasado el primer partido, "Pendiente" ya cuenta como no habilitado.
+function disponibilidadReal(j) {
+  if (j.estado === "Lesionado") return "Lesionado";
+  if (j.estado === "A vigilar") return "A vigilar";
+  if (j.apto === "Apto") return "Disponible";
+  if (j.apto === "Pendiente" && antesDelPrimerPartido()) return "Disponible";
+  return "No habilitado";
+}
+
+// "No apto" → "sin apto médico"; "Pendiente" (o vacío) → "apto médico pendiente".
+function textoApto(apto) {
+  if (apto === "Apto") return "apto médico al día";
+  if (apto === "No apto") return "sin apto médico";
+  return "apto médico pendiente";
+}
+
+function estadoMedicoTexto(j) {
+  if (j.estado === "Lesionado") return j.zona ? `Lesionado · ${j.zona}` : "Lesionado";
+  if (j.estado === "A vigilar") return j.zona ? `A vigilar · ${j.zona}` : "A vigilar";
+  if (disponibilidadReal(j) === "No habilitado") return `No habilitado · ${textoApto(j.apto)}`;
+  return "Disponible";
+}
+
+// Tests físicos. La clave es la de la base; "nombre" es como se muestra en la app.
+const METRICAS_RANGOS = {
+  Potencia: { rango: [28, 42], unidad: "cm", nombre: "Salto" },
+  Reactividad: { rango: [0.35, 0.55], unidad: "m", nombre: "Rebote" },
+  Fuerza: { rango: [2400, 3800], unidad: "N", nombre: "Fuerza" },
+  Velocidad: { rango: [28, 34], unidad: "km/h", nombre: "Velocidad máxima" },
+  Resistencia: { rango: [16, 19.5], unidad: "km/h", nombre: "Velocidad aeróbica" },
+};
+const nombreMetrica = (clave) => METRICAS_RANGOS[clave]?.nombre || clave;
+
+// Flecha de test a test: verde para arriba si mejoró, roja para abajo si empeoró (en todos los tests, más es mejor).
+function Tendencia({ actual, previo, unidad, conTexto }) {
+  if (typeof actual !== "number" || typeof previo !== "number") return null;
+  const dif = Math.round((actual - previo) * 100) / 100;
+  const igual = Math.abs(dif) < 1e-9;
+  const color = igual ? "var(--h-sub)" : dif > 0 ? "var(--h-ok)" : "var(--h-error)";
+  const flecha = igual ? "=" : dif > 0 ? "▲" : "▼";
+  const txt = igual ? "igual" : `${dif > 0 ? "+" : ""}${String(dif).replace(".", ",")}${unidad ? " " + unidad : ""}`;
+  return (
+    <span title={`Test anterior: ${previo}${unidad ? " " + unidad : ""}`} style={{ color, fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}>
+      {flecha}{conTexto ? ` ${txt}` : ""}
+    </span>
+  );
+}
+
+// Registro de evaluaciones físicas — lo carga el preparador físico cuando toma los tests.
+// La ficha del jugador y la pantalla de Evaluaciones muestran siempre el último test cargado;
+// si todavía no hay ninguno para ese jugador, no se muestra nada inventado.
+function ultimaEvaluacion(jugadorId) {
+  return EVALUACIONES_REALES[jugadorId] || null;
+}
+
+
+// Rendimiento del jugador en los partidos: sale de las planillas que carga el staff mirando el video.
+function RendimientoJugador({ jugador }) {
+  const [planillas, setPlanillas] = useState(null);
+  const [wellness, setWellness] = useState([]);
+  useEffect(() => {
+    if (!jugador?.dbId) { setPlanillas([]); return; }
+    let vivo = true;
+    setPlanillas(null);
+    supabase.from("analisis_individual_partido").select("*").eq("jugador_id", jugador.dbId).then(({ data }) => vivo && setPlanillas(data || []));
+    cargarWellnessHistorial(30).then((d) => vivo && setWellness((d.porJugador[jugador.dbId] || []).map((x) => ({ fecha: x.fecha, pct: pctWellness(x) }))));
+    return () => { vivo = false; };
+  }, [jugador?.dbId]);
+
+  const partidos = Object.fromEntries([...(FIXTURE.superior || []), ...(FIXTURE.intermedia || [])].map((pt) => [pt.id, pt]));
+  const n = (r, k) => r[k] || 0;
+  const tacklesDe = (r) => n(r, "tackle_hecho") + n(r, "tackle_positivo") + n(r, "tackle_errado");
+  const penalesDe = (r) => n(r, "penal_en_contra_ruck") + n(r, "penal_en_contra_maul") + n(r, "penal_en_contra_juego") + n(r, "penal_en_contra_inconducta");
+  const lista = (planillas || [])
+    .map((r) => ({ r, pt: partidos[r.partido_id] }))
+    .sort((a, b) => (b.pt?.fecha || 0) - (a.pt?.fecha || 0));
+  const suma = (f) => lista.reduce((a, { r }) => a + f(r), 0);
+  const tackles = suma(tacklesDe), errados = suma((r) => n(r, "tackle_errado"));
+  const efectividad = tackles ? Math.round(((tackles - errados) / tackles) * 100) : null;
+  const tries = suma((r) => n(r, "tries"));
+  const quiebres = suma((r) => n(r, "quiebre_con_try") + n(r, "quiebre_sin_try"));
+  const recuperadasTot = suma((r) => n(r, "recuperadas"));
+  const penales = suma(penalesDe);
+  const promW = wellness.length ? Math.round(wellness.reduce((a, x) => a + x.pct, 0) / wellness.length) : null;
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ ...cardStyle, padding: "18px" }}>
+        {planillas === null ? (
+          <div style={{ fontSize: 13.5, color: "var(--h-sub)" }}>Cargando…</div>
+        ) : lista.length === 0 ? (
+          <div style={{ fontSize: 13.5, color: "var(--h-sub)", lineHeight: 1.5 }}>
+            Todavía no hay partidos analizados para {jugador.id}. Aparecen acá cuando el staff analiza el partido en Análisis de video y marca quién hizo cada jugada.
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 15, color: "var(--h-texto)", lineHeight: 1.55, marginBottom: 14 }}>
+              En <b>{lista.length} {lista.length === 1 ? "partido" : "partidos"}</b> hizo <b>{tackles} tackles</b>
+              {efectividad !== null && <> ({efectividad}% efectivos)</>}, <b>{quiebres} {quiebres === 1 ? "quiebre" : "quiebres"}</b>
+              {tries > 0 && <>, apoyó <b>{tries} {tries === 1 ? "try" : "tries"}</b></>}{recuperadasTot > 0 && <>, recuperó <b>{recuperadasTot} {recuperadasTot === 1 ? "pelota" : "pelotas"}</b></>} y le cobraron <b>{penales} {penales === 1 ? "penal" : "penales"}</b> en contra.
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--h-sub)", marginBottom: 4 }}>Partido por partido</div>
+            {lista.map(({ r, pt }) => (
+              <div key={r.id} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "10px 0", borderTop: "1px solid var(--h-borde)", flexWrap: "wrap" }}>
+                <span style={{ flex: "1 1 160px", fontSize: 14, color: "var(--h-texto)" }}>
+                  {pt ? <>{etiquetaFecha(pt.fecha)} · {pt.cond === "Local" ? "vs" : "en"} {pt.rival}</> : "Partido"}
+                  {pt && pt.gf != null && <span style={{ color: "var(--h-sub)", fontSize: 12.5 }}> · {pt.gf}-{pt.gc}</span>}
+                </span>
+                <span style={{ fontSize: 13, color: "var(--h-texto2)" }}>
+                  {tacklesDe(r)} tackles{n(r, "tackle_errado") ? ` (${n(r, "tackle_errado")} errados)` : ""} · {n(r, "quiebre_con_try") + n(r, "quiebre_sin_try")} quiebres · {penalesDe(r)} penales
+                </span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+      <div style={{ ...cardStyle, padding: "18px" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--h-texto)", marginBottom: 8 }}>Cómo llega · wellness del último mes</div>
+        {wellness.length ? (
+          <>
+            <MiniBarras puntos={wellness} alto={56} />
+            <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 6 }}>Promedio {promW}% en {wellness.length} respuestas.</div>
+          </>
+        ) : (
+          <div style={{ fontSize: 13.5, color: "var(--h-sub)" }}>No cargó wellness en el último mes.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemoveHistorial, ocultarVolver, perfil, textoVolver = "Volver al plantel" }) {
+  const [editPos, setEditPos] = useState(false);
+  const [nuevaLesion, setNuevaLesion] = useState("");
+  const [asistencia, setAsistencia] = useState(null);
+  const [lesionActiva, setLesionActiva] = useState(null);
+  const [cargandoLesion, setCargandoLesion] = useState(false);
+  const [mostrarFormLesion, setMostrarFormLesion] = useState(false);
+  const [zonaLesion, setZonaLesion] = useState("Rodilla");
+  const [descLesion, setDescLesion] = useState("");
+  const [semanasLesion, setSemanasLesion] = useState("2");
+  const [subiendoFoto, setSubiendoFoto] = useState(false);
+  const [vecesMvp, setVecesMvp] = useState(0);
+  const inputFotoRef = React.useRef(null);
+  useEffect(() => {
+    if (!jugador.dbId) return;
+    supabase.rpc("mvp_ganadores").then(({ data }) => setVecesMvp((data || []).filter((x) => x.jugador_id === jugador.dbId).length));
+  }, [jugador.dbId]);
+
+  async function elegirFoto(e) {
+    const file = e.target.files?.[0];
+    if (!file || !jugador.dbId) return;
+    setSubiendoFoto(true);
+    const url = await subirFotoJugador(jugador.dbId, file);
+    setSubiendoFoto(false);
+    if (url) onUpdateCampo("foto", url);
+  }
+
+  useEffect(() => {
+    let vivo = true;
+    if (jugador.dbId) {
+      asistenciasJugador(jugador.dbId).then((r) => {
+        if (vivo) setAsistencia(r);
+      });
+      if (jugador.estado === "Lesionado") {
+        lesionActivaDe(jugador.dbId).then((r) => {
+          if (vivo) setLesionActiva(r);
+        });
+      } else {
+        setLesionActiva(null);
+      }
+    }
+    return () => {
+      vivo = false;
+    };
+  }, [jugador.dbId, jugador.estado]);
+
+  async function confirmarLesion() {
+    setCargandoLesion(true);
+    const fechaVuelta = await reportarLesion({
+      jugadorId: jugador.dbId,
+      zona: zonaLesion,
+      descripcion: descLesion,
+      semanas: semanasLesion,
+      creadoPor: perfil?.id,
+    });
+    setCargandoLesion(false);
+    if (fechaVuelta) {
+      onUpdateCampo("estado", "Lesionado");
+      onUpdateCampo("zona", zonaLesion);
+      setMostrarFormLesion(false);
+      setDescLesion("");
+      setLesionActiva(await lesionActivaDe(jugador.dbId));
+    }
+  }
+
+  async function confirmarAlta() {
+    setCargandoLesion(true);
+    await darDeAltaLesion(jugador.dbId);
+    setCargandoLesion(false);
+    onUpdateCampo("estado", "Disponible");
+    setLesionActiva(null);
+  }
+
+  const evalu = ultimaEvaluacion(jugador.id);
+  const m = evalu || {};
+  const [tab, setTab] = useState("puestos");
+  const aptoColor = jugador.apto === "Apto" ? "var(--h-ok)" : jugador.apto === "Pendiente" ? "var(--h-alerta)" : "var(--h-error)";
+  const edad = (() => {
+    if (!jugador.nacimiento) return null;
+    const n = new Date(jugador.nacimiento + "T00:00:00"), h = new Date();
+    return h.getFullYear() - n.getFullYear() - (h < new Date(h.getFullYear(), n.getMonth(), n.getDate()) ? 1 : 0);
+  })();
+  const datos = [
+    edad !== null ? `${edad} años` : null,
+    jugador.altura ? `${(jugador.altura / 100).toFixed(2).replace(".", ",")} m` : null,
+    jugador.peso ? `${jugador.peso} kg` : null,
+  ].filter(Boolean);
+  const previoTest = EVALUACIONES_ANTERIORES[jugador.id] || null;
+  const TABS_FICHA = [["puestos", "Puestos"], ["rendimiento", "Rendimiento"], ["salud", "Salud"], ["fisico", "Tests físicos"]];
+
+  return (
+    <div>
+      {!ocultarVolver && (
+        <button
+          onClick={onVolver}
+          style={{ background: "transparent", border: "none", color: "var(--h-acento)", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}
+        >
+          ← {textoVolver}
+        </button>
+      )}
+
+      <div style={{ ...cardStyle, padding: 0, overflow: "hidden", marginBottom: 18 }}>
+        <div style={{ background: "var(--h-club)", color: "var(--h-club-txt)", padding: "18px 18px 16px", display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ borderRadius: "50%", border: "3px solid var(--h-club-txt)", lineHeight: 0 }}>
+            <AvatarPlaceholder size={64} foto={jugador.foto} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 24, fontWeight: 800, fontFamily: "var(--h-titulo)", lineHeight: 1.1 }}>{jugador.id}</div>
+            <div style={{ fontSize: 14, opacity: 0.9, marginTop: 3 }}>{jugador.posicionIdeal}</div>
+          </div>
+        </div>
+        <div style={{ padding: "12px 18px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px 14px", fontSize: 13.5, color: "var(--h-texto)" }}>
+          {datos.map((d) => <span key={d}>{d}</span>)}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: aptoColor }} />
+            Ficha médica: {(jugador.apto || "pendiente").toLowerCase()}
+          </span>
+          {vecesMvp > 0 && <span style={{ fontWeight: 700 }}>🏆 Jugador del partido {vecesMvp === 1 ? "1 vez" : `${vecesMvp} veces`}</span>}
+          <span style={{ color: "var(--h-sub)" }}>
+            {!asistencia ? "…" : asistencia.total ? `Vino a ${asistencia.presentes} de ${asistencia.total} prácticas en ${TEMPORADA_ACTIVA}` : "Todavía sin asistencia cargada"}
+          </span>
+          {perfil?.rol === "Manager" && (
+            <>
+              <input ref={inputFotoRef} type="file" accept="image/*" onChange={elegirFoto} style={{ display: "none" }} />
+              <button
+                onClick={() => inputFotoRef.current?.click()}
+                disabled={subiendoFoto}
+                style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontSize: 12.5, cursor: "pointer", padding: 0, marginLeft: "auto" }}
+              >
+                {subiendoFoto ? "Subiendo…" : "Cambiar foto"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div role="tablist" style={{ display: "flex", gap: 22, overflowX: "auto", borderBottom: "1px solid var(--h-borde)", marginBottom: 16 }}>
+        {TABS_FICHA.map(([k, l]) => (
+          <button
+            key={k}
+            role="tab"
+            aria-selected={tab === k}
+            onClick={() => setTab(k)}
+            style={{ background: "transparent", border: "none", borderBottom: "3px solid " + (tab === k ? "var(--h-club)" : "transparent"), padding: "8px 0", marginBottom: -1, fontSize: 14.5, fontWeight: tab === k ? 700 : 500, color: tab === k ? "var(--h-texto)" : "var(--h-sub)", cursor: "pointer" }}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {tab === "puestos" && (
+        <div style={{ ...cardStyle, padding: "18px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: "var(--h-texto)" }}>Dónde puede jugar</span>
+            <button
+              onClick={() => setEditPos((v) => !v)}
+              style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontSize: 12.5, cursor: "pointer", padding: 0 }}
+            >
+              {editPos ? "Listo" : "Editar"}
+            </button>
+          </div>
+          <div style={{ fontSize: 13, color: "var(--h-texto)", marginBottom: 6 }}>
+            Su puesto: <span style={{ color: "var(--h-sub)" }}>{jugador.posicionIdeal}</span>
+          </div>
+          <div style={{ fontSize: 13, color: "var(--h-texto)", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+            También:
+            {editPos ? (
+              <select
+                value={jugador.posicionAlternativa}
+                onChange={(e) => onUpdateCampo("posicionAlternativa", e.target.value)}
+                style={{ ...editInputStyle, borderBottom: "1px solid var(--h-borde2)" }}
+              >
+                {POSICIONES_LISTA.map((p) => (
+                  <option key={p} value={p} style={{ background: "var(--h-panel)" }}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span style={{ color: "var(--h-sub)" }}>{jugador.posicionAlternativa}</span>
+            )}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--h-texto)", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
+            Si hace falta:
+            {editPos ? (
+              <select
+                value={jugador.posicionEmergencia}
+                onChange={(e) => onUpdateCampo("posicionEmergencia", e.target.value)}
+                style={{ ...editInputStyle, borderBottom: "1px solid var(--h-borde2)" }}
+              >
+                {POSICIONES_LISTA.map((p) => (
+                  <option key={p} value={p} style={{ background: "var(--h-panel)" }}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span style={{ color: "var(--h-sub)" }}>{jugador.posicionEmergencia}</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === "rendimiento" && <RendimientoJugador jugador={jugador} />}
+
+      {tab === "salud" && (
+        <div style={{ ...cardStyle, padding: "18px" }}>
+          {perfil?.rol === "Cuerpo médico" && (
+            <div style={{ marginBottom: 16, padding: "12px", background: "var(--h-campo)", borderRadius: 8, border: "1px solid var(--h-borde2)" }}>
+              <div style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 10 }}>Lesión actual</div>
+              {jugador.estado === "Lesionado" ? (
+                <>
+                  <div style={{ fontSize: 13, color: "var(--h-error)", fontWeight: 600, marginBottom: 6 }}>Lesionado · {jugador.zona}</div>
+                  {lesionActiva?.id ? (
+                    <>
+                      <div style={{ fontSize: 12, color: "var(--h-texto2)", marginBottom: 8, lineHeight: 1.5 }}>
+                        {lesionActiva.descripcion && <div>{lesionActiva.descripcion}</div>}
+                        <div>Rehabilitación estimada al lesionarse: {lesionActiva.semanas_estimadas || "?"} semanas</div>
+                      </div>
+                      <EtapasLesion lesion={lesionActiva} editable onCambio={setLesionActiva} onAlta={confirmarAlta} guardando={cargandoLesion} />
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 12, color: "var(--h-sub2)", marginBottom: 10 }}>Cargando el detalle…</div>
+                      <button onClick={confirmarAlta} disabled={cargandoLesion}
+                        style={{ ...pillButton, background: "var(--h-ok)", color: "var(--h-panel)", border: "none", fontSize: 12 }}>
+                        {cargandoLesion ? "Guardando…" : "✓ Dar de alta"}
+                      </button>
+                    </>
+                  )}
+                </>
+              ) : mostrarFormLesion ? (
+                <>
+                  <label style={{ ...labelStyle, marginTop: 0 }}>Zona</label>
+                  <select value={zonaLesion} onChange={(e) => setZonaLesion(e.target.value)} style={inputStyle}>
+                    {["Rodilla", "Tobillo", "Hombro", "Muslo", "Isquiotibial", "Espalda", "Otra"].map((z) => (
+                      <option key={z} value={z} style={{ background: "var(--h-campo)" }}>
+                        {z}
+                      </option>
+                    ))}
+                  </select>
+                  <label style={labelStyle}>Descripción</label>
+                  <input
+                    value={descLesion}
+                    onChange={(e) => setDescLesion(e.target.value)}
+                    placeholder="Ej: esguince grado I"
+                    style={inputStyle}
+                  />
+                  <label style={labelStyle}>Semanas estimadas de rehabilitación</label>
+                  <input
+                    value={semanasLesion}
+                    onChange={(e) => setSemanasLesion(e.target.value.replace(/\D/g, ""))}
+                    style={{ ...inputStyle, width: 90 }}
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    <button
+                      onClick={confirmarLesion}
+                      disabled={cargandoLesion}
+                      style={{ ...pillButton, background: "var(--h-error)", color: "var(--h-panel)", border: "none", fontSize: 12 }}
+                    >
+                      {cargandoLesion ? "Guardando…" : "Confirmar lesión"}
+                    </button>
+                    <button
+                      onClick={() => setMostrarFormLesion(false)}
+                      style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)", fontSize: 12 }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button
+                  onClick={() => setMostrarFormLesion(true)}
+                  style={{ ...pillButton, background: "transparent", border: "1px dashed var(--h-error)", color: "var(--h-error)", fontSize: 12 }}
+                >
+                   Informar lesión
+                </button>
+              )}
+            </div>
+          )}
+          {perfil?.rol !== "Cuerpo médico" && jugador.estado === "Lesionado" && lesionActiva?.id && (
+            <div style={{ marginBottom: 16, padding: "12px", background: "var(--h-campo)", borderRadius: 8, border: "1px solid var(--h-borde2)" }}>
+              <div style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 6 }}>Lesión actual</div>
+              <div style={{ fontSize: 13, color: "var(--h-error)", fontWeight: 600, marginBottom: 6 }}>{jugador.zona || lesionActiva.zona}{lesionActiva.descripcion ? ` · ${lesionActiva.descripcion}` : ""}</div>
+              <EtapasLesion lesion={lesionActiva} />
+            </div>
+          )}
+
+          {(["Cuerpo técnico", "Manager", "Cuerpo médico"].includes(perfil?.rol) || (perfil?.jugador_id && perfil.jugador_id === jugador.dbId)) && (
+            <WellnessJugador jugadorDbId={jugador.dbId} />
+          )}
+
+          <div style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 8 }}>Antecedentes</div>
+          {jugador.historial.length > 0 ? (
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {jugador.historial.map((h, i) => (
+                <li key={i} style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ flex: 1 }}>{h}</span>
+                  <button
+                    onClick={() => onRemoveHistorial(i)}
+                    style={{ background: "transparent", border: "none", color: "var(--h-sub2)", cursor: "pointer", fontSize: 13 }}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div style={{ fontSize: 12.5, color: "var(--h-sub2)", marginBottom: 6 }}>Sin antecedentes cargados.</div>
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <input
+              value={nuevaLesion}
+              onChange={(e) => setNuevaLesion(e.target.value)}
+              placeholder="Agregar antecedente (ej: esguince de tobillo, 2026)"
+              style={{ ...editInputStyle, flex: 1, borderBottom: "1px solid var(--h-borde2)" }}
+            />
+            <button
+              onClick={() => {
+                if (nuevaLesion.trim()) {
+                  onAddHistorial(nuevaLesion.trim());
+                  setNuevaLesion("");
+                }
+              }}
+              style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)", fontSize: 12 }}
+            >
+              Agregar
+            </button>
+          </div>
+          <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginTop: 8 }}>
+            El jugador carga sus antecedentes al registrarse en la app; el cuerpo médico del club puede sumar o
+            corregir entradas desde acá.
+          </div>
+        </div>
+      )}
+
+      {tab === "fisico" && (
+        <div style={{ ...cardStyle, padding: "18px" }}>
+          {!evalu ? (
+            <div style={{ fontSize: 13.5, color: "var(--h-sub)", padding: "20px 4px" }}>Todavía no tiene tests físicos cargados.</div>
+          ) : (
+            <>
+              <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 12 }}>
+                Medido el {evalu.fecha}.{" "}
+                {previoTest ? <>Comparado con el test del {previoTest.fecha}.</> : "Es su primer test: la comparación aparece desde el próximo."}
+              </div>
+              {Object.entries(METRICAS_RANGOS).map(([clave, { unidad, nombre }]) => {
+                return (
+                  <div key={clave} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: "1px solid var(--h-borde)" }}>
+                    <span style={{ flex: 1, fontSize: 14, color: "var(--h-texto)" }}>{nombre}</span>
+                    <span style={{ fontSize: 14, color: "var(--h-texto)", minWidth: 90, textAlign: "right" }}>
+                      {m[clave] ?? "—"} <span style={{ color: "var(--h-sub)", fontSize: 12 }}>{m[clave] != null ? unidad : ""}</span>
+                    </span>
+                    <span style={{ minWidth: 92, textAlign: "right" }}>
+                      <Tendencia actual={m[clave]} previo={previoTest?.[clave]} unidad={unidad} conTexto />
+                    </span>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────── Buscar, filtrar por puesto y ordenar jugadores ─────────────────────────
+// Se usa en todas las pantallas con listas largas del plantel.
+const normalizarTexto = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+const puestoDeId = (dbId) => POOL.find((j) => j.dbId === dbId)?.posicionIdeal || "";
+const indicePuesto = (p) => { const i = POSICIONES_LISTA.indexOf(p); return i < 0 ? 99 : i; };
+function useFiltroJugadores(ordenInicial = "nombre") {
+  const [busca, setBusca] = useState("");
+  const [puesto, setPuesto] = useState("");
+  const [orden, setOrden] = useState(ordenInicial);
+  const [invertido, setInvertido] = useState(false);
+  return { busca, setBusca, puesto, setPuesto, orden, setOrden, invertido, setInvertido };
+}
+function pasaFiltro(f, nombre, puesto) {
+  if (f.puesto && puesto !== f.puesto) return false;
+  if (f.busca && !normalizarTexto(nombre).includes(normalizarTexto(f.busca))) return false;
+  return true;
+}
+// opciones: [{ k, label, get: (item) => valor, dir: 1 (menor primero) | -1 (mayor primero) }]
+function ordenarJugadores(lista, opciones, f, nombreDe = (x) => x.id || x.nombre) {
+  const op = opciones.find((o) => o.k === f.orden) || opciones[0];
+  if (!op) return lista;
+  const dir = (op.dir || 1) * (f.invertido ? -1 : 1);
+  return [...lista].sort((a, b) => {
+    const va = op.get(a), vb = op.get(b);
+    const na = va === null || va === undefined || va === "", nb = vb === null || vb === undefined || vb === "";
+    if (na !== nb) return na ? 1 : -1; // sin dato, al final
+    let c = 0;
+    if (!na) c = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb), "es");
+    return c * dir || String(nombreDe(a)).localeCompare(String(nombreDe(b)), "es");
+  });
+}
+function BarraJugadores({ f, opciones, total, visibles, sinOrden }) {
+  const filtrando = !!(f.busca || f.puesto);
+  const control = { ...inputStyle, marginTop: 0, padding: "9px 10px", fontSize: 14 };
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <label style={{ position: "relative", flex: "2 1 220px", minWidth: 0, display: "block" }}>
+          <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "var(--h-sub)", display: "inline-flex", pointerEvents: "none" }}>
+            <Icono nombre="buscar" size={17} />
+          </span>
+          <input type="search" value={f.busca} onChange={(e) => f.setBusca(e.target.value)} placeholder="Buscar jugador…" aria-label="Buscar jugador"
+            style={{ ...control, paddingLeft: 36, paddingRight: f.busca ? 34 : 10 }} />
+          {f.busca && (
+            <button onClick={() => f.setBusca("")} aria-label="Borrar búsqueda"
+              style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 26, height: 26, borderRadius: "50%", border: "none", background: "var(--h-borde)", color: "var(--h-texto2)", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+          )}
+        </label>
+        <select value={f.puesto} onChange={(e) => f.setPuesto(e.target.value)} aria-label="Filtrar por puesto" style={{ ...control, flex: "1 1 140px", width: "auto" }}>
+          <option value="">Todos los puestos</option>
+          {POSICIONES_LISTA.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        {!sinOrden && opciones?.length > 0 && (
+          <select value={f.orden + (f.invertido ? ":inv" : "")} aria-label="Ordenar por"
+            onChange={(e) => { const [k, inv] = e.target.value.split(":"); f.setOrden(k); f.setInvertido(inv === "inv"); }}
+            style={{ ...control, flex: "1 1 160px", width: "auto" }}>
+            {opciones.map((o) => <option key={o.k} value={o.k}>Ordenar: {o.label}</option>)}
+            {opciones.find((o) => o.k === f.orden) && <option value={f.orden + ":inv"}>Ordenar: {opciones.find((o) => o.k === f.orden).label} (al revés)</option>}
+          </select>
+        )}
+      </div>
+      {filtrando && (
+        <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 6 }}>
+          Mostrando {visibles} de {total}
+          <button onClick={() => { f.setBusca(""); f.setPuesto(""); }} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, cursor: "pointer", fontSize: 12.5, marginLeft: 8, padding: 0 }}>Ver todos</button>
+        </div>
+      )}
+    </div>
+  );
+}
+// Encabezado de tabla que ordena al tocarlo (otra vez: al revés).
+function ThOrden({ f, k, children, style }) {
+  const activo = f.orden === k;
+  return (
+    <th style={{ fontWeight: activo ? 700 : 400, padding: "8px 10px", cursor: "pointer", whiteSpace: "nowrap", color: activo ? "var(--h-texto)" : undefined, ...style }}
+      aria-sort={activo ? (f.invertido ? "descending" : "ascending") : "none"}
+      onClick={() => { if (activo) f.setInvertido(!f.invertido); else { f.setOrden(k); f.setInvertido(false); } }}>
+      {children}{activo ? (f.invertido ? " ▴" : " ▾") : ""}
+    </th>
+  );
+}
+
+function PlantelCompletoPage({ perfil, inicialId = null, onSalir, textoVolver }) {
+  const [jugadores, setJugadores] = useState(POOL);
+  const [editMode, setEditMode] = useState(false);
+  const [seleccionadoId, setSeleccionadoId] = useState(inicialId);
+  const [agregando, setAgregando] = useState(false);
+  const [nuevoNombre, setNuevoNombre] = useState("");
+  const [nuevaPosicion, setNuevaPosicion] = useState("Centro");
+  const puede = puedeGestionar(perfil);
+  const f = useFiltroJugadores("nombre");
+  const APTO_ORDEN = { "No apto": 0, Pendiente: 1, Apto: 2 };
+  const opcionesPlantel = [
+    { k: "nombre", label: "Nombre", get: (j) => j.id },
+    { k: "puesto", label: "Puesto", get: (j) => indicePuesto(j.posicionIdeal) },
+    { k: "altura", label: "Más altos primero", get: (j) => Number(j.altura) || null, dir: -1 },
+    { k: "peso", label: "Más pesados primero", get: (j) => Number(j.peso) || null, dir: -1 },
+    { k: "apto", label: "Apto médico", get: (j) => APTO_ORDEN[j.apto] ?? 1 },
+    { k: "estado", label: "Estado", get: (j) => disponibilidadReal(j) },
+  ];
+
+  const CAMPO_DB = { posicionAlternativa: "posicion_alternativa", posicionEmergencia: "posicion_emergencia", apto: "apto" };
+
+  async function agregarJugador() {
+    if (!nuevoNombre.trim()) return;
+    const [alt, emer] = POSICIONES_ALT[nuevaPosicion];
+    const { data, error } = await supabase
+      .from("jugadores")
+      .insert({ nombre: nuevoNombre.trim(), posicion_ideal: nuevaPosicion, posicion_alternativa: alt, posicion_emergencia: emer, apto: "Pendiente", estado: "Disponible" })
+      .select()
+      .single();
+    if (error) {
+      console.error("Error agregando jugador:", error);
+      return;
+    }
+    const nuevo = {
+      dbId: data.id, id: data.nombre, puestoHabitual: data.posicion_ideal, posicionIdeal: data.posicion_ideal,
+      posicionAlternativa: data.posicion_alternativa, posicionEmergencia: data.posicion_emergencia,
+      altura: data.altura_cm, peso: data.peso_kg, apto: data.apto, estado: data.estado, zona: undefined, historial: [],
+    };
+    setJugadores((prev) => [...prev, nuevo]);
+    POOL = [...POOL, nuevo];
+    setNuevoNombre("");
+    setAgregando(false);
+  }
+
+  function updateCampo(id, campo, valor) {
+    setJugadores((prev) => prev.map((j) => (j.id === id ? { ...j, [campo]: valor } : j)));
+    const jugador = jugadores.find((j) => j.id === id);
+    const columna = CAMPO_DB[campo];
+    if (jugador && columna) {
+      supabase
+        .from("jugadores")
+        .update({ [columna]: valor })
+        .eq("id", jugador.dbId)
+        .then(({ error }) => error && console.error("Error guardando", campo, error));
+    }
+  }
+  function addHistorial(id, texto) {
+    setJugadores((prev) => prev.map((j) => (j.id === id ? { ...j, historial: [...j.historial, texto] } : j)));
+    const jugador = jugadores.find((j) => j.id === id);
+    if (jugador) {
+      supabase
+        .from("historial_medico")
+        .insert({ jugador_id: jugador.dbId, descripcion: texto })
+        .then(({ error }) => error && console.error("Error guardando historial", error));
+    }
+  }
+  function removeHistorial(id, index) {
+    const jugador = jugadores.find((j) => j.id === id);
+    const texto = jugador?.historial[index];
+    setJugadores((prev) =>
+      prev.map((j) => (j.id === id ? { ...j, historial: j.historial.filter((_, i) => i !== index) } : j))
+    );
+    if (jugador && texto) {
+      supabase
+        .from("historial_medico")
+        .delete()
+        .eq("jugador_id", jugador.dbId)
+        .eq("descripcion", texto)
+        .then(({ error }) => error && console.error("Error borrando historial", error));
+    }
+  }
+
+  function eliminarJugador(id) {
+    const jugador = jugadores.find((j) => j.id === id);
+    if (!jugador) return;
+    if (!window.confirm(`¿Eliminar a ${id} del plantel? Esta acción no se puede deshacer.`)) return;
+    setJugadores((prev) => prev.filter((j) => j.id !== id));
+    POOL = POOL.filter((j) => j.id !== id);
+    supabase
+      .from("jugadores")
+      .delete()
+      .eq("id", jugador.dbId)
+      .then(({ error }) => error && console.error("Error eliminando jugador", error));
+  }
+
+  const seleccionado = jugadores.find((j) => j.id === seleccionadoId);
+
+  if (seleccionado) {
+    return (
+      <FichaJugador
+        jugador={seleccionado}
+        onVolver={onSalir || (() => setSeleccionadoId(null))}
+        textoVolver={textoVolver}
+        onUpdateCampo={(campo, valor) => updateCampo(seleccionadoId, campo, valor)}
+        onAddHistorial={(texto) => addHistorial(seleccionadoId, texto)}
+        onRemoveHistorial={(index) => removeHistorial(seleccionadoId, index)}
+        perfil={perfil}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Jugadores</div>
+          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>{jugadores.length} jugadores registrados</div>
+        </div>
+        {editMode ? (
+          <button onClick={() => setEditMode(false)} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
+            Guardar cambios
+          </button>
+        ) : (
+          <button onClick={() => setEditMode(true)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}>
+            Editar
+          </button>
+        )}
+      </div>
+
+      <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 16, lineHeight: 1.6 }}>
+        Altura, peso y posición ideal los completa cada jugador al registrarse en la app. La posición alternativa,
+        la de emergencia y el estado de "apto" los maneja el cuerpo técnico / el manager desde acá.
+      </div>
+
+      {editMode && puede && (
+        agregando ? (
+          <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div>
+              <label style={labelStyle}>Nombre y apellido</label>
+              <input value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} style={{ ...inputStyle, width: 220 }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Posición ideal</label>
+              <select value={nuevaPosicion} onChange={(e) => setNuevaPosicion(e.target.value)} style={{ ...inputStyle, width: 170 }}>
+                {Object.keys(POSICIONES_ALT).map((p) => (
+                  <option key={p} value={p} style={{ background: "var(--h-campo)" }}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button onClick={agregarJugador} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
+              Agregar
+            </button>
+            <button onClick={() => setAgregando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setAgregando(true)}
+            style={{ ...pillButton, marginBottom: 16, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}
+          >
+            + Agregar jugador
+          </button>
+        )
+      )}
+
+      <BarraJugadores f={f} opciones={opcionesPlantel} total={jugadores.length}
+        visibles={jugadores.filter((j) => pasaFiltro(f, j.id, j.posicionIdeal)).length} />
+
+      <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 900 }}>
+          <thead>
+            <tr style={{ color: "var(--h-sub)", textAlign: "left" }}>
+              <ThOrden f={f} k="nombre">Jugador</ThOrden>
+              <ThOrden f={f} k="altura">Altura</ThOrden>
+              <ThOrden f={f} k="peso">Peso</ThOrden>
+              <ThOrden f={f} k="puesto">Ideal</ThOrden>
+              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Alternativa</th>
+              <th style={{ fontWeight: 400, padding: "8px 10px" }}>Emergencia</th>
+              <ThOrden f={f} k="apto">Apto</ThOrden>
+              <ThOrden f={f} k="estado">Estado médico</ThOrden>
+              {editMode && puede && <th style={{ fontWeight: 400, padding: "8px 10px" }}></th>}
+            </tr>
+          </thead>
+          <tbody>
+            {ordenarJugadores(jugadores.filter((j) => pasaFiltro(f, j.id, j.posicionIdeal)), opcionesPlantel, f).map((j) => (
+              <tr key={j.id} style={{ borderTop: "1px solid var(--h-borde)" }}>
+                <td style={{ padding: "9px 10px", whiteSpace: "nowrap" }}>
+                  <button
+                    onClick={() => setSeleccionadoId(j.id)}
+                    style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontWeight: 500, fontSize: 12.5, cursor: "pointer", padding: 0 }}
+                  >
+                    {j.id}
+                  </button>
+                </td>
+                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.altura} cm</td>
+                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.peso} kg</td>
+                <td style={{ padding: "9px 10px", color: "var(--h-texto2)" }}>{j.posicionIdeal}</td>
+                <td style={{ padding: "9px 10px" }}>
+                  {editMode ? (
+                    <select
+                      value={j.posicionAlternativa}
+                      onChange={(e) => updateCampo(j.id, "posicionAlternativa", e.target.value)}
+                      style={{ ...editInputStyle, borderBottom: "1px solid var(--h-borde2)" }}
+                    >
+                      {POSICIONES_LISTA.map((p) => (
+                        <option key={p} value={p} style={{ background: "var(--h-panel)" }}>
+                          {p}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span style={{ color: "var(--h-texto2)" }}>{j.posicionAlternativa}</span>
+                  )}
+                </td>
+                <td style={{ padding: "9px 10px" }}>
+                  {editMode ? (
+                    <select
+                      value={j.posicionEmergencia}
+                      onChange={(e) => updateCampo(j.id, "posicionEmergencia", e.target.value)}
+                      style={{ ...editInputStyle, borderBottom: "1px solid var(--h-borde2)" }}
+                    >
+                      {POSICIONES_LISTA.map((p) => (
+                        <option key={p} value={p} style={{ background: "var(--h-panel)" }}>
+                          {p}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span style={{ color: "var(--h-texto2)" }}>{j.posicionEmergencia}</span>
+                  )}
+                </td>
+                <td style={{ padding: "9px 10px" }}>
+                  {editMode ? (
+                    <select
+                      value={j.apto}
+                      onChange={(e) => updateCampo(j.id, "apto", e.target.value)}
+                      style={{ ...editInputStyle, borderBottom: "1px solid var(--h-borde2)" }}
+                    >
+                      {Object.keys(APTO_TAG).map((a) => (
+                        <option key={a} value={a} style={{ background: "var(--h-panel)" }}>
+                          {a}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span style={{ ...tagStyle, background: APTO_TAG[j.apto].bg, color: APTO_TAG[j.apto].color }}>{j.apto}</span>
+                  )}
+                </td>
+                <td style={{ padding: "9px 10px", color: j.estado === "Disponible" ? "var(--h-sub)" : "var(--h-texto)" }}>
+                  <div>{estadoMedicoTexto(j)}</div>
+                  {j.historial.length > 0 && (
+                    <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginTop: 2 }}>
+                      Historial: {j.historial.join(" · ")}
+                    </div>
+                  )}
+                </td>
+                {editMode && puede && (
+                  <td style={{ padding: "9px 10px" }}>
+                    <button
+                      onClick={() => eliminarJugador(j.id)}
+                      style={{ background: "transparent", border: "1px solid var(--h-error-suave)", color: "var(--h-error)", borderRadius: 5, fontSize: 11, padding: "4px 8px", cursor: "pointer" }}
+                    >
+                      Eliminar
+                    </button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function MatchSelector({ partidos, fecha, onSelect }) {
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+      {partidos.map((p) => (
+        <button
+          key={p.fecha}
+          onClick={() => onSelect(p.fecha)}
+          style={{
+            ...pillButton,
+            border: "1px solid " + (fecha === p.fecha ? "var(--h-acento)" : "var(--h-borde2)"),
+            background: fecha === p.fecha ? "var(--h-acento-suave)" : "transparent",
+            color: fecha === p.fecha ? "var(--h-acento)" : "var(--h-texto2)",
+            fontSize: 12,
+          }}
+          title={`vs ${p.rival} · ${p.gf}-${p.gc}`}
+        >
+          {etiquetaFechaCorta(p.fecha)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Titulares de cualquier categoría, sin camisetas vacantes — para el informe de partido.
+function jugadoresTitulares(categoriaNombre) {
+  return (LINEUPS_INICIALES[categoriaNombre] || []).filter((s) => s.grupo !== "suplentes" && s.jugadorId);
+}
+
+// Panel de anotación mientras se mira el video: el cuerpo técnico marca en juego/fuera,
+// posesión y territorio con toggles, y obtención con las mismas opciones reales del informe
+// (ganados/perdidos/robados/del rival, más "torcidas" en line) — la app calcula sola el
+// ball-in-play, la cantidad de secuencias, la más larga, y los % de posesión/territorio.
+// En mobile no se embebe el video (queda pesado y tapa el panel) — solo el anotador, con un
+// link para abrir el video aparte.
+function AnalizarVideoPage({ partido, categoria, perfil, onSalir }) {
+  const isMobile = useIsMobile();
+  const [enJuego, setEnJuego] = useState(false);
+  const [tiempoSecuenciaActual, setTiempoSecuenciaActual] = useState(0);
+  const [secuencias, setSecuencias] = useState([]);
+
+  const [posesion, setPosesion] = useState("Obras");
+  const [tPosesionObras, setTPosesionObras] = useState(0);
+  const [tPosesionRival, setTPosesionRival] = useState(0);
+
+  const [territorio, setTerritorio] = useState("Propio");
+  const [tTerritorioPropio, setTTerritorioPropio] = useState(0);
+  const [tTerritorioRival, setTTerritorioRival] = useState(0);
+
+  // Si ya se había analizado este partido, se sigue desde donde quedó.
+  const previo = partido.informe?.analisisVideo ? partido.informe : null;
+  const [scrum, setScrum] = useState(() => ({ ganados: 0, perdidos: 0, robados: 0, delRival: 0, ...(previo?.scrum || {}) }));
+  const [line, setLine] = useState(() => ({ ganados: 0, perdidos: 0, robados: 0, torcidas: 0, delRival: 0, ...(previo?.line || {}) }));
+  const [pelotasRecuperadas, setPelotasRecuperadas] = useState(previo?.favorables?.pelotasRecuperadas || 0);
+  const [perdidasPelota, setPerdidasPelota] = useState(previo?.desfavorables?.perdidasContacto || 0);
+  const [penalesAFavor, setPenalesAFavor] = useState(previo?.favorables?.penalesAFavor || 0);
+  const [penalesEnContra, setPenalesEnContra] = useState(previo?.desfavorables?.penalesEnContra || 0);
+  const [extras, setExtras] = useState(() => ({ ...(previo?.analisisVideo?.extras || {}) })); // salidas, tries, patadas a los palos
+  const videoRef = React.useRef(null);
+
+  // Quién hizo cada jugada: al tocar un tackle, un quiebre, un try, una recuperada o un penal,
+  // se elige el jugador y eso va sumando solo a su planilla individual del partido.
+  const convocados = (LINEUPS_INICIALES[categoria] || []).filter((sl) => sl.jugadorId);
+  const [porJugador, setPorJugador] = useState({});
+  const [pendiente, setPendiente] = useState(null); // { id, k }
+  const [tipoPenal, setTipoPenal] = useState("Juego");
+  const idRef = React.useRef(1);
+  useEffect(() => {
+    cargarAnalisisIndividual(partido.id).then((real) => {
+      const ini = {};
+      Object.entries(real).forEach(([dbId, r]) => {
+        const j = POOL.find((p) => p.dbId === dbId);
+        if (j) ini[j.id] = datosDesdeFila(r);
+      });
+      setPorJugador(ini);
+    });
+  }, [partido.id]);
+
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [verAtajos, setVerAtajos] = useState(false);
+  const [registro, setRegistro] = useState(() =>
+    [...(partido.informe?.cronologia || [])].sort((a, b) => b.seg - a.seg).map((c) => ({ t: c.seg, seg: c.seg, texto: c.texto, tono: c.tono, tipo: c.tipo, antes: null }))
+  ); // [{ t, seg, texto, tono, tipo, antes }]
+  const [reloj, setReloj] = useState(0); // segundos desde que se arrancó a analizar (en juego o no)
+  const [arrancado, setArrancado] = useState(false);
+  const intervaloRef = React.useRef(null);
+  const estadoRef = React.useRef({});
+  estadoRef.current = { scrum, line, pelotasRecuperadas, perdidasPelota, penalesAFavor, penalesEnContra, posesion, reloj, extras, porJugador };
+
+  useEffect(() => {
+    if (!arrancado) return;
+    const id = setInterval(() => setReloj((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [arrancado]);
+
+  // Cada acción queda en el registro con una foto del estado anterior, para poder deshacerla.
+  // Cada jugada se guarda con el segundo del video en que pasó (si el video está acá adentro),
+  // o con el reloj del análisis si no.
+  function anotar(texto, tono, accion, tipo) {
+    const e = estadoRef.current;
+    const antes = { scrum: e.scrum, line: e.line, pelotasRecuperadas: e.pelotasRecuperadas, perdidasPelota: e.perdidasPelota, penalesAFavor: e.penalesAFavor, penalesEnContra: e.penalesEnContra, posesion: e.posesion, extras: e.extras, porJugador: e.porJugador };
+    const seg = videoRef.current?.segundo?.();
+    accion();
+    const id = idRef.current++;
+    setRegistro((prev) => [{ id, t: seg ?? e.reloj, seg: seg ?? null, texto, tono, tipo, antes }, ...prev].slice(0, 500));
+    return id;
+  }
+  // Campo de la planilla individual que suma cada jugada (si se dice quién la hizo).
+  const CAMPO_INDIVIDUAL = {
+    tackle: "tackleHecho", tacklePositivo: "tacklePositivo", tackleErrado: "tackleErrado",
+    quiebre: "quiebreSinTry", tryNuestro: "tries", recuperada: "recuperadas", penalFavor: "penalAFavor",
+    penalContra: () => ({ Ruck: "penalEnContraRuck", Maul: "penalEnContraMaul", Juego: "penalEnContraJuego", Inconducta: "penalEnContraInconducta" })[tipoPenal],
+  };
+  function elegirJugador(jugadorId) {
+    if (!pendiente) return;
+    const def = CAMPO_INDIVIDUAL[pendiente.k];
+    const campo = typeof def === "function" ? def() : def;
+    if (jugadorId && campo) {
+      setPorJugador((prev) => {
+        const d = { ...(prev[jugadorId] || datosVacioJugador()) };
+        d[campo] = (d[campo] || 0) + 1;
+        return { ...prev, [jugadorId]: d };
+      });
+      const extra = pendiente.k === "penalContra" ? ` (${tipoPenal.toLowerCase()})` : "";
+      setRegistro((prev) => prev.map((ev) => (ev.id === pendiente.id ? { ...ev, texto: `${ev.texto}${extra} · ${jugadorId}`, quien: jugadorId } : ev)));
+    }
+    setPendiente(null);
+  }
+  function deshacer() {
+    setRegistro((prev) => {
+      if (!prev.length || !prev[0].antes) return prev;
+      const { antes } = prev[0];
+      setExtras(antes.extras || {});
+      setScrum(antes.scrum); setLine(antes.line);
+      setPelotasRecuperadas(antes.pelotasRecuperadas); setPerdidasPelota(antes.perdidasPelota);
+      setPenalesAFavor(antes.penalesAFavor); setPenalesEnContra(antes.penalesEnContra);
+      setPosesion(antes.posesion);
+      if (antes.porJugador) setPorJugador(antes.porJugador);
+      setPendiente(null);
+      return prev.slice(1);
+    });
+  }
+
+  useEffect(() => {
+    if (enJuego) {
+      intervaloRef.current = setInterval(() => {
+        setTiempoSecuenciaActual((t) => t + 1);
+        if (posesion === "Obras") setTPosesionObras((t) => t + 1);
+        else setTPosesionRival((t) => t + 1);
+        if (territorio === "Propio") setTTerritorioPropio((t) => t + 1);
+        else setTTerritorioRival((t) => t + 1);
+      }, 1000);
+    } else if (intervaloRef.current) {
+      clearInterval(intervaloRef.current);
+    }
+    return () => clearInterval(intervaloRef.current);
+  }, [enJuego, posesion, territorio]);
+
+  function toggleEnJuego() {
+    setArrancado(true);
+    if (enJuego) {
+      setSecuencias((prev) => [...prev, tiempoSecuenciaActual]);
+      setTiempoSecuenciaActual(0);
+    }
+    setEnJuego((v) => !v);
+  }
+
+  function sumar(setter, campo) {
+    setter((prev) => ({ ...prev, [campo]: prev[campo] + 1 }));
+  }
+
+  // Robado (scrum o line) = posesión recuperada · Perdido o Torcida (line) = posesión perdida.
+  function sumarConPosesion(setter, campo, nuevaPosesion) {
+    sumar(setter, campo);
+    setPosesion(nuevaPosesion);
+  }
+
+  const sumarExtra = (k) => setExtras((prev) => ({ ...prev, [k]: (prev[k] || 0) + 1 }));
+  const ACCIONES = {
+    scrumGanado: ["Scrum ganado", "ok", () => sumar(setScrum, "ganados"), "scrum"],
+    scrumPerdido: ["Scrum perdido", "mal", () => sumarConPosesion(setScrum, "perdidos", "Rival"), "scrum"],
+    scrumRobado: ["Scrum robado", "ok", () => sumarConPosesion(setScrum, "robados", "Obras"), "scrum"],
+    scrumRival: ["Scrum del rival ganado", "ok", () => sumar(setScrum, "delRival"), "scrum"],
+    lineGanado: ["Line ganado", "ok", () => sumar(setLine, "ganados"), "line"],
+    linePerdido: ["Line perdido", "mal", () => sumarConPosesion(setLine, "perdidos", "Rival"), "line"],
+    lineRobado: ["Line robado", "ok", () => sumarConPosesion(setLine, "robados", "Obras"), "line"],
+    lineTorcida: ["Line torcido", "mal", () => sumarConPosesion(setLine, "torcidas", "Rival"), "line"],
+    lineRival: ["Line del rival ganado", "ok", () => sumar(setLine, "delRival"), "line"],
+    salidaNuestra: ["Salida nuestra", "ok", () => { sumarExtra("salidaNuestra"); setPosesion("Rival"); }, "salida"],
+    salidaRival: ["Salida del rival", "ok", () => { sumarExtra("salidaRival"); setPosesion("Obras"); }, "salida"],
+    tryNuestro: ["Try nuestro", "ok", () => sumarExtra("tryNuestro"), "try"],
+    tryRival: ["Try del rival", "mal", () => sumarExtra("tryRival"), "try"],
+    conversionAdentro: ["Conversión adentro", "ok", () => sumarExtra("conversionAdentro"), "palos"],
+    conversionAfuera: ["Conversión errada", "mal", () => sumarExtra("conversionAfuera"), "palos"],
+    penalPalosAdentro: ["Penal a los palos adentro", "ok", () => sumarExtra("penalPalosAdentro"), "palos"],
+    penalPalosAfuera: ["Penal a los palos errado", "mal", () => sumarExtra("penalPalosAfuera"), "palos"],
+    recuperada: ["Pelota recuperada", "ok", () => { setPelotasRecuperadas((v) => v + 1); setPosesion("Obras"); }, "pelota"],
+    perdida: ["Pelota perdida", "mal", () => { setPerdidasPelota((v) => v + 1); setPosesion("Rival"); }, "pelota"],
+    penalFavor: ["Penal a favor", "ok", () => setPenalesAFavor((v) => v + 1), "penal"],
+    tackle: ["Tackle", "ok", () => sumarExtra("tackles"), "tackle"],
+    tacklePositivo: ["Tackle positivo", "ok", () => sumarExtra("tacklesPositivos"), "tackle"],
+    tackleErrado: ["Tackle errado", "mal", () => sumarExtra("tacklesErrados"), "tackle"],
+    quiebre: ["Quiebre", "ok", () => sumarExtra("quiebres"), "quiebre"],
+    penalContra: ["Penal en contra", "mal", () => setPenalesEnContra((v) => v + 1), "penal"],
+  };
+  const hacer = (k) => {
+    const id = anotar(ACCIONES[k][0], ACCIONES[k][1], ACCIONES[k][2], ACCIONES[k][3]);
+    setPendiente(CAMPO_INDIVIDUAL[k] && convocados.length ? { id, k } : null);
+  };
+
+  // Atajos de teclado — solo en escritorio, para anotar sin soltar el mouse del video.
+  useEffect(() => {
+    if (isMobile) return;
+    function onKeyDown(e) {
+      if (e.repeat) return;
+      const k = e.key.toLowerCase();
+      if (k === " ") {
+        e.preventDefault();
+        toggleEnJuego();
+        return;
+      }
+      const acciones = {
+        "1": () => setPosesion("Obras"),
+        "2": () => setPosesion("Rival"),
+        "3": () => setTerritorio("Propio"),
+        "4": () => setTerritorio("Rival"),
+        q: () => hacer("scrumGanado"),
+        w: () => hacer("scrumPerdido"),
+        e: () => hacer("scrumRobado"),
+        r: () => hacer("scrumRival"),
+        a: () => hacer("lineGanado"),
+        s: () => hacer("linePerdido"),
+        d: () => hacer("lineRobado"),
+        f: () => hacer("lineTorcida"),
+        g: () => hacer("lineRival"),
+        z: () => hacer("recuperada"),
+        x: () => hacer("perdida"),
+        c: () => hacer("penalFavor"),
+        v: () => hacer("penalContra"),
+        t: () => hacer("tackle"),
+        y: () => hacer("tacklePositivo"),
+        u: () => hacer("tackleErrado"),
+        b: () => hacer("quiebre"),
+        backspace: () => deshacer(),
+      };
+      if (acciones[k]) {
+        e.preventDefault();
+        acciones[k]();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMobile]);
+
+  const secuenciasTotales = [...secuencias, ...(enJuego ? [tiempoSecuenciaActual] : [])];
+  const ballInPlay = secuenciasTotales.reduce((a, b) => a + b, 0);
+  const cantidadSecuencias = secuencias.length + (enJuego ? 1 : 0);
+  const secuenciaMasLarga = secuenciasTotales.length ? Math.max(...secuenciasTotales) : 0;
+  const totalPosesion = tPosesionObras + tPosesionRival;
+  const pctPosesionObras = totalPosesion ? Math.round((tPosesionObras / totalPosesion) * 100) : 0;
+  const totalTerritorio = tTerritorioPropio + tTerritorioRival;
+  const pctTerritorioRival = totalTerritorio ? Math.round((tTerritorioRival / totalTerritorio) * 100) : 0;
+
+  async function guardarAnalisis() {
+    setGuardando(true);
+    const secuenciasFinal = enJuego ? [...secuencias, tiempoSecuenciaActual] : secuencias;
+    const ballInPlayFinal = secuenciasFinal.reduce((a, b) => a + b, 0);
+
+    const informe = partido.informe ? JSON.parse(JSON.stringify(partido.informe)) : STATS_VACIO();
+    informe.scrum = { ...informe.scrum, ...scrum };
+    informe.line = { ...informe.line, ...line };
+    informe.favorables = { ...informe.favorables, pelotasRecuperadas, penalesAFavor };
+    informe.desfavorables = { ...informe.desfavorables, perdidasContacto: perdidasPelota, penalesEnContra };
+    informe.analisisVideo = {
+      posesionObras: pctPosesionObras,
+      posesionRival: 100 - pctPosesionObras,
+      territorioPropio: 100 - pctTerritorioRival,
+      territorioRival: pctTerritorioRival,
+      ballInPlaySegundos: ballInPlayFinal,
+      secuencias: secuenciasFinal.length,
+      secuenciaMasLargaSegundos: secuenciasFinal.length ? Math.max(...secuenciasFinal) : 0,
+      extras,
+    };
+    const tacklesVideo = (extras.tackles || 0) + (extras.tacklesPositivos || 0) + (extras.tacklesErrados || 0);
+    if (tacklesVideo) informe.favorables.tacklesTotales = tacklesVideo;
+    if (extras.quiebres) informe.favorables.quiebresAtaque = extras.quiebres;
+    // Cronología: cada jugada con su segundo del video, para después filtrar y verlas.
+    informe.cronologia = [...registro]
+      .reverse()
+      .map((ev) => ({ seg: ev.seg ?? ev.t, enVideo: ev.seg !== null && ev.seg !== undefined, tipo: ev.tipo || "otro", texto: ev.texto, tono: ev.tono, ...(ev.quien ? { quien: ev.quien } : {}) }))
+      .sort((a, b) => a.seg - b.seg);
+
+    const { error } = await supabase.from("partidos").update({ informe }).eq("id", partido.id);
+    // Planilla individual: se guarda lo de cada jugador que tuvo alguna jugada asignada.
+    let individuales = 0, fallas = 0;
+    for (const [jugadorId, datos] of Object.entries(porJugador)) {
+      const j = POOL.find((p) => p.id === jugadorId);
+      if (!j?.dbId) continue;
+      const ok = await guardarAnalisisJugador(partido.id, j.dbId, datos, perfil?.id);
+      if (ok) individuales++; else fallas++;
+    }
+    if (!error) {
+      partido.informe = informe;
+      crearNotificacion("informe_partido", `Análisis de video listo: ${categoria} vs ${partido.rival}.`, null, perfil?.id);
+      setMsg(fallas
+        ? `✓ Guardado el análisis, pero no se pudo guardar la planilla de ${fallas} jugador${fallas === 1 ? "" : "es"}. Probá de nuevo.`
+        : `✓ Guardado. ${individuales ? `La planilla de ${individuales} jugador${individuales === 1 ? "" : "es"} se completó sola. ` : ""}Ya se ve en Estadísticas y en la ficha de cada uno.`);
+    } else {
+      setMsg("No se pudo guardar. Probá de nuevo.");
+    }
+    setGuardando(false);
+  }
+
+  const panelStyle = {
+    background: "linear-gradient(180deg, var(--h-panel), var(--h-panel))",
+    border: "1px solid var(--h-borde)",
+    borderRadius: 14,
+    padding: 16,
+  };
+  const tituloPanel = { fontSize: 10.5, color: "var(--h-sub)", letterSpacing: 0.8, marginBottom: 10, fontWeight: 600 };
+
+  const ToggleBoton = ({ activo, onClick, children, colorActivo = "var(--h-acento)" }) => (
+    <button
+      onClick={onClick}
+      style={{
+        flex: 1, padding: "10px 8px", borderRadius: 10, fontSize: 12.5, cursor: "pointer", fontWeight: 600,
+        transition: "all 0.15s",
+        background: activo ? "var(--h-acento-suave)" : "var(--h-panel2)",
+        border: "1px solid " + (activo ? colorActivo : "var(--h-borde)"),
+        color: activo ? colorActivo : "var(--h-sub)",
+      }}
+    >
+      {children}
+    </button>
+  );
+
+  const BotonObtencion = ({ label, valor, onClick, tono = "ok" }) => {
+    const colores = {
+      ok: { bg: "var(--h-ok-suave)", color: "var(--h-ok)" },
+      mal: { bg: "var(--h-error-suave)", color: "var(--h-error)" },
+      neutro: { bg: "var(--h-panel2)", color: "var(--h-texto2)" },
+    }[tono];
+    return (
+      <button
+        onClick={onClick}
+        style={{
+          background: colores.bg, color: colores.color, border: "none", borderRadius: 10,
+          padding: "9px 6px", fontSize: 11, cursor: "pointer", display: "flex", flexDirection: "column",
+          alignItems: "center", gap: 2, fontWeight: 600,
+        }}
+      >
+        <span>{label}</span>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 15, fontWeight: 700 }}>{valor}</span>
+      </button>
+    );
+  };
+
+  const statsResumen = (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+      <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
+        <div style={{ fontSize: 10, color: "var(--h-sub)" }}>Posesión {nombreNuestro()}</div>
+        <div style={{ fontSize: 20, color: "var(--h-acento)", fontWeight: 700, fontFamily: "var(--h-titulo)" }}>{pctPosesionObras}%</div>
+      </div>
+      <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
+        <div style={{ fontSize: 10, color: "var(--h-sub)" }}>Territorio rival</div>
+        <div style={{ fontSize: 20, color: "var(--h-acento)", fontWeight: 700, fontFamily: "var(--h-titulo)" }}>{pctTerritorioRival}%</div>
+      </div>
+      <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
+        <div style={{ fontSize: 10, color: "var(--h-sub)" }}>Tiempo de juego efectivo</div>
+        <div style={{ fontSize: 20, color: "var(--h-acento)", fontWeight: 700, fontFamily: "var(--h-titulo)" }}>{formatoRelojMMSS(ballInPlay)}</div>
+      </div>
+      <div style={{ ...panelStyle, padding: "12px 14px", flex: "1 1 130px" }}>
+        <div style={{ fontSize: 10, color: "var(--h-sub)" }}>Secuencias</div>
+        <div style={{ fontSize: 20, color: "var(--h-acento)", fontWeight: 700, fontFamily: "var(--h-titulo)" }}>
+          {cantidadSecuencias} <span style={{ fontSize: 11, color: "var(--h-sub)", fontWeight: 400 }}>· más larga {formatoRelojMMSS(secuenciaMasLarga)}</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  const BotonJugada = ({ k, label, valor }) => {
+    const tono = ACCIONES[k][1];
+    return (
+      <button
+        onClick={() => hacer(k)}
+        style={{
+          minHeight: 58, borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "var(--h-texto-fuente)",
+          background: tono === "ok" ? "var(--h-ok-suave)" : "var(--h-error-suave)", color: tono === "ok" ? "var(--h-ok)" : "var(--h-error)",
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, fontWeight: 700, fontSize: 13,
+        }}
+      >
+        <span>{label}</span>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800 }}>{valor}</span>
+      </button>
+    );
+  };
+  const Fase = ({ titulo, columnas = 4, children }) => (
+    <div style={panelStyle}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 18, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>{titulo}</div>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${columnas}, 1fr)`, gap: 6 }}>{children}</div>
+    </div>
+  );
+
+  const nombrePendiente = pendiente ? ACCIONES[pendiente.k]?.[0] : "";
+  const selectorQuien = pendiente && (
+    <div style={{ ...panelStyle, position: "sticky", top: isMobile ? 210 : 8, zIndex: 6, border: "2px solid var(--h-club)", boxShadow: "0 6px 18px rgba(0,0,0,0.15)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{ flex: 1, fontSize: 15, fontWeight: 800, color: "var(--h-texto)" }}>{nombrePendiente}: ¿quién fue?</span>
+        <button onClick={() => elegirJugador(null)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)", fontSize: 12.5 }}>Sin asignar</button>
+      </div>
+      {pendiente.k === "penalContra" && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+          {["Ruck", "Maul", "Juego", "Inconducta"].map((t) => (
+            <button key={t} onClick={() => setTipoPenal(t)} style={{ ...pillButton, fontSize: 12.5, border: "1px solid " + (tipoPenal === t ? "var(--h-club)" : "var(--h-borde2)"), background: tipoPenal === t ? "var(--h-club)" : "transparent", color: tipoPenal === t ? "var(--h-club-txt)" : "var(--h-texto2)" }}>{t}</button>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 6 }}>
+        {convocados.map((sl) => (
+          <button
+            key={sl.numero}
+            onClick={() => elegirJugador(sl.jugadorId)}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 8px", borderRadius: 10, border: "1px solid var(--h-borde)", background: "var(--h-panel2)", color: "var(--h-texto)", cursor: "pointer", textAlign: "left", fontSize: 13, minHeight: 40 }}
+          >
+            <b style={{ fontFamily: "var(--h-titulo)", color: "var(--h-club-tinta)", minWidth: 18 }}>{sl.numero}</b>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{apellido(sl.jugadorId)}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const panelAnotador = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {selectorQuien}
+      {!convocados.length && (
+        <div style={{ ...panelStyle, fontSize: 13, color: "var(--h-sub)" }}>
+          Si armás el Equipo del partido de {categoria}, al marcar un tackle, un quiebre, un try o un penal vas a poder elegir quién fue, y su planilla se completa sola.
+        </div>
+      )}
+      <button
+        onClick={toggleEnJuego}
+        style={{
+          minHeight: 64, borderRadius: 14, border: "none", fontSize: 16, fontWeight: 800, cursor: "pointer",
+          background: enJuego ? "var(--h-ok)" : "var(--h-error)", color: "#fff", letterSpacing: 0.3,
+        }}
+      >
+        {enJuego ? `▶  EN JUEGO · ${formatoRelojMMSS(tiempoSecuenciaActual)} — tocá al cortarse` : "PELOTA PARADA — tocá cuando se reanude"}
+      </button>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div style={panelStyle}>
+          <div style={tituloPanel}>LA PELOTA ES DE</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <ToggleBoton activo={posesion === "Obras"} onClick={() => setPosesion("Obras")}>{nombreNuestro()}</ToggleBoton>
+            <ToggleBoton activo={posesion === "Rival"} onClick={() => setPosesion("Rival")}>{partido.rival}</ToggleBoton>
+          </div>
+        </div>
+        <div style={panelStyle}>
+          <div style={tituloPanel}>SE JUEGA EN</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <ToggleBoton activo={territorio === "Propio"} onClick={() => setTerritorio("Propio")}>Campo propio</ToggleBoton>
+            <ToggleBoton activo={territorio === "Rival"} onClick={() => setTerritorio("Rival")}>Campo rival</ToggleBoton>
+          </div>
+        </div>
+      </div>
+
+      <Fase titulo="Obtención · Scrum">
+        <BotonJugada k="scrumGanado" label="Ganado" valor={scrum.ganados} />
+        <BotonJugada k="scrumPerdido" label="Perdido" valor={scrum.perdidos} />
+        <BotonJugada k="scrumRobado" label="Robado" valor={scrum.robados} />
+        <BotonJugada k="scrumRival" label="Del rival" valor={scrum.delRival} />
+      </Fase>
+      <Fase titulo="Obtención · Line" columnas={5}>
+        <BotonJugada k="lineGanado" label="Ganado" valor={line.ganados} />
+        <BotonJugada k="linePerdido" label="Perdido" valor={line.perdidos} />
+        <BotonJugada k="lineRobado" label="Robado" valor={line.robados} />
+        <BotonJugada k="lineTorcida" label="Torcido" valor={line.torcidas} />
+        <BotonJugada k="lineRival" label="Del rival" valor={line.delRival} />
+      </Fase>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Fase titulo="Ataque" columnas={1}>
+          <BotonJugada k="quiebre" label="Quiebre" valor={extras.quiebres || 0} />
+          <BotonJugada k="perdida" label="Pelota perdida" valor={perdidasPelota} />
+        </Fase>
+        <Fase titulo="Defensa" columnas={1}>
+          <BotonJugada k="tackle" label="Tackle" valor={extras.tackles || 0} />
+          <BotonJugada k="tacklePositivo" label="Tackle positivo" valor={extras.tacklesPositivos || 0} />
+          <BotonJugada k="tackleErrado" label="Tackle errado" valor={extras.tacklesErrados || 0} />
+          <BotonJugada k="recuperada" label="Recuperada" valor={pelotasRecuperadas} />
+        </Fase>
+      </div>
+      <Fase titulo="Penales" columnas={2}>
+        <BotonJugada k="penalFavor" label="A favor" valor={penalesAFavor} />
+        <BotonJugada k="penalContra" label="En contra" valor={penalesEnContra} />
+      </Fase>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Fase titulo="Salidas" columnas={1}>
+          <BotonJugada k="salidaNuestra" label="Nuestra" valor={extras.salidaNuestra || 0} />
+          <BotonJugada k="salidaRival" label="Del rival" valor={extras.salidaRival || 0} />
+        </Fase>
+        <Fase titulo="Tries" columnas={1}>
+          <BotonJugada k="tryNuestro" label="Nuestro" valor={extras.tryNuestro || 0} />
+          <BotonJugada k="tryRival" label="Del rival" valor={extras.tryRival || 0} />
+        </Fase>
+      </div>
+      <Fase titulo="Patadas a los palos" columnas={2}>
+        <BotonJugada k="conversionAdentro" label="Conversión adentro" valor={extras.conversionAdentro || 0} />
+        <BotonJugada k="conversionAfuera" label="Conversión errada" valor={extras.conversionAfuera || 0} />
+        <BotonJugada k="penalPalosAdentro" label="Penal adentro" valor={extras.penalPalosAdentro || 0} />
+        <BotonJugada k="penalPalosAfuera" label="Penal errado" valor={extras.penalPalosAfuera || 0} />
+      </Fase>
+
+      <div style={panelStyle}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <span style={{ fontFamily: "var(--h-titulo)", fontSize: 18, fontWeight: 800, color: "var(--h-texto)" }}>Lo que vas marcando</span>
+          <button onClick={deshacer} disabled={!registro.length} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: registro.length ? "var(--h-texto2)" : "var(--h-sub2)" }}>
+            ↶ Deshacer
+          </button>
+        </div>
+        {registro.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: "var(--h-sub2)" }}>Todavía nada. Cada toque queda acá con el minuto del video, y al guardar arma la cronología del partido.</div>
+        ) : (
+          <div style={{ maxHeight: 220, overflowY: "auto" }}>
+            {registro.map((ev, i) => (
+              <div key={registro.length - i} onClick={() => ev.seg != null && videoRef.current?.irA(ev.seg - 3)} style={{ display: "flex", gap: 10, padding: "6px 0", borderTop: i ? "1px solid var(--h-borde)" : "none", fontSize: 13, cursor: ev.seg != null ? "pointer" : "default" }}>
+                <span style={{ fontFamily: "var(--h-titulo)", fontWeight: 700, color: "var(--h-sub)", width: 46, flexShrink: 0 }}>{formatoRelojMMSS(ev.t)}</span>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: ev.tono === "ok" ? "var(--h-ok)" : "var(--h-error)", marginTop: 5, flexShrink: 0 }} />
+                <span style={{ color: "var(--h-texto)" }}>{ev.texto}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {!isMobile && (
+        <div>
+          <button onClick={() => setVerAtajos((v) => !v)} style={{ background: "none", border: "none", color: "var(--h-sub)", fontSize: 12.5, cursor: "pointer", padding: 0 }}>
+             {verAtajos ? "Ocultar atajos de teclado" : "Ver atajos de teclado"}
+          </button>
+          {verAtajos && (
+            <div style={{ ...panelStyle, padding: "10px 14px", fontSize: 12, color: "var(--h-sub)", lineHeight: 1.8, marginTop: 6 }}>
+              <b>Espacio</b> en juego / pelota parada · <b>1</b>/<b>2</b> pelota propia / del rival · <b>3</b>/<b>4</b> campo propio / rival<br />
+              <b>Q W E R</b> scrum ganado / perdido / robado / del rival<br />
+              <b>A S D F G</b> line ganado / perdido / robado / torcido / del rival<br />
+              <b>Z X C V</b> recuperada / perdida / penal a favor / penal en contra<br />
+              <b>T Y U</b> tackle / positivo / errado · <b>B</b> quiebre · <b>Borrar</b> deshacer
+            </div>
+          )}
+        </div>
+      )}
+
+      <button
+        onClick={guardarAnalisis}
+        disabled={guardando}
+        style={{ ...buttonStyle, background: "var(--h-acento)", color: "var(--h-panel)", fontWeight: 700, letterSpacing: 0.3, minHeight: 50 }}
+      >
+        {guardando ? "Guardando…" : "Guardar análisis"}
+      </button>
+      {msg && <div style={{ fontSize: 12, color: msg.startsWith("✓") ? "var(--h-ok)" : "var(--h-error)", textAlign: "center" }}>{msg}</div>}
+    </div>
+  );
+
+  return (
+    <div>
+      <button onClick={onSalir} style={{ background: "transparent", border: "none", color: "var(--h-acento)", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}>
+        ← Volver a Análisis de video
+      </button>
+      <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 16 }}>
+        {categoria} vs {partido.rival} · Analizando video
+      </div>
+
+      {isMobile ? (
+        <div>
+          {extraerYoutubeId(partido.veoLink) ? (
+            <div style={{ position: "sticky", top: 0, zIndex: 5, marginBottom: 12 }}><ReproductorYoutube ref={videoRef} link={partido.veoLink} /></div>
+          ) : partido.veoLink ? (
+            <a
+              href={urlVideoVer(partido.veoLink)}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--h-acento)",
+                background: "var(--h-acento-suave)", border: "1px solid var(--h-acento-suave)", borderRadius: 10, padding: "10px 14px", marginBottom: 16,
+              }}
+            >
+              ▶ Abrir el video
+            </a>
+          ) : null}
+          {statsResumen}
+          {panelAnotador}
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ flex: "1 1 55%", minWidth: 0 }}>
+            {extraerYoutubeId(partido.veoLink) ? (
+              <ReproductorYoutube ref={videoRef} link={partido.veoLink} />
+            ) : partido.veoLink ? (
+              <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "var(--h-panel)", border: "1px solid var(--h-borde)" }}>
+                <iframe
+                  src={urlVideoEmbebido(partido.veoLink)}
+                  title="Video del partido"
+                  allow="fullscreen"
+                  style={{ width: "100%", height: "100%", border: "none" }}
+                />
+              </div>
+            ) : (
+              <div style={{ ...panelStyle, padding: 20, textAlign: "center", color: "var(--h-sub2)", fontSize: 12.5 }}>
+                No hay video de YouTube cargado para este partido.
+              </div>
+            )}
+            {partido.veoLink && (
+              <a href={urlVideoVer(partido.veoLink)} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--h-sub2)", display: "block", marginTop: 6 }}>
+                Si no carga acá, abrilo en una pestaña nueva ↗
+              </a>
+            )}
+            {statsResumen}
+          </div>
+          <div style={{ flex: "1 1 45%", minWidth: 0 }}>{panelAnotador}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+const SITUACIONES_PENAL = [
+  { key: "Ruck", campo: "penalEnContraRuck" },
+  { key: "Maul", campo: "penalEnContraMaul" },
+  { key: "Juego general", campo: "penalEnContraJuego" },
+  { key: "Inconducta", campo: "penalEnContraInconducta" },
+];
+
+function datosVacioJugador() {
+  return {
+    tackleHecho: 0, tacklePositivo: 0, tackleErrado: 0,
+    quiebreConTry: 0, quiebreSinTry: 0,
+    penalAFavor: 0,
+    penalEnContraRuck: 0, penalEnContraMaul: 0, penalEnContraJuego: 0, penalEnContraInconducta: 0,
+    esPateador: false, dropConvertido: 0, cincuenta22: 0,
+    tries: 0, recuperadas: 0,
+  };
+}
+
+// Fila de la base -> datos del jugador para la planilla individual.
+function datosDesdeFila(r) {
+  return {
+    tackleHecho: r.tackle_hecho || 0, tacklePositivo: r.tackle_positivo || 0, tackleErrado: r.tackle_errado || 0,
+    quiebreConTry: r.quiebre_con_try || 0, quiebreSinTry: r.quiebre_sin_try || 0,
+    penalAFavor: r.penal_a_favor || 0,
+    penalEnContraRuck: r.penal_en_contra_ruck || 0, penalEnContraMaul: r.penal_en_contra_maul || 0,
+    penalEnContraJuego: r.penal_en_contra_juego || 0, penalEnContraInconducta: r.penal_en_contra_inconducta || 0,
+    esPateador: !!r.es_pateador, dropConvertido: r.drop_convertido || 0, cincuenta22: r.cincuenta_22 || 0,
+    tries: r.tries || 0, recuperadas: r.recuperadas || 0,
+  };
+}
+
+function accPlusDe(d) {
+  return d.tacklePositivo + d.quiebreConTry + d.quiebreSinTry + d.penalAFavor + (d.esPateador ? d.dropConvertido + d.cincuenta22 : 0);
+}
+
+function FilaJugadorAnalisis({ slot, datos, onCambiar, abierto, onAbrir }) {
+  const [paso, setPaso] = useState(null); // null | "quiebre" | "penal-tipo" | "penal-situacion"
+  const d = datos;
+
+  function sumar(campo) {
+    onCambiar({ ...d, [campo]: d[campo] + 1 });
+  }
+
+  const botonMini = (label, onClick, tono = "neutro") => {
+    const colores = {
+      ok: { bg: "var(--h-ok-suave)", color: "var(--h-ok)" },
+      mal: { bg: "var(--h-error-suave)", color: "var(--h-error)" },
+      neutro: { bg: "var(--h-panel2)", color: "var(--h-texto2)" },
+    }[tono];
+    return (
+      <button
+        onClick={onClick}
+        style={{ background: colores.bg, color: colores.color, border: "none", borderRadius: 8, padding: "8px 4px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+      >
+        {label}
+      </button>
+    );
+  };
+
+  return (
+    <div style={{ borderBottom: "1px solid var(--h-borde)" }}>
+      <button
+        onClick={() => {
+          onAbrir(abierto ? null : slot.numero);
+          setPaso(null);
+        }}
+        style={{
+          display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+          background: abierto ? "var(--h-acento-suave)" : "transparent", border: "none", borderRadius: 8, padding: "10px 8px", cursor: "pointer",
+        }}
+      >
+        <span style={{ fontFamily: "var(--h-titulo)", fontWeight: 700, color: "var(--h-acento)", fontSize: 12.5, minWidth: 16, textAlign: "center" }}>{slot.numero}</span>
+        <span style={{ flex: 1, fontSize: 13, color: "var(--h-texto)", fontWeight: 500 }}>{slot.jugadorId}</span>
+        <span style={{ fontSize: 10.5, color: "var(--h-sub)" }}>ACC+ <b style={{ color: "var(--h-acento)" }}>{accPlusDe(d)}</b></span>
+        <span style={{ color: "var(--h-sub2)", fontSize: 11 }}>{abierto ? "▲" : "▾"}</span>
+      </button>
+
+      {abierto && (
+        <div style={{ padding: "4px 8px 16px" }}>
+          <div style={{ fontSize: 10, color: "var(--h-sub)", letterSpacing: 0.6, marginBottom: 6, fontWeight: 600 }}>TACKLE</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 12 }}>
+            {botonMini(`Positivo (${d.tacklePositivo})`, () => sumar("tacklePositivo"), "ok")}
+            {botonMini(`Hecho (${d.tackleHecho})`, () => sumar("tackleHecho"), "neutro")}
+            {botonMini(`Errado (${d.tackleErrado})`, () => sumar("tackleErrado"), "mal")}
+          </div>
+
+          <div style={{ fontSize: 10, color: "var(--h-sub)", letterSpacing: 0.6, marginBottom: 6, fontWeight: 600 }}>QUIEBRE</div>
+          {paso === "quiebre" ? (
+            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+              <div style={{ flex: 1, fontSize: 11, color: "var(--h-texto2)", alignSelf: "center" }}>¿Termina en try?</div>
+              {botonMini("Sí", () => { sumar("quiebreConTry"); setPaso(null); }, "ok")}
+              {botonMini("No", () => { sumar("quiebreSinTry"); setPaso(null); }, "neutro")}
+            </div>
+          ) : (
+            <div style={{ marginBottom: 12 }}>
+              <button
+                onClick={() => setPaso("quiebre")}
+                style={{ ...pillButton, width: "100%", background: "var(--h-panel2)", border: "none", color: "var(--h-texto2)", fontSize: 11.5 }}
+              >
+                + Quiebre ({d.quiebreConTry + d.quiebreSinTry})
+              </button>
+            </div>
+          )}
+
+          <div style={{ fontSize: 10, color: "var(--h-sub)", letterSpacing: 0.6, marginBottom: 6, fontWeight: 600 }}>PENAL</div>
+          {paso === "penal-tipo" ? (
+            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+              {botonMini("A favor", () => { sumar("penalAFavor"); setPaso(null); }, "ok")}
+              {botonMini("En contra", () => setPaso("penal-situacion"), "mal")}
+            </div>
+          ) : paso === "penal-situacion" ? (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 12 }}>
+              {SITUACIONES_PENAL.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => { sumar(s.campo); setPaso(null); }}
+                  style={{ background: "var(--h-error-suave)", color: "var(--h-error)", border: "none", borderRadius: 8, padding: "8px 4px", fontSize: 10.5, fontWeight: 600, cursor: "pointer" }}
+                >
+                  {s.key}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div style={{ marginBottom: 12 }}>
+              <button
+                onClick={() => setPaso("penal-tipo")}
+                style={{ ...pillButton, width: "100%", background: "var(--h-panel2)", border: "none", color: "var(--h-texto2)", fontSize: 11.5 }}
+              >
+                + Penal (favor {d.penalAFavor} · contra {d.penalEnContraRuck + d.penalEnContraMaul + d.penalEnContraJuego + d.penalEnContraInconducta})
+              </button>
+            </div>
+          )}
+
+          <button
+            onClick={() => onCambiar({ ...d, esPateador: !d.esPateador })}
+            style={{
+              ...pillButton, width: "100%", fontSize: 11.5, marginBottom: d.esPateador ? 8 : 0,
+              background: d.esPateador ? "var(--h-acento-suave)" : "transparent", border: "1px solid " + (d.esPateador ? "var(--h-acento)" : "var(--h-borde2)"),
+              color: d.esPateador ? "var(--h-acento)" : "var(--h-sub)",
+            }}
+          >
+             {d.esPateador ? "Es pateador" : "Marcar como pateador"}
+          </button>
+          {d.esPateador && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              {botonMini(`Drop convertido (${d.dropConvertido})`, () => sumar("dropConvertido"), "ok")}
+              {botonMini(`50/22 (${d.cincuenta22})`, () => sumar("cincuenta22"), "ok")}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnalisisIndividualPage({ partido, categoria, perfil, onSalir }) {
+  const isMobile = useIsMobile();
+  const [datosPorJugador, setDatosPorJugador] = useState({});
+  const [cargando, setCargando] = useState(true);
+  const [abierto, setAbierto] = useState(null);
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const convocados = (LINEUPS_INICIALES[categoria] || []).filter((s) => s.jugadorId);
+
+  useEffect(() => {
+    cargarAnalisisIndividual(partido.id).then((real) => {
+      const iniciales = {};
+      convocados.forEach((s) => {
+        const jugadorDb = POOL.find((p) => p.id === s.jugadorId);
+        const r = jugadorDb && real[jugadorDb.dbId];
+        iniciales[s.jugadorId] = r ? datosDesdeFila(r) : datosVacioJugador();
+      });
+      setDatosPorJugador(iniciales);
+      setCargando(false);
+    });
+  }, [partido.id]);
+
+  async function guardarTodo() {
+    setGuardando(true);
+    for (const s of convocados) {
+      const jugadorDb = POOL.find((p) => p.id === s.jugadorId);
+      if (!jugadorDb) continue;
+      await guardarAnalisisJugador(partido.id, jugadorDb.dbId, datosPorJugador[s.jugadorId], perfil?.id);
+    }
+    setGuardando(false);
+    setMsg("✓ Guardado — se ve en la planilla del Informe de partido.");
+    setTimeout(() => setMsg(""), 3500);
+  }
+
+  if (cargando) return <div style={{ color: "var(--h-sub)", fontSize: 13 }}>Cargando…</div>;
+
+  const listaJugadores = (
+    <div>
+      <div style={{ background: "linear-gradient(180deg, var(--h-panel), var(--h-panel))", border: "1px solid var(--h-borde)", borderRadius: 14, padding: "6px 8px", marginBottom: 16 }}>
+        {convocados.map((s) => (
+          <FilaJugadorAnalisis
+            key={s.numero}
+            slot={s}
+            datos={datosPorJugador[s.jugadorId] || datosVacioJugador()}
+            onCambiar={(d) => setDatosPorJugador((prev) => ({ ...prev, [s.jugadorId]: d }))}
+            abierto={abierto === s.numero}
+            onAbrir={setAbierto}
+          />
+        ))}
+      </div>
+
+      <button onClick={guardarTodo} disabled={guardando} style={{ ...buttonStyle, background: "var(--h-acento)", color: "var(--h-panel)", fontWeight: 700 }}>
+        {guardando ? "Guardando…" : "Guardar análisis individual"}
+      </button>
+      {msg && <div style={{ fontSize: 11.5, color: "var(--h-ok)", textAlign: "center", marginTop: 8 }}>{msg}</div>}
+    </div>
+  );
+
+  return (
+    <div>
+      <button onClick={onSalir} style={{ background: "transparent", border: "none", color: "var(--h-acento)", cursor: "pointer", fontSize: 13, marginBottom: 14, padding: 0 }}>
+        ← Volver a Análisis de video
+      </button>
+      <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 4 }}>
+        {categoria} vs {partido.rival} · Análisis individual
+      </div>
+      <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginBottom: 16 }}>
+        ACC+ = tackle positivo + quiebres + penal a favor {"\u00b7"} pateadores suman con drop convertido y 50/22.
+      </div>
+
+      {isMobile ? (
+        <div>
+          {partido.veoLink && (
+            <a
+              href={urlVideoVer(partido.veoLink)}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--h-acento)",
+                background: "var(--h-acento-suave)", border: "1px solid var(--h-acento-suave)", borderRadius: 10, padding: "10px 14px", marginBottom: 16,
+              }}
+            >
+              ▶ Abrir el video en YouTube
+            </a>
+          )}
+          {listaJugadores}
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ flex: "1 1 50%", minWidth: 0 }}>
+            {partido.veoLink ? (
+              <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "var(--h-panel)", border: "1px solid var(--h-borde)" }}>
+                <iframe src={urlVideoEmbebido(partido.veoLink)} title="Video del partido" allow="fullscreen" style={{ width: "100%", height: "100%", border: "none" }} />
+              </div>
+            ) : (
+              <div style={{ background: "linear-gradient(180deg, var(--h-panel), var(--h-panel))", border: "1px solid var(--h-borde)", borderRadius: 14, padding: 20, textAlign: "center", color: "var(--h-sub2)", fontSize: 12.5 }}>
+                No hay video de YouTube cargado para este partido.
+              </div>
+            )}
+            {partido.veoLink && (
+              <a href={urlVideoVer(partido.veoLink)} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--h-sub2)", display: "block", marginTop: 6 }}>
+                Si no carga acá, abrilo en una pestaña nueva ↗
+              </a>
+            )}
+          </div>
+          <div style={{ flex: "1 1 50%", minWidth: 0 }}>{listaJugadores}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Reproductor de YouTube con la API oficial: permite saber en qué segundo está el video
+// (para anotar cada jugada con su minuto) y saltar a un momento (para ver la cronología).
+let promesaApiYoutube = null;
+function cargarApiYoutube() {
+  if (window.YT && window.YT.Player) return Promise.resolve(window.YT);
+  if (!promesaApiYoutube) {
+    promesaApiYoutube = new Promise((ok) => {
+      const anterior = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => { if (anterior) anterior(); ok(window.YT); };
+      const s = document.createElement("script");
+      s.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(s);
+    });
+  }
+  return promesaApiYoutube;
+}
+
+const ReproductorYoutube = React.forwardRef(function ReproductorYoutube({ link }, ref) {
+  const contenedor = React.useRef(null);
+  const player = React.useRef(null);
+  const videoId = extraerYoutubeId(link || "");
+  React.useImperativeHandle(ref, () => ({
+    segundo: () => { try { const t = player.current?.getCurrentTime?.(); return typeof t === "number" ? Math.floor(t) : null; } catch (e) { return null; } },
+    irA: (seg) => { try { player.current?.seekTo?.(Math.max(0, seg), true); player.current?.playVideo?.(); } catch (e) {} },
+  }));
+  useEffect(() => {
+    if (!videoId) return;
+    let vivo = true;
+    cargarApiYoutube().then((YT) => {
+      if (!vivo || !contenedor.current) return;
+      const div = document.createElement("div");
+      contenedor.current.innerHTML = "";
+      contenedor.current.appendChild(div);
+      player.current = new YT.Player(div, {
+        videoId, width: "100%", height: "100%", host: "https://www.youtube-nocookie.com",
+        playerVars: { rel: 0, playsinline: 1, modestbranding: 1 },
+      });
+    });
+    return () => { vivo = false; try { player.current?.destroy?.(); } catch (e) {} player.current = null; };
+  }, [videoId]);
+  if (!videoId) return null;
+  return <div ref={contenedor} style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "#000" }} />;
+});
+
+// Tipos de jugada de la cronología, para filtrar ("ver todos los lines", etc.).
+const TIPOS_CRONOLOGIA = [
+  { k: "line", label: "Lines" },
+  { k: "scrum", label: "Scrums" },
+  { k: "salida", label: "Salidas" },
+  { k: "try", label: "Tries" },
+  { k: "palos", label: "Patadas a los palos" },
+  { k: "penal", label: "Penales" },
+  { k: "pelota", label: "Recuperadas y pérdidas" },
+  { k: "tackle", label: "Tackles" },
+  { k: "quiebre", label: "Quiebres" },
+];
+
+// Los videos de los partidos están en YouTube (igual que la videoteca).
+// Links viejos que no sean de YouTube se siguen abriendo tal cual.
+function urlVideoEmbebido(link) {
+  const id = extraerYoutubeId(link || "");
+  return id ? `https://www.youtube-nocookie.com/embed/${id}?rel=0` : link;
+}
+function urlVideoVer(link) {
+  const id = extraerYoutubeId(link || "");
+  return id ? `https://www.youtube.com/watch?v=${id}` : link;
+}
+
+function VeoPage({ perfil }) {
+  const [categoria, setCategoria] = useState("Superior");
+  const partidos = FIXTURE[categoria.toLowerCase()];
+  const [fecha, setFecha] = useState(partidos[partidos.length - 1].fecha);
+  const partido = partidos.find((p) => p.fecha === fecha) || partidos[partidos.length - 1];
+  const jugadoresParaTries = jugadoresTitulares(categoria);
+  const trysGenerados = generarTries(partido, jugadoresParaTries, partido.informe?.triesReales).filter((t) => t.pts === 5 || t.pts === 7);
+  const trysVeo = partido.informe?.triesVeo;
+  const trysDelPartido = trysVeo || trysGenerados;
+  const analisis = partido.informe?.analisisVideo;
+
+  const [editandoLink, setEditandoLink] = useState(false);
+  const [linkInput, setLinkInput] = useState("");
+  const [subirVideoteca, setSubirVideoteca] = useState(true);
+  const [filtroCrono, setFiltroCrono] = useState("todos");
+  const [actualCrono, setActualCrono] = useState(-1);
+  const videoVeoRef = React.useRef(null);
+  useEffect(() => { setActualCrono(-1); setFiltroCrono("todos"); }, [partido.id]);
+  const [modoAnalisis, setModoAnalisis] = useState(null); // null | "general" | "individual"
+  const [importandoTrys, setImportandoTrys] = useState(false);
+  const [textoTrys, setTextoTrys] = useState("");
+  const [msgImport, setMsgImport] = useState("");
+  const [, forzar] = useState(0);
+
+  function cambiarCategoria(c) {
+    setCategoria(c);
+    const nuevaLista = FIXTURE[c.toLowerCase()];
+    setFecha(nuevaLista[nuevaLista.length - 1].fecha);
+    setEditandoLink(false);
+  }
+
+  async function guardarLink() {
+    const id = extraerYoutubeId(linkInput);
+    if (!id) {
+      setMsgImport("Ese link no es de YouTube. Copiá el link del video (youtube.com o youtu.be).");
+      return;
+    }
+    const link = `https://youtu.be/${id}`;
+    const { error } = await supabase.from("partidos").update({ veo_link: link }).eq("id", partido.id);
+    if (!error) {
+      setMsgImport("");
+      partido.veoLink = link;
+      if (subirVideoteca && partido.partidoLigaId) {
+        const { error: errV } = await supabase.from("videos_partido").upsert(
+          { partido_liga_id: partido.partidoLigaId, youtube_id: id, sin_video: false, motivo_sin_video: null, cargado_por: perfil?.id },
+          { onConflict: "partido_liga_id,club_id" }
+        );
+        if (errV) console.error("Error subiendo a la Videoteca:", errV);
+      }
+      setEditandoLink(false);
+      forzar((n) => n + 1);
+      crearNotificacion("video_partido", `Video de ${categoria} vs ${partido.rival} ya está disponible.`, null, perfil?.id);
+    }
+  }
+
+  async function guardarTrysVeo() {
+    const lineas = textoTrys.split("\n").map((l) => l.trim()).filter(Boolean);
+    const nuevos = [];
+    for (const linea of lineas) {
+      const matchTiempo = linea.match(/(\d{1,2}):(\d{2})/);
+      if (!matchTiempo) continue;
+      const esRival = /rival/i.test(linea);
+      nuevos.push({ equipo: esRival ? partido.rival : "Obras", minuto: matchTiempo[0] });
+    }
+    if (nuevos.length === 0) {
+      setMsgImport("No encontré ningún try con formato de minuto (mm:ss) — revisá el texto.");
+      return;
+    }
+    const informe = partido.informe ? JSON.parse(JSON.stringify(partido.informe)) : STATS_VACIO();
+    informe.triesVeo = nuevos;
+    const { error } = await supabase.from("partidos").update({ informe }).eq("id", partido.id);
+    if (!error) {
+      partido.informe = informe;
+      setImportandoTrys(false);
+      setTextoTrys("");
+      forzar((n) => n + 1);
+      setMsgImport(`✓ ${nuevos.length} tries cargados.`);
+      crearNotificacion("informe_partido", `Tries cargados: ${categoria} vs ${partido.rival}.`, null, perfil?.id);
+    } else {
+      setMsgImport("No se pudo guardar. Probá de nuevo.");
+    }
+    setTimeout(() => setMsgImport(""), 4000);
+  }
+
+  if (modoAnalisis === "general") {
+    return <AnalizarVideoPage partido={partido} categoria={categoria} perfil={perfil} onSalir={() => setModoAnalisis(null)} />;
+  }
+  if (modoAnalisis === "individual") {
+    return <AnalisisIndividualPage partido={partido} categoria={categoria} perfil={perfil} onSalir={() => setModoAnalisis(null)} />;
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 6 }}>
+        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Análisis de video</div>
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
+          Video del partido y su análisis · {categoria} vs {partido.rival} ({partido.cond === "Local" ? "L" : "V"}) ·{" "}
+          {partido.gf}-{partido.gc} · {partido.date}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, margin: "16px 0 16px" }}>
+        {["Superior", "Intermedia"].map((c) => (
+          <button
+            key={c}
+            onClick={() => cambiarCategoria(c)}
+            style={{
+              ...pillButton,
+              border: "1px solid " + (categoria === c ? "var(--h-acento)" : "var(--h-borde2)"),
+              background: categoria === c ? "var(--h-acento-suave)" : "transparent",
+              color: categoria === c ? "var(--h-acento)" : "var(--h-texto2)",
+            }}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+
+      <MatchSelector partidos={partidos} fecha={fecha} onSelect={setFecha} />
+
+      <div style={{ ...cardStyle, padding: "24px 20px", textAlign: "center", marginBottom: 20, background: "var(--h-fondo)" }}>
+        {editandoLink ? (
+          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+            <input
+              value={linkInput}
+              onChange={(e) => setLinkInput(e.target.value)}
+              placeholder="Pegá el link de YouTube del partido"
+              style={{ ...editInputStyle, borderBottom: "1px solid var(--h-borde2)", width: 320 }}
+            />
+            <button onClick={guardarLink} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
+              Guardar
+            </button>
+            <button onClick={() => { setEditandoLink(false); setMsgImport(""); }} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
+              Cancelar
+            </button>
+            <label style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontSize: 13, color: partido.partidoLigaId ? "var(--h-texto2)" : "var(--h-sub2)", marginTop: 4 }}>
+              <input type="checkbox" checked={subirVideoteca && !!partido.partidoLigaId} disabled={!partido.partidoLigaId} onChange={(e) => setSubirVideoteca(e.target.checked)} />
+              Subirlo también a la Videoteca
+            </label>
+            {!partido.partidoLigaId && (
+              <div style={{ width: "100%", fontSize: 12, color: "var(--h-sub2)" }}>Este partido todavía no está en la Videoteca de la división, así que se guarda solo acá.</div>
+            )}
+            {msgImport && <div style={{ width: "100%", fontSize: 12.5, color: "var(--h-error)" }}>{msgImport}</div>}
+          </div>
+        ) : partido.veoLink ? (
+          <div>
+            {extraerYoutubeId(partido.veoLink) ? (
+              <div style={{ maxWidth: 720, margin: "0 auto 8px" }}><ReproductorYoutube ref={videoVeoRef} link={partido.veoLink} /></div>
+            ) : null}
+            <a href={urlVideoVer(partido.veoLink)} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: "var(--h-acento)" }}>
+              Abrir en YouTube ↗
+            </a>
+            {esEntrenador(perfil) && (
+              <div style={{ marginTop: 10, display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                <button
+                  onClick={() => setModoAnalisis("general")}
+                  style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)", fontSize: 11.5 }}
+                >
+                   Análisis general
+                </button>
+                <button
+                  onClick={() => setModoAnalisis("individual")}
+                  style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)", fontSize: 11.5 }}
+                >
+                   Análisis individual
+                </button>
+                <button
+                  onClick={() => {
+                    setLinkInput(partido.veoLink || "");
+                    setEditandoLink(true);
+                  }}
+                  style={{ background: "transparent", border: "none", color: "var(--h-sub2)", fontSize: 11, cursor: "pointer" }}
+                >
+                  Cambiar link
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 13, color: "var(--h-sub2)" }}>Todavía no se cargó el video de este partido.</div>
+            {esEntrenador(perfil) && (
+              <button
+                onClick={() => {
+                  setLinkInput("");
+                  setEditandoLink(true);
+                }}
+                style={{ ...pillButton, marginTop: 10, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}
+              >
+                + Agregar link de YouTube
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {analisis ? (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
+          <StatCard label="Posesión" value={analisis.posesionObras + "%"} tone="ok" />
+          <StatCard label="Territorio rival" value={analisis.territorioRival + "%"} tone="ok" />
+          <StatCard label="Tiempo de juego efectivo" value={formatoRelojMMSS(analisis.ballInPlaySegundos)} tone="ok" />
+          <StatCard label="Secuencias" value={analisis.secuencias} tone="ok" />
+          <StatCard label="Secuencia más larga" value={formatoRelojMMSS(analisis.secuenciaMasLargaSegundos)} tone="ok" />
+        </div>
+      ) : (
+        <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 18, fontSize: 13.5, color: "var(--h-sub)" }}>
+          Todavía no se analizó el video de este partido. Cuando se haga, acá aparecen posesión, territorio y tiempo de juego efectivo.
+        </div>
+      )}
+
+      {(partido.informe?.cronologia || []).length > 0 && (() => {
+        const crono = partido.informe.cronologia;
+        const lista = filtroCrono === "todos" ? crono : crono.filter((c) => c.tipo === filtroCrono);
+        const ir = (i) => {
+          if (!lista[i]) return;
+          setActualCrono(i);
+          videoVeoRef.current?.irA(lista[i].seg - 5);
+        };
+        return (
+          <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+              <span style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>Cronología</span>
+              {lista.length > 0 && extraerYoutubeId(partido.veoLink) && (
+                <span style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => ir(Math.max(0, actualCrono - 1))} disabled={actualCrono <= 0} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}>← Anterior</button>
+                  <button onClick={() => ir(actualCrono + 1)} disabled={actualCrono >= lista.length - 1} style={{ ...pillButton, background: "var(--h-acento)", border: "none", color: "var(--h-panel)" }}>
+                    {actualCrono < 0 ? "Ver seguidas" : "Siguiente →"}
+                  </button>
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+              {[{ k: "todos", label: "Todo" }, ...TIPOS_CRONOLOGIA].map((t) => {
+                const n = t.k === "todos" ? crono.length : crono.filter((c) => c.tipo === t.k).length;
+                if (!n) return null;
+                return (
+                  <button key={t.k} onClick={() => { setFiltroCrono(t.k); setActualCrono(-1); }} style={{ ...pillButton, fontSize: 12.5, border: "1px solid " + (filtroCrono === t.k ? "var(--h-acento)" : "var(--h-borde2)"), background: filtroCrono === t.k ? "var(--h-acento-suave)" : "transparent", color: filtroCrono === t.k ? "var(--h-acento)" : "var(--h-texto2)" }}>
+                    {t.label} · {n}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ maxHeight: 320, overflowY: "auto" }}>
+              {lista.map((c, i) => (
+                <button
+                  key={i}
+                  onClick={() => ir(i)}
+                  disabled={!extraerYoutubeId(partido.veoLink)}
+                  style={{ display: "flex", gap: 10, alignItems: "center", width: "100%", textAlign: "left", padding: "8px 4px", border: "none", borderTop: i ? "1px solid var(--h-borde)" : "none", background: i === actualCrono ? "var(--h-acento-suave)" : "transparent", cursor: "pointer", fontFamily: "var(--h-texto-fuente)", fontSize: 13.5 }}
+                >
+                  <span style={{ fontFamily: "var(--h-titulo)", fontWeight: 700, color: "var(--h-sub)", width: 52, flexShrink: 0 }}>{formatoRelojMMSS(c.seg)}</span>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: c.tono === "ok" ? "var(--h-ok)" : "var(--h-error)", flexShrink: 0 }} />
+                  <span style={{ color: "var(--h-texto)", flex: 1 }}>{c.texto}</span>
+                  {extraerYoutubeId(partido.veoLink) && <span style={{ fontSize: 12, color: "var(--h-acento)" }}>Ver ▶</span>}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginTop: 6 }}>Cada jugada arranca 5 segundos antes, para ver cómo se armó.</div>
+          </div>
+        );
+      })()}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500 }}>Trys del partido</div>
+        {esEntrenador(perfil) && !importandoTrys && (
+          <button onClick={() => setImportandoTrys(true)} style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontSize: 11.5, cursor: "pointer" }}>
+             Cargar tries con minuto
+          </button>
+        )}
+      </div>
+      <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginBottom: 12 }}>
+        {trysVeo
+          ? "✓ Minutos cargados a mano mirando el video."
+          : "El minuto exacto está en los tries cargados en vivo durante el partido o cargados a mano mirando el video."}
+      </div>
+
+      {importandoTrys && (
+        <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+          <div style={{ fontSize: 11.5, color: "var(--h-texto2)", marginBottom: 8 }}>
+            Una línea por try, con el minuto del video de YouTube. Escribí "Rival" en la línea si el try fue del
+            otro equipo (si no dice nada, se toma como nuestro). Ejemplos:
+          </div>
+          <div style={{ fontSize: 10.5, color: "var(--h-sub2)", marginBottom: 10, fontFamily: "monospace" }}>
+            Ensayo 08:59
+            <br />
+            Ensayo Rival 23:10
+          </div>
+          <textarea
+            value={textoTrys}
+            onChange={(e) => setTextoTrys(e.target.value)}
+            placeholder={"Ensayo 08:59\nEnsayo Rival 23:10"}
+            rows={4}
+            style={{ ...inputStyle, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button onClick={guardarTrysVeo} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
+              Guardar
+            </button>
+            <button
+              onClick={() => {
+                setImportandoTrys(false);
+                setTextoTrys("");
+              }}
+              style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+      {msgImport && <div style={{ fontSize: 11.5, color: msgImport.startsWith("✓") ? "var(--h-ok)" : "var(--h-error)", marginBottom: 10 }}>{msgImport}</div>}
+
+      <div style={{ ...cardStyle, padding: "8px 16px" }}>
+        {trysDelPartido.length === 0 && <div style={{ padding: "10px 0", color: "var(--h-sub2)", fontSize: 12.5 }}>No hay tries cargados para este partido.</div>}
+        {trysDelPartido.map((t, i) => (
+          <div
+            key={i}
+            style={{ display: "flex", gap: 14, alignItems: "center", padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid var(--h-borde)", fontSize: 13 }}
+          >
+            <span style={{ color: "var(--h-acento)", fontFamily: "var(--h-titulo)", fontWeight: 600, width: 40 }}>
+              {t.minuto || "—"}
+            </span>
+            <span style={{ ...tagStyle, background: t.equipo === "Obras" ? "var(--h-ok-suave)" : "var(--h-error-suave)", color: t.equipo === "Obras" ? "var(--h-ok)" : "var(--h-error)" }}>
+              {t.equipo}
+            </span>
+            <span style={{ color: "var(--h-texto2)" }}>{t.obs}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Return to Play — lesiones actuales cruzadas con el historial médico de todo el plantel.
+function tipoLesion(zona) {
+  if (!zona) return "—";
+  if (["Rodilla", "Tobillo", "Hombro"].some((z) => zona.includes(z))) return "Articular / ligamentaria";
+  return "Muscular";
+}
+
+// Informe de partido — estadísticas de equipo y por jugador, inspirado en la planilla real del club.
+
+
+// Puntaje real de rugby: try 5, conversión 2, penal a los palos 3, drop 3.
+// Reconstruye el resultado real del partido en una combinación válida de esos puntajes,
+// priorizando la que tenga más tries (favorece penales/drops solo para lo que sobra).
+// Tantos del partido: solo los cargados de verdad (partido en vivo o importados). Nada inventado.
+function generarTries(partido, jugadoresTry, triesReales) {
+  return (triesReales || []).map((t) => ({
+    equipo: "Obras",
+    jugadorId: t.jugadorId,
+    origen: "Partido en vivo",
+    pts: t.conConversion ? 7 : 5,
+    obs: `Try de ${t.jugadorId}${t.conConversion ? " + conversión" : ""}${t.minuto ? ` a los ${t.minuto}` : ""} (5${t.conConversion ? " + 2" : ""} pts).`,
+  }));
+}
+
+
+const STATS_VACIO = () => ({
+  scrum: { ganados: 0, perdidos: 0, robados: 0, delRival: 0 },
+  line: { ganados: 0, perdidos: 0, robados: 0, torcidas: 0, delRival: 0 },
+  desfavorables: { penalesEnContra: 0, perdidasContacto: 0, perdidasRucks: 0, perdidasInfracciones: 0, perdidasMalPase: 0 },
+  favorables: { penalesAFavor: 0, pelotasRecuperadas: 0, quiebresAtaque: 0, tacklesTotales: 0, quiebreQueTerminaEnTry: 0 },
+});
+
+// Indicadores clave de un informe de partido (para el semáforo y la temporada).
+function indicadoresInforme(st) {
+  const scrumProp = st.scrum.ganados + st.scrum.perdidos;
+  const lineProp = st.line.ganados + st.line.perdidos + st.line.torcidas;
+  const propias = scrumProp + lineProp;
+  const perdidas = Object.entries(st.desfavorables).filter(([k]) => k !== "penalesEnContra").reduce((a, [, v]) => a + v, 0);
+  return {
+    obtencion: propias ? Math.round(((st.scrum.ganados + st.line.ganados) / propias) * 100) : null,
+    scrum: scrumProp ? Math.round((st.scrum.ganados / scrumProp) * 100) : null,
+    line: lineProp ? Math.round((st.line.ganados / lineProp) * 100) : null,
+    quiebres: st.favorables.quiebresAtaque,
+    tackles: st.favorables.tacklesTotales,
+    penales: st.desfavorables.penalesEnContra,
+    perdidas,
+  };
+}
+
+function SemaforoPartido({ stats, esReal, otros }) {
+  const hoy = indicadoresInforme(stats);
+  const base = otros.map(indicadoresInforme);
+  const prom = (k) => {
+    const vals = base.map((b) => b[k]).filter((v) => v !== null && v !== undefined);
+    return vals.length >= 2 ? vals.reduce((a, v) => a + v, 0) / vals.length : null;
+  };
+  const items = [
+    { k: "obtencion", label: "Obtención propia", fmt: (v) => (v === null ? "—" : `${v}%`), mejorAlto: true },
+    { k: "quiebres", label: "Quiebres", fmt: (v) => v, mejorAlto: true },
+    { k: "tackles", label: "Tackles", fmt: (v) => v, mejorAlto: true },
+    { k: "penales", label: "Penales en contra", fmt: (v) => v, mejorAlto: false },
+    { k: "perdidas", label: "Pérdidas", fmt: (v) => v, mejorAlto: false },
+  ];
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+        {items.map((it) => {
+          const v = hoy[it.k];
+          const p = esReal ? prom(it.k) : null;
+          let flecha = null, color = "var(--h-texto)";
+          if (p !== null && v !== null) {
+            const dif = v - p;
+            const umbral = Math.max(1, Math.abs(p) * 0.1);
+            if (Math.abs(dif) >= umbral) {
+              const bueno = it.mejorAlto ? dif > 0 : dif < 0;
+              flecha = dif > 0 ? "↑" : "↓";
+              color = bueno ? "var(--h-ok)" : "var(--h-error)";
+            }
+          }
+          return (
+            <div key={it.k} style={{ ...cardStyle, padding: "12px 14px" }}>
+              <div style={{ fontSize: 12, color: "var(--h-sub)" }}>{it.label}</div>
+              <div style={{ fontFamily: "var(--h-titulo)", fontSize: 28, fontWeight: 800, color, lineHeight: 1.1 }}>
+                {it.fmt(v)} {flecha && <span style={{ fontSize: 20 }}>{flecha}</span>}
+              </div>
+              {p !== null && <div style={{ fontSize: 11.5, color: "var(--h-sub2)" }}>Promedio: {it.k === "obtencion" ? `${Math.round(p)}%` : Math.round(p * 10) / 10}</div>}
+            </div>
+          );
+        })}
+      </div>
+      {esReal && base.length < 2 && (
+        <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginTop: 6 }}>La comparación contra el promedio aparece cuando haya al menos 2 informes más cargados.</div>
+      )}
+    </div>
+  );
+}
+
+const COLUMNAS_PLANILLA = [
+  { k: "tackles", label: "Tackles" },
+  { k: "tacklesPositivos", label: "Tackles positivos" },
+  { k: "errados", label: "Tackles errados", bajoEsMejor: true },
+  { k: "quiebres", label: "Quiebres" },
+  { k: "qbreXTry", label: "Quiebres que terminan en try" },
+  { k: "tries", label: "Tries" },
+  { k: "recuperadas", label: "Recuperadas" },
+  { k: "accPos", label: "Acciones positivas" },
+  { k: "pk", label: "Penales", bajoEsMejor: true },
+];
+
+function PlanillaPartido({ jugadores }) {
+  const [orden, setOrden] = useState({ k: "accPos", desc: true });
+  const filas = [...jugadores].sort((a, b) => ((a[orden.k] || 0) - (b[orden.k] || 0)) * (orden.desc ? -1 : 1) || a.numero - b.numero);
+  const destacado = (k, label) => {
+    const max = Math.max(0, ...jugadores.map((j) => j[k] || 0));
+    if (!max) return null;
+    const quienes = jugadores.filter((j) => (j[k] || 0) === max).map((j) => j.jugadorId);
+    return { label, max, quienes };
+  };
+  const destacados = [destacado("tackles", "Más tackles"), destacado("quiebres", "Más quiebres"), destacado("recuperadas", "Más recuperadas")].filter(Boolean);
+  return (
+    <div>
+      {destacados.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 14 }}>
+          {destacados.map((d) => (
+            <div key={d.label} style={{ ...cardStyle, padding: "12px 14px", borderLeft: "4px solid var(--h-club)" }}>
+              <div style={{ fontSize: 12, color: "var(--h-sub)" }}>{d.label}</div>
+              <div style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 14.5, marginTop: 2 }}>{d.quienes.join(", ")}</div>
+              <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-club-tinta)" }}>{d.max}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ fontSize: 12, color: "var(--h-sub)", marginBottom: 8 }}>
+        Tocá una columna para ordenar. Acciones positivas = recuperadas + quiebres + tackles positivos.
+      </div>
+      <div style={{ ...cardStyle, padding: "6px 4px", overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 760 }}>
+          <thead>
+            <tr style={{ textAlign: "left" }}>
+              <th style={{ padding: "8px 10px", color: "var(--h-sub)", fontWeight: 500 }}>Jugador</th>
+              {COLUMNAS_PLANILLA.map((c) => (
+                <th key={c.k} style={{ padding: "8px 8px" }}>
+                  <button
+                    onClick={() => setOrden((o) => ({ k: c.k, desc: o.k === c.k ? !o.desc : true }))}
+                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 12, fontWeight: orden.k === c.k ? 700 : 500, color: orden.k === c.k ? "var(--h-acento)" : "var(--h-sub)", textAlign: "left", fontFamily: "var(--h-texto-fuente)" }}
+                  >
+                    {c.label}{orden.k === c.k ? (orden.desc ? " ↓" : " ↑") : ""}
+                  </button>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((j) => (
+              <tr key={j.numero} style={{ borderTop: "1px solid var(--h-borde)" }}>
+                <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
+                  <span style={{ color: "var(--h-sub)", marginRight: 8, fontFamily: "var(--h-titulo)", fontWeight: 700 }}>{j.numero}</span>
+                  <span style={{ color: "var(--h-texto)", fontWeight: 600 }}>{j.jugadorId}</span>
+                </td>
+                {COLUMNAS_PLANILLA.map((c) => (
+                  <td key={c.k} style={{ padding: "8px 8px", fontWeight: orden.k === c.k ? 700 : 400, color: c.bajoEsMejor && j[c.k] ? "var(--h-error)" : orden.k === c.k ? "var(--h-texto)" : "var(--h-texto2)" }}>
+                    {j[c.k] ?? 0}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginTop: 8 }}>Planilla de seguimiento que carga el staff, solo para los titulares.</div>
+    </div>
+  );
+}
+
+// ---------- La temporada ----------
+function GraficoResultados({ partidos }) {
+  if (!partidos.length) return <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay partidos jugados.</div>;
+  const max = Math.max(10, ...partidos.flatMap((p) => [p.gf || 0, p.gc || 0]));
+  const W = Math.max(320, partidos.length * 46), H = 170, base = 140;
+  const esc = (v) => ((v || 0) / max) * 120;
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <svg width={W} height={H} role="img" aria-label="Puntos a favor y en contra por partido">
+        <line x1="0" x2={W} y1={base} y2={base} stroke="var(--h-borde)" />
+        {partidos.map((p, i) => {
+          const x = i * 46 + 8;
+          const color = p.res === "Ganado" ? "var(--h-ok)" : p.res === "Perdido" ? "var(--h-error)" : "var(--h-sub)";
+          return (
+            <g key={i}>
+              <title>{`F${p.fecha} vs ${p.rival}: ${p.gf}-${p.gc}`}</title>
+              <rect x={x} y={base - esc(p.gf)} width="14" height={esc(p.gf)} rx="3" fill="var(--h-club)" />
+              <rect x={x + 16} y={base - esc(p.gc)} width="14" height={esc(p.gc)} rx="3" fill="var(--h-borde2)" />
+              <text x={x + 15} y={base - Math.max(esc(p.gf), esc(p.gc)) - 4} textAnchor="middle" fontSize="10" fill="var(--h-sub)">{p.gf}-{p.gc}</text>
+              <circle cx={x + 15} cy={base + 12} r="4" fill={color} />
+              <text x={x + 15} y={base + 27} textAnchor="middle" fontSize="10" fill="var(--h-sub)">{etiquetaFechaCorta(p.fecha)}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ display: "flex", gap: 14, fontSize: 12, color: "var(--h-sub)", marginTop: 4 }}>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "var(--h-club)", marginRight: 5 }} />A favor</span>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "var(--h-borde2)", marginRight: 5 }} />En contra</span>
+      </div>
+    </div>
+  );
+}
+
+function TemporadaPage() {
+  const [categoria, setCategoria] = useState("Superior");
+  const partidos = (FIXTURE[categoria.toLowerCase()] || []).filter((p) => p.res);
+  const g = partidos.filter((p) => p.res === "Ganado").length;
+  const e = partidos.filter((p) => p.res === "Empate").length;
+  const pe = partidos.filter((p) => p.res === "Perdido").length;
+  const pf = partidos.reduce((a, p) => a + (p.gf || 0), 0);
+  const pc = partidos.reduce((a, p) => a + (p.gc || 0), 0);
+  const conInforme = partidos.filter((p) => p.informe).map((p) => ({ p, ind: indicadoresInforme(p.informe) }));
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {["Superior", "Intermedia"].map((c) => (
+          <button key={c} onClick={() => setCategoria(c)} style={{ ...pillButton, fontWeight: 700, border: "1px solid " + (categoria === c ? "var(--h-acento)" : "var(--h-borde2)"), background: categoria === c ? "var(--h-acento-suave)" : "transparent", color: categoria === c ? "var(--h-acento)" : "var(--h-texto2)" }}>{c}</button>
+        ))}
+      </div>
+      {/* La temporada en una línea: un punto por partido (verde ganó, rojo perdió, gris empató) */}
+      <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+        <div style={{ fontSize: 15, color: "var(--h-texto)", lineHeight: 1.5 }}>
+          <b style={{ fontFamily: "var(--h-titulo)", fontSize: 24 }}>{g}</b> ganados, <b style={{ fontFamily: "var(--h-titulo)", fontSize: 24 }}>{pe}</b> perdidos{e ? <> y <b style={{ fontFamily: "var(--h-titulo)", fontSize: 24 }}>{e}</b> {e === 1 ? "empate" : "empates"}</> : null}
+          <span style={{ color: "var(--h-sub)", fontSize: 13.5 }}> · {pf} hechos, {pc} recibidos ({pf - pc > 0 ? "+" : ""}{pf - pc})</span>
+        </div>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 10 }} aria-label="Resultados en orden">
+          {partidos.map((p, i) => (
+            <span key={i} title={`F${p.fecha} ${p.cond === "Local" ? "vs" : "en"} ${p.rival}: ${p.gf}-${p.gc}`}
+              style={{ width: 14, height: 14, borderRadius: "50%", background: p.res === "Ganado" ? "var(--h-ok)" : p.res === "Perdido" ? "var(--h-error)" : "var(--h-sub2)" }} />
+          ))}
+        </div>
+      </div>
+      <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Partido a partido</div>
+        <GraficoResultados partidos={partidos} />
+      </div>
+      <div style={{ ...cardStyle, padding: "14px 16px" }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>Obtención por fecha</div>
+        {conInforme.length === 0 ? (
+          <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Cuando se carguen los informes de partido (o el análisis de video), acá se ve cómo viene el scrum y el line fecha a fecha.</div>
+        ) : (
+          conInforme.map(({ p, ind }) => (
+            <div key={p.fecha} style={{ display: "grid", gridTemplateColumns: "54px 1fr 1fr", gap: 10, alignItems: "center", padding: "6px 0", borderTop: "1px solid var(--h-borde)", fontSize: 12.5 }}>
+              <span style={{ color: "var(--h-sub)", fontWeight: 700 }}>{etiquetaFechaCorta(p.fecha)}</span>
+              {[["Scrum", ind.scrum], ["Line", ind.line]].map(([l, v]) => (
+                <span key={l} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 38, color: "var(--h-sub)" }}>{l}</span>
+                  <span style={{ flex: 1, height: 8, borderRadius: 4, background: "var(--h-borde)", overflow: "hidden" }}>
+                    <span style={{ display: "block", height: "100%", width: `${v ?? 0}%`, background: v === null ? "transparent" : v >= 80 ? "var(--h-ok)" : v >= 60 ? "var(--h-alerta)" : "var(--h-error)" }} />
+                  </span>
+                  <span style={{ width: 36, textAlign: "right", color: "var(--h-texto)", fontWeight: 600 }}>{v === null ? "—" : `${v}%`}</span>
+                </span>
+              ))}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InformePartidoPage({ perfil }) {
+  const [categoria, setCategoria] = useState("Superior");
+  const partidos = FIXTURE[categoria.toLowerCase()];
+  const [fecha, setFecha] = useState(partidos[partidos.length - 1].fecha);
+  const partido = partidos.find((p) => p.fecha === fecha) || partidos[partidos.length - 1];
+  const [editando, setEditando] = useState(false);
+  const [borrador, setBorrador] = useState(null);
+  const [, forzar] = useState(0);
+
+  function cambiarCategoria(c) {
+    setCategoria(c);
+    const nuevaLista = FIXTURE[c.toLowerCase()];
+    setFecha(nuevaLista[nuevaLista.length - 1].fecha);
+    setEditando(false);
+  }
+
+  const stats = partido.informe || STATS_VACIO();
+  const esReal = !!partido.informe;
+  const jugadoresTry = jugadoresTitulares(categoria);
+  const tries = generarTries(partido, jugadoresTry, partido.informe?.triesReales);
+  const totalPerdidas = Object.values(stats.desfavorables).reduce((a, b) => a + b, 0) - stats.desfavorables.penalesEnContra;
+
+  const [analisisReal, setAnalisisReal] = useState({});
+  useEffect(() => {
+    cargarAnalisisIndividual(partido.id).then((porDbId) => {
+      const porNombre = {};
+      Object.entries(porDbId).forEach(([dbId, r]) => {
+        const jugador = POOL.find((p) => p.dbId === dbId);
+        if (jugador) porNombre[jugador.id] = r;
+      });
+      setAnalisisReal(porNombre);
+    });
+  }, [partido.id]);
+
+  // Cuántos tries anotó cada jugador en este partido (solo Obras).
+  const triesPorJugador = {};
+  tries.forEach((t) => {
+    if (t.equipo === "Obras" && t.jugadorId) {
+      triesPorJugador[t.jugadorId] = (triesPorJugador[t.jugadorId] || 0) + 1;
+    }
+  });
+
+  const jugadores = jugadoresTry.map((s) => {
+    const real = analisisReal[s.jugadorId];
+    if (real) {
+      const tackles = real.tackle_hecho + real.tackle_positivo + real.tackle_errado;
+      const quiebres = real.quiebre_con_try + real.quiebre_sin_try;
+      const qbreXTry = real.quiebre_con_try;
+      const pk = real.penal_en_contra_ruck + real.penal_en_contra_maul + real.penal_en_contra_juego + real.penal_en_contra_inconducta;
+      const recuperadas = real.recuperadas || 0;
+      const accPos = real.tackle_positivo + quiebres + recuperadas + real.penal_a_favor + (real.es_pateador ? real.drop_convertido + real.cincuenta_22 : 0);
+      return { ...s, tackles, tacklesPositivos: real.tackle_positivo, recuperadas, tries: real.tries || 0, errados: real.tackle_errado, pk, quiebres, qbreXTry, accPos };
+    }
+    return null; // sin planilla cargada para este jugador: no se inventa nada
+  }).filter(Boolean);
+
+  function empezarEdicion() {
+    setBorrador(JSON.parse(JSON.stringify(partido.informe || STATS_VACIO())));
+    setEditando(true);
+  }
+  function cambiarCampo(seccion, campo, valor) {
+    setBorrador((prev) => ({ ...prev, [seccion]: { ...prev[seccion], [campo]: Number(valor.replace(/\D/g, "")) || 0 } }));
+  }
+  async function guardarInforme() {
+    const { error } = await supabase.from("partidos").update({ informe: borrador }).eq("id", partido.id);
+    if (!error) {
+      partido.informe = borrador;
+      setEditando(false);
+      forzar((n) => n + 1);
+      crearNotificacion("informe_partido", `Informe de partido ${categoria} vs ${partido.rival} cargado.`, null, perfil?.id);
+    } else {
+      console.error("Error guardando informe:", error);
+    }
+  }
+
+  const Fila = ({ label, value }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12.5 }}>
+      <span style={{ color: "var(--h-sub)" }}>{label}</span>
+      <span style={{ color: "var(--h-texto)", fontWeight: 500 }}>{value}</span>
+    </div>
+  );
+  const FilaEditable = ({ label, seccion, campo }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", fontSize: 12.5 }}>
+      <span style={{ color: "var(--h-sub)" }}>{label}</span>
+      <input
+        value={borrador[seccion][campo]}
+        onChange={(e) => cambiarCampo(seccion, campo, e.target.value)}
+        style={{ ...editInputStyle, width: 44, borderBottom: "1px solid var(--h-borde2)", textAlign: "right" }}
+      />
+    </div>
+  );
+
+  const [tab, setTab] = useState("obtencion");
+  const pelotasPropias = stats.scrum.ganados + stats.line.ganados;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
+        <div>
+          <div style={{ fontSize: 24, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Informe de partido</div>
+          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
+            {categoria} vs {partido.rival} ({partido.cond === "Local" ? "L" : "V"}) · {partido.gf}-{partido.gc} ·{" "}
+            {partido.date}
+          </div>
+        </div>
+        {esEntrenador(perfil) &&
+          (editando ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={guardarInforme} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
+                Guardar informe
+              </button>
+              <button onClick={() => setEditando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <button onClick={empezarEdicion} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}>
+              {esReal ? "Editar informe" : "Cargar informe"}
+            </button>
+          ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, margin: "16px 0 16px" }}>
+        {["Superior", "Intermedia"].map((c) => (
+          <button
+            key={c}
+            onClick={() => cambiarCategoria(c)}
+            style={{
+              ...pillButton,
+              border: "1px solid " + (categoria === c ? "var(--h-acento)" : "var(--h-borde2)"),
+              background: categoria === c ? "var(--h-acento-suave)" : "transparent",
+              color: categoria === c ? "var(--h-acento)" : "var(--h-texto2)",
+            }}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+
+      <MatchSelector partidos={partidos} fecha={fecha} onSelect={setFecha} />
+
+      {!esReal && !editando && (
+        <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 16 }}>
+          Todavía no se cargó el informe de este partido.
+        </div>
+      )}
+      {esReal && !editando && <div style={{ fontSize: 11, color: "var(--h-ok)", marginBottom: 16 }}>✓ Informe cargado por el cuerpo técnico.</div>}
+
+      {(esReal || editando) && <SemaforoPartido stats={stats} esReal={esReal} otros={partidos.filter((p) => p.informe && p.fecha !== partido.fecha).map((p) => p.informe)} />}
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+        {[
+          { key: "obtencion", label: "Obtención" },
+          { key: "situaciones", label: "Situaciones" },
+          { key: "puntos", label: "Puntos del partido" },
+          { key: "planilla", label: "Planilla por jugador" },
+        ].map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            style={{
+              ...pillButton,
+              border: "1px solid " + (tab === t.key ? "var(--h-acento)" : "var(--h-borde2)"),
+              background: tab === t.key ? "var(--h-acento-suave)" : "transparent",
+              color: tab === t.key ? "var(--h-acento)" : "var(--h-texto2)",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {!esReal && !editando && (tab === "obtencion" || tab === "situaciones") && (
+        <div style={{ ...cardStyle, padding: "18px", fontSize: 13.5, color: "var(--h-sub)" }}>
+          Sin datos todavía. Se completa con "Cargar informe" o con el análisis de video del partido.
+        </div>
+      )}
+      {(esReal || editando) && tab === "obtencion" && (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
+            <div style={{ fontSize: 12, color: "var(--h-sub)", marginBottom: 10, letterSpacing: 0.5 }}>SCRUM</div>
+            {editando ? (
+              <>
+                <FilaEditable label="Ganados" seccion="scrum" campo="ganados" />
+                <FilaEditable label="Perdidos" seccion="scrum" campo="perdidos" />
+                <FilaEditable label="Robados" seccion="scrum" campo="robados" />
+                <FilaEditable label="Del rival ganados" seccion="scrum" campo="delRival" />
+              </>
+            ) : (
+              <>
+                <Fila label="Ganados" value={stats.scrum.ganados} />
+                <Fila label="Perdidos" value={stats.scrum.perdidos} />
+                <Fila label="Robados" value={stats.scrum.robados} />
+                <Fila label="Del rival ganados" value={stats.scrum.delRival} />
+              </>
+            )}
+          </div>
+          <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
+            <div style={{ fontSize: 12, color: "var(--h-sub)", marginBottom: 10, letterSpacing: 0.5 }}>LINE-OUT</div>
+            {editando ? (
+              <>
+                <FilaEditable label="Ganados" seccion="line" campo="ganados" />
+                <FilaEditable label="Perdidos" seccion="line" campo="perdidos" />
+                <FilaEditable label="Robados" seccion="line" campo="robados" />
+                <FilaEditable label="Torcidas" seccion="line" campo="torcidas" />
+                <FilaEditable label="Del rival ganados" seccion="line" campo="delRival" />
+              </>
+            ) : (
+              <>
+                <Fila label="Ganados" value={stats.line.ganados} />
+                <Fila label="Perdidos" value={stats.line.perdidos} />
+                <Fila label="Robados" value={stats.line.robados} />
+                <Fila label="Torcidas" value={stats.line.torcidas} />
+                <Fila label="Del rival ganados" value={stats.line.delRival} />
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {(esReal || editando) && tab === "situaciones" && (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
+            <div style={{ fontSize: 12, color: "var(--h-ok)", marginBottom: 10, letterSpacing: 0.5 }}>FAVORABLES</div>
+            {editando ? (
+              <>
+                <FilaEditable label="Penales a favor" seccion="favorables" campo="penalesAFavor" />
+                <FilaEditable label="Pelotas recuperadas" seccion="favorables" campo="pelotasRecuperadas" />
+                <FilaEditable label="Quiebres en ataque" seccion="favorables" campo="quiebresAtaque" />
+                <FilaEditable label="Tackles totales" seccion="favorables" campo="tacklesTotales" />
+                <FilaEditable label="Quiebre que termina en try" seccion="favorables" campo="quiebreQueTerminaEnTry" />
+              </>
+            ) : (
+              <>
+                <Fila label="Penales a favor" value={stats.favorables.penalesAFavor} />
+                <Fila label="Pelotas recuperadas" value={stats.favorables.pelotasRecuperadas} />
+                <Fila label="Quiebres en ataque" value={stats.favorables.quiebresAtaque} />
+                <Fila label="Tackles totales" value={stats.favorables.tacklesTotales} />
+                <Fila label="Quiebre que termina en try" value={stats.favorables.quiebreQueTerminaEnTry} />
+              </>
+            )}
+          </div>
+          <div style={{ ...cardStyle, padding: "16px 18px", flex: "1 1 260px" }}>
+            <div style={{ fontSize: 12, color: "var(--h-error)", marginBottom: 10, letterSpacing: 0.5 }}>DESFAVORABLES</div>
+            {editando ? (
+              <>
+                <FilaEditable label="Penales en contra" seccion="desfavorables" campo="penalesEnContra" />
+                <FilaEditable label="Pérdidas en contacto" seccion="desfavorables" campo="perdidasContacto" />
+                <FilaEditable label="Pérdidas en rucks" seccion="desfavorables" campo="perdidasRucks" />
+                <FilaEditable label="Pérdidas x infracciones" seccion="desfavorables" campo="perdidasInfracciones" />
+                <FilaEditable label="Pérdidas x mal pase" seccion="desfavorables" campo="perdidasMalPase" />
+              </>
+            ) : (
+              <>
+                <Fila label="Penales en contra" value={stats.desfavorables.penalesEnContra} />
+                <Fila label="Pérdidas en contacto" value={stats.desfavorables.perdidasContacto} />
+                <Fila label="Pérdidas en rucks" value={stats.desfavorables.perdidasRucks} />
+                <Fila label="Pérdidas x infracciones" value={stats.desfavorables.perdidasInfracciones} />
+                <Fila label="Pérdidas x mal pase" value={stats.desfavorables.perdidasMalPase} />
+                <div style={{ borderTop: "1px solid var(--h-borde)", marginTop: 6, paddingTop: 6 }}>
+                  <Fila label="Total pérdidas" value={totalPerdidas} />
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === "puntos" && (
+        <div>
+          <div style={{ ...cardStyle, padding: "8px 16px", marginBottom: partido.informe?.incidencias?.length ? 20 : 0 }}>
+            {tries.length === 0 && <div style={{ padding: "12px 0", fontSize: 13, color: "var(--h-sub)" }}>Todavía no se cargaron los tries de este partido.</div>}
+            {tries.map((t, i) => (
+              <div key={i} style={{ padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid var(--h-borde)" }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 3 }}>
+                  <span style={{ ...tagStyle, background: t.equipo === "Obras" ? "var(--h-ok-suave)" : "var(--h-error-suave)", color: t.equipo === "Obras" ? "var(--h-ok)" : "var(--h-error)" }}>
+                    {t.equipo}
+                  </span>
+                  <span style={{ fontSize: 12, color: "var(--h-sub)" }}>{t.origen}</span>
+                  <span style={{ fontSize: 12, color: "var(--h-acento)", fontFamily: "var(--h-titulo)", fontWeight: 600 }}>
+                    {t.pts} pts
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--h-texto2)" }}>{t.obs}</div>
+              </div>
+            ))}
+          </div>
+
+          {partido.informe?.incidencias?.length > 0 && (
+            <>
+              <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 500, marginBottom: 10 }}>Incidencias del partido en vivo</div>
+              <div style={{ ...cardStyle, padding: "8px 16px", maxHeight: 260, overflowY: "auto" }}>
+                {partido.informe.incidencias.map((inc, i) => (
+                  <div key={i} style={{ padding: "7px 0", borderTop: i === 0 ? "none" : "1px solid var(--h-borde)", display: "flex", gap: 10, fontSize: 12.5 }}>
+                    <span style={{ color: "var(--h-acento)", fontFamily: "var(--h-titulo)", flexShrink: 0 }}>{inc.minuto}</span>
+                    <span style={{ color: "var(--h-texto2)" }}>{inc.texto}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === "planilla" && (jugadores.length ? <PlanillaPartido jugadores={jugadores} /> : (
+        <div style={{ ...cardStyle, padding: "18px", fontSize: 13.5, color: "var(--h-sub)" }}>Todavía no se cargó la planilla de este partido (se hace desde Análisis de video → análisis individual).</div>
+      ))}
+    </div>
+  );
+}
+
+// Reporte individual — cualidades físicas + estadísticas de juego de la temporada + historial médico.
+// Los puntos siempre se arman con el puntaje real: try 5, conversión 2, penal a los palos 3, drop 3.
+function ReporteIndividualPage({ perfil }) {
+  const [jugadorId, setJugadorId] = useState(POOL[0]?.id || "");
+  const [busca, setBusca] = useState("");
+  const [planillas, setPlanillas] = useState(null);
+  const [wellness, setWellness] = useState([]);
+  const jugador = POOL.find((j) => j.id === jugadorId);
+
+  useEffect(() => {
+    if (!jugador && POOL.length > 0) setJugadorId(POOL[0].id);
+  }, [jugador]);
+  useEffect(() => {
+    if (!jugador?.dbId) return;
+    setPlanillas(null);
+    supabase.from("analisis_individual_partido").select("*").eq("jugador_id", jugador.dbId).then(({ data }) => setPlanillas(data || []));
+    cargarWellnessHistorial(30).then((d) => setWellness((d.porJugador[jugador.dbId] || []).map((x) => ({ fecha: x.fecha, pct: pctWellness(x) }))));
+  }, [jugador?.dbId]);
+
+  if (!jugador) return <div style={{ color: "var(--h-sub)", fontSize: 13 }}>No hay jugadores en el plantel todavía.</div>;
+
+  const suma = (k) => (planillas || []).reduce((a, r) => a + (r[k] || 0), 0);
+  const tot = planillas && {
+    partidos: planillas.length,
+    tackles: suma("tackle_hecho") + suma("tackle_positivo") + suma("tackle_errado"),
+    positivos: suma("tackle_positivo"),
+    quiebres: suma("quiebre_con_try") + suma("quiebre_sin_try"),
+    penales: suma("penal_en_contra_ruck") + suma("penal_en_contra_maul") + suma("penal_en_contra_juego") + suma("penal_en_contra_inconducta"),
+  };
+  const lista = POOL.filter((j) => !busca || j.id.toLowerCase().includes(busca.toLowerCase())).sort((a, b) => a.id.localeCompare(b.id));
+  const estado = disponibilidadReal(jugador);
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar jugador…" style={{ ...inputStyle, width: 200, margin: 0 }} />
+        <select value={jugadorId} onChange={(e) => setJugadorId(e.target.value)} style={{ ...inputStyle, width: 240, margin: 0 }}>
+          {lista.map((j) => <option key={j.id} value={j.id}>{j.id}</option>)}
+        </select>
+      </div>
+
+      <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 14, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <AvatarPlaceholder size={56} foto={jugador.foto} />
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 28, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1.05 }}>{jugador.id}</div>
+          <div style={{ fontSize: 13, color: "var(--h-sub)" }}>{jugador.posicionIdeal || "Sin puesto"}{jugador.altura ? ` · ${jugador.altura} cm` : ""}{jugador.peso ? ` · ${jugador.peso} kg` : ""}</div>
+        </div>
+        <span style={{ ...tagStyle, borderRadius: 999, fontWeight: 700, background: "var(--h-acento-suave)", color: COLOR_ESTADO[estado] || "var(--h-texto)" }}>● {estado}</span>
+      </div>
+
+      <FichaJugador
+        jugador={jugador}
+        onVolver={null}
+        onUpdateCampo={() => {}}
+        onAddHistorial={() => {}}
+        onRemoveHistorial={() => {}}
+        ocultarVolver
+        perfil={perfil}
+      />
+    </div>
+  );
+}
+
+
+// ───────────────────────── Resúmenes ─────────────────────────
+// Dos seguimientos independientes: la semana de entrenamiento (lunes a viernes) y los partidos del mes con su postpartido.
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const isoDia = (d) => d.toLocaleDateString("sv-SE");
+const sumarDias = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const promedio = (arr) => (arr.length ? Math.round(arr.reduce((a, v) => a + v, 0) / arr.length) : null);
+
+function Flechas({ texto, onAntes, onDespues, puedeDespues = true }) {
+  const b = { ...pillButton, minWidth: 44, minHeight: 40, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)", fontSize: 18, padding: "0 10px" };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+      <button onClick={onAntes} aria-label="Anterior" style={b}>‹</button>
+      <span style={{ flex: 1, textAlign: "center", fontSize: 15, fontWeight: 700, color: "var(--h-texto)" }}>{texto}</span>
+      <button onClick={onDespues} disabled={!puedeDespues} aria-label="Siguiente" style={{ ...b, opacity: puedeDespues ? 1 : 0.35 }}>›</button>
+    </div>
+  );
+}
+
+function BloqueResumen({ titulo, children }) {
+  return (
+    <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 12 }}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)", marginBottom: 8 }}>{titulo}</div>
+      <div style={{ fontSize: 14, color: "var(--h-texto)", lineHeight: 1.6 }}>{children}</div>
+    </div>
+  );
+}
+
+function ResumenSemana() {
+  const [corrimiento, setCorrimiento] = useState(0); // 0 = esta semana, -1 = la anterior…
+  const [d, setD] = useState(null);
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const lunes = sumarDias(hoy, -((hoy.getDay() + 6) % 7) + corrimiento * 7);
+  const viernes = sumarDias(lunes, 4);
+  const L = isoDia(lunes), V = isoDia(viernes), Lprev = isoDia(sumarDias(lunes, -7)), Vprev = isoDia(sumarDias(lunes, -3));
+
+  useEffect(() => {
+    let vivo = true;
+    setD(null);
+    Promise.all([
+      supabase.from("asistencias").select("jugador_id, fecha, presente").gte("fecha", L).lte("fecha", V),
+      supabase.from("wellness_respuestas").select("jugador_id, fecha, estres, sueno, doms, fatiga, escala").gte("fecha", Lprev).lte("fecha", V),
+      supabase.from("registros_gimnasio").select("jugador_id, fecha").gte("fecha", L).lte("fecha", V),
+      supabase.from("lesiones").select("jugador_id, zona, fecha_lesion, activa, fecha_vuelta_estimada, jugadores(nombre)").or(`activa.eq.true,fecha_lesion.gte.${L}`),
+      supabase.from("evaluaciones").select("jugador_id, fecha").gte("fecha", L).lte("fecha", V),
+    ]).then(([a, w, g, l, e]) => vivo && setD({ asis: a.data || [], well: w.data || [], gym: g.data || [], les: l.data || [], evs: e.data || [] }));
+    return () => { vivo = false; };
+  }, [L]);
+
+  const nombreDe = (dbId) => POOL.find((j) => j.dbId === dbId)?.id || "—";
+  const titulo = `Lunes ${lunes.getDate()} al viernes ${viernes.getDate()} de ${MESES[viernes.getMonth()]}`;
+  if (!d) return <><Flechas texto={titulo} onAntes={() => setCorrimiento((c) => c - 1)} onDespues={() => setCorrimiento((c) => c + 1)} puedeDespues={corrimiento < 0} /><div style={{ color: "var(--h-sub)", fontSize: 13 }}>Cargando…</div></>;
+
+  // Asistencia por día de práctica
+  const diasPractica = [...new Set(d.asis.map((r) => r.fecha))].sort();
+  const faltasPor = {};
+  d.asis.forEach((r) => { if (!r.presente) faltasPor[r.jugador_id] = (faltasPor[r.jugador_id] || 0) + 1; });
+  const faltaronTodas = diasPractica.length > 1 ? Object.entries(faltasPor).filter(([, n]) => n === diasPractica.length).map(([id]) => nombreDe(id)) : [];
+  // Wellness
+  const semana = d.well.filter((r) => r.fecha >= L);
+  const anterior = d.well.filter((r) => r.fecha < L);
+  const promSemana = promedio(semana.map(pctWellness)), promAnterior = promedio(anterior.map(pctWellness));
+  const porDia = [0, 1, 2, 3, 4].map((i) => { const f = isoDia(sumarDias(lunes, i)); const rs = semana.filter((r) => r.fecha === f); return { fecha: f, pct: promedio(rs.map(pctWellness)), n: rs.length }; });
+  const cargaron = new Set(semana.map((r) => r.jugador_id)).size;
+  const porJugador = {};
+  semana.forEach((r) => { (porJugador[r.jugador_id] = porJugador[r.jugador_id] || []).push(pctWellness(r)); });
+  const masBajos = Object.entries(porJugador).map(([id, v]) => ({ id, p: promedio(v) })).filter((x) => x.p < 50).sort((a, b) => a.p - b.p).slice(0, 5);
+  // Gimnasio, lesiones, tests
+  const gymJugadores = new Set(d.gym.map((r) => r.jugador_id)).size;
+  const nuevas = d.les.filter((x) => x.fecha_lesion >= L && x.fecha_lesion <= V);
+  const afuera = d.les.filter((x) => x.activa).length;
+  const testeados = [...new Set(d.evs.map((x) => x.jugador_id))];
+  const mejoras = testeados.map((id) => {
+    const n = nombreDe(id); const a = EVALUACIONES_REALES[n], b = EVALUACIONES_ANTERIORES[n];
+    if (!a || !b) return null;
+    const sube = Object.keys(METRICAS_RANGOS).filter((k) => typeof a[k] === "number" && typeof b[k] === "number" && a[k] > b[k]);
+    return sube.length ? `${n} (${sube.map(nombreMetrica).join(", ").toLowerCase()})` : null;
+  }).filter(Boolean);
+  const dif = promSemana !== null && promAnterior !== null ? promSemana - promAnterior : null;
+
+  return (
+    <div>
+      <Flechas texto={titulo} onAntes={() => setCorrimiento((c) => c - 1)} onDespues={() => setCorrimiento((c) => c + 1)} puedeDespues={corrimiento < 0} />
+      <BloqueResumen titulo="Prácticas">
+        {diasPractica.length === 0 ? <span style={{ color: "var(--h-sub)" }}>No se tomó asistencia esta semana.</span> : (
+          <>
+            {diasPractica.map((f) => {
+              const rs = d.asis.filter((r) => r.fecha === f);
+              const dia = DIAS_NOMBRE[new Date(f + "T00:00:00").getDay()];
+              return <div key={f}>{dia}: vinieron <b>{rs.filter((r) => r.presente).length}</b> de {rs.length}.</div>;
+            })}
+            {faltaronTodas.length > 0 && <div style={{ marginTop: 4 }}>No vino a ninguna: <b>{faltaronTodas.join(", ")}</b>.</div>}
+          </>
+        )}
+      </BloqueResumen>
+      <BloqueResumen titulo="Wellness">
+        {semana.length === 0 ? <span style={{ color: "var(--h-sub)" }}>Nadie cargó wellness esta semana.</span> : (
+          <>
+            <div>Promedio del plantel: <b>{promSemana}%</b>{dif !== null && <> ({dif === 0 ? "igual que" : <span style={{ color: dif > 0 ? "var(--h-ok)" : "var(--h-error)", fontWeight: 700 }}>{dif > 0 ? "▲" : "▼"} {Math.abs(dif)} puntos</span>}{dif !== 0 ? " contra" : ""} la semana anterior)</>}. Cargaron <b>{cargaron}</b> de {POOL.length}.</div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "flex-end" }}>
+              {porDia.map((x, i) => (
+                <div key={x.fecha} style={{ flex: 1, textAlign: "center" }}>
+                  <div style={{ height: 56, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+                    <span title={x.pct === null ? "Sin datos" : `${x.pct}% · ${x.n} respuestas`} style={{ width: "70%", maxWidth: 34, height: x.pct === null ? 3 : Math.max(4, (x.pct / 100) * 56), borderRadius: 4, background: x.pct === null ? "var(--h-borde)" : colorPct(x.pct) }} />
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--h-sub)", marginTop: 4 }}>{["Lun", "Mar", "Mié", "Jue", "Vie"][i]}{x.pct !== null ? ` ${x.pct}%` : ""}</div>
+                </div>
+              ))}
+            </div>
+            {masBajos.length > 0 && <div style={{ marginTop: 8 }}>Para mirar: {masBajos.map((x) => <span key={x.id}><b>{nombreDe(x.id)}</b> ({x.p}%)</span>).reduce((acc, el, i) => (i ? [...acc, ", ", el] : [el]), [])}.</div>}
+          </>
+        )}
+      </BloqueResumen>
+      <BloqueResumen titulo="Gimnasio">
+        {gymJugadores ? <><b>{gymJugadores}</b> {gymJugadores === 1 ? "jugador registró" : "jugadores registraron"} sus cargas esta semana.</> : <span style={{ color: "var(--h-sub)" }}>Nadie registró cargas de gimnasio esta semana.</span>}
+      </BloqueResumen>
+      <BloqueResumen titulo="Lesiones">
+        {nuevas.length ? <div>Nuevas: {nuevas.map((x) => `${x.jugadores?.nombre || "—"} (${(x.zona || "").toLowerCase()})`).join(", ")}.</div> : <div>Sin lesiones nuevas.</div>}
+        <div>{afuera === 0 ? "Hoy no hay lesionados." : afuera === 1 ? "Hoy hay 1 lesionado." : `Hoy hay ${afuera} lesionados.`}</div>
+      </BloqueResumen>
+      {testeados.length > 0 && (
+        <BloqueResumen titulo="Tests físicos">
+          <div>Se testearon <b>{testeados.length}</b> jugadores.</div>
+          {mejoras.length > 0 && <div>Mejoraron: {mejoras.join(" · ")}.</div>}
+        </BloqueResumen>
+      )}
+    </div>
+  );
+}
+
+function ResumenMes() {
+  const [corrimiento, setCorrimiento] = useState(0);
+  const [cat, setCat] = useState("Superior");
+  const [d, setD] = useState(null);
+  const hoy = new Date();
+  const ini = new Date(hoy.getFullYear(), hoy.getMonth() + corrimiento, 1);
+  const fin = new Date(ini.getFullYear(), ini.getMonth() + 1, 0);
+  const partidos = (FIXTURE[cat.toLowerCase()] || [])
+    .map((p) => ({ ...p, dia: fechaDesdeDisplay(p.date) }))
+    .filter((p) => p.dia && p.dia >= ini && p.dia <= fin)
+    .sort((a, b) => a.dia - b.dia);
+  const ids = partidos.map((p) => p.id).filter(Boolean);
+  const clave = `${isoDia(ini)}-${cat}-${ids.join(",")}`;
+
+  useEffect(() => {
+    let vivo = true;
+    setD(null);
+    const desde = isoDia(sumarDias(ini, -7)), hasta = isoDia(sumarDias(fin, 3));
+    Promise.all([
+      supabase.from("wellness_respuestas").select("jugador_id, fecha, estres, sueno, doms, fatiga, escala").gte("fecha", desde).lte("fecha", hasta),
+      supabase.from("lesiones").select("zona, fecha_lesion, jugadores(nombre)").gte("fecha_lesion", isoDia(ini)).lte("fecha_lesion", hasta),
+      ids.length ? supabase.from("analisis_individual_partido").select("*").in("partido_id", ids) : Promise.resolve({ data: [] }),
+      ids.length ? supabase.from("convocatoria_respuestas").select("partido_id, jugador_id, respuesta, motivo").in("partido_id", ids) : Promise.resolve({ data: [] }),
+    ]).then(([w, l, ind, conv]) => vivo && setD({ well: w.data || [], les: l.data || [], ind: ind.data || [], conv: conv.data || [] }));
+    return () => { vivo = false; };
+  }, [clave]);
+
+  const titulo = `${MESES[ini.getMonth()].charAt(0).toUpperCase() + MESES[ini.getMonth()].slice(1)} ${ini.getFullYear()}`;
+  const nombreDe = (dbId) => POOL.find((j) => j.dbId === dbId)?.id || "—";
+  const ganados = partidos.filter((p) => p.res === "Ganado").length, perdidos = partidos.filter((p) => p.res === "Perdido").length, empatados = partidos.filter((p) => p.res === "Empate" || p.res === "Empatado").length;
+  const pf = partidos.reduce((a, p) => a + (p.gf || 0), 0), pc = partidos.reduce((a, p) => a + (p.gc || 0), 0);
+  const obtenciones = partidos.map((p) => (p.informe ? indicadoresInforme(p.informe).obtencion : null)).filter((v) => v !== null && v !== undefined);
+
+  return (
+    <div>
+      <Flechas texto={titulo} onAntes={() => setCorrimiento((c) => c - 1)} onDespues={() => setCorrimiento((c) => c + 1)} puedeDespues={corrimiento < 0} />
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {["Superior", "Intermedia"].map((c) => (
+          <button key={c} onClick={() => setCat(c)} style={{ ...pillButton, fontWeight: 700, border: "1px solid " + (cat === c ? "var(--h-acento)" : "var(--h-borde2)"), background: cat === c ? "var(--h-acento-suave)" : "transparent", color: cat === c ? "var(--h-acento)" : "var(--h-texto2)" }}>{c}</button>
+        ))}
+      </div>
+      {partidos.length === 0 ? (
+        <BloqueResumen titulo="Sin partidos"><span style={{ color: "var(--h-sub)" }}>{cat} no jugó partidos en {MESES[ini.getMonth()]}.</span></BloqueResumen>
+      ) : (
+        <>
+          <BloqueResumen titulo="El mes">
+            {partidos.length} {partidos.length === 1 ? "partido" : "partidos"}: <b>{ganados} {ganados === 1 ? "ganado" : "ganados"}</b>{empatados ? `, ${empatados} empatado${empatados === 1 ? "" : "s"}` : ""} y <b>{perdidos} {perdidos === 1 ? "perdido" : "perdidos"}</b>. {pf} puntos a favor y {pc} en contra.
+            {obtenciones.length > 0 && <> Obtención propia promedio: <b>{promedio(obtenciones)}%</b>.</>}
+          </BloqueResumen>
+          {!d ? <div style={{ color: "var(--h-sub)", fontSize: 13 }}>Cargando…</div> : partidos.map((p) => {
+            const dia = p.dia;
+            const antes = d.well.filter((r) => r.fecha >= isoDia(sumarDias(dia, -6)) && r.fecha < isoDia(dia)).map(pctWellness);
+            const despues = d.well.filter((r) => r.fecha >= isoDia(sumarDias(dia, 1)) && r.fecha <= isoDia(sumarDias(dia, 2))).map(pctWellness);
+            const pa = promedio(antes), pd = promedio(despues);
+            const lesP = d.les.filter((x) => x.fecha_lesion >= isoDia(dia) && x.fecha_lesion <= isoDia(sumarDias(dia, 2)));
+            const ind = d.ind.filter((r) => r.partido_id === p.id);
+            const tacklesDe = (r) => (r.tackle_hecho || 0) + (r.tackle_positivo || 0) + (r.tackle_errado || 0);
+            const top = [...ind].sort((a, b) => tacklesDe(b) - tacklesDe(a))[0];
+            const tryman = ind.filter((r) => r.tries > 0).map((r) => `${apellido(nombreDe(r.jugador_id))}${r.tries > 1 ? ` (${r.tries})` : ""}`);
+            const bajas = d.conv.filter((r) => r.partido_id === p.id && r.respuesta === "no_puedo");
+            const k = p.informe ? indicadoresInforme(p.informe) : null;
+            const color = p.res === "Ganado" ? "var(--h-ok)" : p.res === "Perdido" ? "var(--h-error)" : "var(--h-sub)";
+            return (
+              <div key={p.id || p.fecha} style={{ ...cardStyle, padding: "16px 18px", marginBottom: 12, borderLeft: `5px solid ${color}` }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)" }}>{p.cond === "Local" ? "vs" : "en"} {p.rival}</span>
+                  <span style={{ fontSize: 15, fontWeight: 800, color }}>{p.gf ?? "–"}-{p.gc ?? "–"}</span>
+                  <span style={{ fontSize: 12.5, color: "var(--h-sub)" }}>{etiquetaFecha(p.fecha)} · {p.date}</span>
+                </div>
+                <div style={{ fontSize: 14, color: "var(--h-texto)", lineHeight: 1.6, marginTop: 6 }}>
+                  <div style={{ fontWeight: 700, color: "var(--h-sub)", fontSize: 12.5, marginTop: 2 }}>El partido</div>
+                  {k ? (
+                    <div>{k.obtencion !== null ? `Obtención propia ${k.obtencion}% · ` : ""}{k.tackles ? `${k.tackles} tackles · ` : ""}{k.quiebres ? `${k.quiebres} quiebres · ` : ""}{k.penales} penales en contra · {k.perdidas} pelotas perdidas.</div>
+                  ) : <div style={{ color: "var(--h-sub)" }}>Todavía no tiene análisis cargado.</div>}
+                  {(top && tacklesDe(top) > 0) || tryman.length ? (
+                    <div>{tryman.length ? `Tries: ${tryman.join(", ")}. ` : ""}{top && tacklesDe(top) > 0 ? `Más tackles: ${nombreDe(top.jugador_id)} (${tacklesDe(top)}).` : ""}</div>
+                  ) : null}
+                  {bajas.length > 0 && <div>No pudieron jugar: {bajas.map((r) => `${nombreDe(r.jugador_id)}${r.motivo ? ` (${r.motivo})` : ""}`).join(", ")}.</div>}
+                  <div style={{ fontWeight: 700, color: "var(--h-sub)", fontSize: 12.5, marginTop: 8 }}>El postpartido</div>
+                  <div>
+                    {pd === null ? "Sin wellness cargado los dos días siguientes." : <>Wellness de los dos días siguientes: <b>{pd}%</b>{pa !== null && <> (la semana previa venía en {pa}%{pd - pa !== 0 && <span style={{ color: pd > pa ? "var(--h-ok)" : "var(--h-error)", fontWeight: 700 }}> {pd > pa ? "▲" : "▼"} {Math.abs(pd - pa)}</span>})</>}.</>}
+                  </div>
+                  <div>{lesP.length ? `Lesiones: ${lesP.map((x) => `${x.jugadores?.nombre || "—"} (${(x.zona || "").toLowerCase()})`).join(", ")}.` : "Sin lesiones nuevas."}</div>
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ResumenesPage({ perfil }) {
+  const [tab, setTab] = useState("semana");
+  if (!esStaff(perfil)) return <div style={{ ...cardStyle, padding: "18px", fontSize: 14, color: "var(--h-sub)" }}>Los resúmenes son para el staff del club.</div>;
+  return (
+    <div>
+      <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 4 }}>Resúmenes</div>
+      <div style={{ fontSize: 13.5, color: "var(--h-sub)", marginBottom: 12 }}>La semana de entrenamiento y los partidos del mes, cada uno por separado.</div>
+      <div role="tablist" style={{ display: "flex", gap: 22, borderBottom: "1px solid var(--h-borde)", marginBottom: 16 }}>
+        {[["semana", "La semana"], ["mes", "Partidos del mes"]].map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} style={{ background: "transparent", border: "none", borderBottom: "3px solid " + (tab === k ? "var(--h-club)" : "transparent"), padding: "8px 0", marginBottom: -1, fontSize: 15, fontWeight: tab === k ? 700 : 500, color: tab === k ? "var(--h-texto)" : "var(--h-sub)", cursor: "pointer" }}>{l}</button>
+        ))}
+      </div>
+      {tab === "semana" ? <ResumenSemana /> : <ResumenMes />}
+    </div>
+  );
+}
+
+function ReportesPage({ perfil }) {
+  const [vista, setVista] = useState("temporada");
+  const tabs = [
+    { key: "temporada", label: "Temporada" },
+    { key: "partido", label: "Partido" },
+    { key: "individual", label: "Jugador" },
+  ];
+  const Componente = { temporada: TemporadaPage, individual: ReporteIndividualPage, partido: InformePartidoPage }[vista];
+  return (
+    <div>
+      <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 12 }}>Estadísticas</div>
+      <div style={{ display: "flex", gap: 4, marginBottom: 18, borderBottom: "1px solid var(--h-borde)", overflowX: "auto" }}>
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setVista(t.key)}
+            style={{
+              background: "none", border: "none", borderBottom: `3px solid ${vista === t.key ? "var(--h-club)" : "transparent"}`,
+              padding: "10px 14px", fontSize: 15, fontWeight: vista === t.key ? 800 : 500, cursor: "pointer",
+              color: vista === t.key ? "var(--h-texto)" : "var(--h-sub)", fontFamily: "var(--h-texto-fuente)", whiteSpace: "nowrap",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <Componente perfil={perfil} />
+    </div>
+  );
+}
+
+function EvaluacionesPage({ perfil }) {
+  const [, forzar] = useState(0);
+  const f = useFiltroJugadores("nombre");
+  const opcionesTests = [
+    { k: "nombre", label: "Nombre", get: (j) => j.id },
+    { k: "puesto", label: "Puesto", get: (j) => indicePuesto(j.posicionIdeal) },
+    { k: "fecha", label: "Medidos más recientemente", get: (j) => ultimaEvaluacion(j.id)?.fecha || null, dir: -1 },
+    ...Object.keys(METRICAS_RANGOS).map((clave) => ({ k: clave, label: `${nombreMetrica(clave)} (mejor primero)`, get: (j) => { const v = ultimaEvaluacion(j.id)?.[clave]; return v === null || v === undefined || v === "" ? null : Number(v); }, dir: -1 })),
+  ];
+  const [mostrarCarga, setMostrarCarga] = useState(false);
+  const [modo, setModo] = useState("manual"); // "manual" | "importar"
+  const [jugadorSel, setJugadorSel] = useState(POOL[0]?.id || "");
+  const [fechaTest, setFechaTest] = useState(hoyISO());
+  const [valores, setValores] = useState({ Potencia: "", Reactividad: "", Fuerza: "", Velocidad: "", Resistencia: "" });
+  const [textoImport, setTextoImport] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  async function guardarManual() {
+    const jugador = POOL.find((j) => j.id === jugadorSel);
+    if (!jugador) return;
+    setGuardando(true);
+    const { error } = await supabase.from("evaluaciones").insert({
+      jugador_id: jugador.dbId,
+      fecha: fechaTest,
+      potencia: Number(valores.Potencia) || null,
+      reactividad: Number(valores.Reactividad) || null,
+      fuerza: Number(valores.Fuerza) || null,
+      velocidad: Number(valores.Velocidad) || null,
+      resistencia: Number(valores.Resistencia) || null,
+      cargado_por: perfil?.id,
+    });
+    setGuardando(false);
+    if (error) {
+      setMsg("No se pudo guardar.");
+      return;
+    }
+    await cargarEvaluaciones();
+    forzar((n) => n + 1);
+    setValores({ Potencia: "", Reactividad: "", Fuerza: "", Velocidad: "", Resistencia: "" });
+    setMsg("✓ Evaluación guardada.");
+    setTimeout(() => setMsg(""), 2500);
+  }
+
+  async function importarTexto() {
+    const filas = textoImport
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => l.split(/[,\t]/).map((c) => c.trim()));
+    setGuardando(true);
+    let ok = 0;
+    let sinMatch = [];
+    for (const [nombre, potencia, reactividad, fuerza, velocidad, resistencia] of filas) {
+      const jugador = POOL.find((j) => j.id.toLowerCase() === (nombre || "").toLowerCase());
+      if (!jugador) {
+        sinMatch.push(nombre);
+        continue;
+      }
+      const { error } = await supabase.from("evaluaciones").insert({
+        jugador_id: jugador.dbId,
+        fecha: hoyISO(),
+        potencia: Number(potencia) || null,
+        reactividad: Number(reactividad) || null,
+        fuerza: Number(fuerza) || null,
+        velocidad: Number(velocidad) || null,
+        resistencia: Number(resistencia) || null,
+        cargado_por: perfil?.id,
+      });
+      if (!error) ok++;
+    }
+    setGuardando(false);
+    await cargarEvaluaciones();
+    forzar((n) => n + 1);
+    setTextoImport("");
+    setMsg(`✓ ${ok} evaluaciones importadas${sinMatch.length ? ` · ${sinMatch.length} sin coincidencia de nombre` : ""}.`);
+    setTimeout(() => setMsg(""), 4000);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Tests físicos</div>
+          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
+            El test más reciente de cada jugador. ▲ mejoró y ▼ empeoró respecto de su test anterior.
+          </div>
+        </div>
+        {esEntrenador(perfil) && !mostrarCarga && (
+          <button onClick={() => setMostrarCarga(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}>
+            + Cargar evaluación
+          </button>
+        )}
+      </div>
+
+      {esEntrenador(perfil) && mostrarCarga && (
+        <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 20 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            {[
+              { key: "manual", label: "Carga manual" },
+              { key: "importar", label: "Importar (pegar texto)" },
+            ].map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setModo(t.key)}
+                style={{
+                  ...pillButton, fontSize: 12,
+                  border: "1px solid " + (modo === t.key ? "var(--h-acento)" : "var(--h-borde2)"),
+                  background: modo === t.key ? "var(--h-acento-suave)" : "transparent",
+                  color: modo === t.key ? "var(--h-acento)" : "var(--h-texto2)",
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {modo === "manual" ? (
+            <>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                <div>
+                  <label style={labelStyle}>Jugador</label>
+                  <select value={jugadorSel} onChange={(e) => setJugadorSel(e.target.value)} style={{ ...inputStyle, width: 220 }}>
+                    {POOL.map((j) => (
+                      <option key={j.id} value={j.id} style={{ background: "var(--h-campo)" }}>
+                        {j.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Fecha del test</label>
+                  <input type="date" value={fechaTest} onChange={(e) => setFechaTest(e.target.value)} style={{ ...inputStyle, width: 160 }} />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {Object.entries(METRICAS_RANGOS).map(([clave, { unidad }]) => (
+                  <div key={clave}>
+                    <label style={labelStyle}>
+                      {nombreMetrica(clave)} ({unidad})
+                    </label>
+                    <input
+                      value={valores[clave]}
+                      onChange={(e) => setValores((prev) => ({ ...prev, [clave]: e.target.value }))}
+                      style={{ ...inputStyle, width: 110 }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={guardarManual}
+                disabled={guardando || !jugadorSel}
+                style={{ ...pillButton, marginTop: 14, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}
+              >
+                {guardando ? "Guardando…" : "Guardar evaluación"}
+              </button>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 8 }}>
+                Una línea por jugador: Nombre, Salto, Rebote, Fuerza, Velocidad máxima, Velocidad aeróbica
+              </div>
+              <textarea
+                value={textoImport}
+                onChange={(e) => setTextoImport(e.target.value)}
+                placeholder={"Franco Etchegoyen, 34, 0.42, 3100, 30.5, 17.8\nBautista Sarmiento, 31, 0.39, 2900, 29.1, 17.2"}
+                rows={6}
+                style={{ ...inputStyle, resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
+              />
+              <button
+                onClick={importarTexto}
+                disabled={guardando || !textoImport.trim()}
+                style={{ ...pillButton, marginTop: 10, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}
+              >
+                {guardando ? "Importando…" : "Importar"}
+              </button>
+            </>
+          )}
+          {msg && <div style={{ fontSize: 12, color: "var(--h-ok)", marginTop: 10 }}>{msg}</div>}
+          <button
+            onClick={() => setMostrarCarga(false)}
+            style={{ ...pillButton, marginTop: 10, marginLeft: 8, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
+
+      <BarraJugadores f={f} opciones={opcionesTests} total={POOL.length}
+        visibles={POOL.filter((j) => pasaFiltro(f, j.id, j.posicionIdeal)).length} />
+
+      <div style={{ ...cardStyle, padding: "12px 8px", overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 820 }}>
+          <thead>
+            <tr style={{ color: "var(--h-sub)", textAlign: "left" }}>
+              <ThOrden f={f} k="nombre">Jugador</ThOrden>
+              <ThOrden f={f} k="fecha">Medido el</ThOrden>
+              {Object.entries(METRICAS_RANGOS).map(([clave, { unidad }]) => (
+                <ThOrden key={clave} f={f} k={clave}>
+                  {nombreMetrica(clave)} ({unidad})
+                </ThOrden>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ordenarJugadores(POOL.filter((j) => pasaFiltro(f, j.id, j.posicionIdeal)), opcionesTests, f).map((j) => {
+              const ev = ultimaEvaluacion(j.id);
+              return (
+                <tr key={j.id} style={{ borderTop: "1px solid var(--h-borde)" }}>
+                  <td style={{ padding: "9px 10px", color: "var(--h-texto)", fontWeight: 500, whiteSpace: "nowrap" }}>{j.id}</td>
+                  <td style={{ padding: "9px 10px", color: "var(--h-sub)" }}>{ev ? ev.fecha : "—"}</td>
+                  {Object.keys(METRICAS_RANGOS).map((clave) => (
+                    <td key={clave} style={{ padding: "9px 10px", color: "var(--h-texto2)", whiteSpace: "nowrap" }}>
+                      {ev ? ev[clave] ?? "—" : "—"}{" "}
+                      {ev && <Tendencia actual={ev[clave]} previo={EVALUACIONES_ANTERIORES[j.id]?.[clave]} unidad={METRICAS_RANGOS[clave].unidad} />}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Wellness — encuesta diaria que completa cada jugador (cinco preguntas con escala de cinco colores).
+
+// Fecha de hoy en Argentina (no en UTC: a la noche UTC ya es "mañana").
+function hoyISO() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
+}
+
+// Asistencia a entrenamientos — una fila por jugador y fecha real (no por "día de la semana").
+async function cargarAsistenciaFecha(fecha) {
+  const { data, error } = await supabase.from("asistencias").select("jugador_id, presente").eq("fecha", fecha);
+  if (error) {
+    console.error("Error cargando asistencia:", error);
+    return {};
+  }
+  return Object.fromEntries((data || []).map((r) => [r.jugador_id, r.presente]));
+}
+
+async function guardarAsistencia(jugadorId, fecha, presente, marcadoPor) {
+  const { error } = await supabase
+    .from("asistencias")
+    .upsert({ jugador_id: jugadorId, fecha, presente, temporada: TEMPORADA_ACTIVA, marcado_por: marcadoPor }, { onConflict: "jugador_id,fecha" });
+  if (error) console.error("Error guardando asistencia:", error);
+  return !error;
+}
+
+// Presentes / total de sesiones marcadas para un jugador, solo de la temporada activa —
+// así el contador arranca de nuevo solo con cada temporada nueva.
+async function asistenciasJugador(jugadorId) {
+  const { data, error } = await supabase
+    .from("asistencias")
+    .select("presente")
+    .eq("jugador_id", jugadorId)
+    .eq("temporada", TEMPORADA_ACTIVA);
+  if (error || !data) return { presentes: 0, total: 0 };
+  return { presentes: data.filter((r) => r.presente).length, total: data.length };
+}
+
+// El cuerpo médico reporta una lesión: queda el registro en RTP con tiempo de rehabilitación
+// y vuelta estimada, y el jugador pasa a "Lesionado" en su ficha.
+async function reportarLesion({ jugadorId, zona, descripcion, semanas, creadoPor }) {
+  const hoy = new Date();
+  const vuelta = new Date(hoy);
+  vuelta.setDate(vuelta.getDate() + (Number(semanas) || 0) * 7);
+  const fechaVuelta = vuelta.toISOString().slice(0, 10);
+
+  const { error: errLesion } = await supabase.from("lesiones").insert({
+    jugador_id: jugadorId,
+    zona,
+    descripcion: descripcion || null,
+    semanas_estimadas: Number(semanas) || null,
+    fecha_vuelta_estimada: fechaVuelta,
+    activa: true,
+    creado_por: creadoPor,
+  });
+  if (errLesion) {
+    console.error("Error guardando lesión:", errLesion);
+    return null;
+  }
+  await supabase.from("jugadores").update({ estado: "Lesionado", zona }).eq("id", jugadorId);
+  crearNotificacion("lesion_reportada", `Nueva lesión reportada: ${zona}.`, ["Cuerpo técnico", "Manager"], creadoPor);
+  return fechaVuelta;
+}
+
+async function darDeAltaLesion(jugadorId) {
+  await supabase.from("lesiones").update({ activa: false }).eq("jugador_id", jugadorId).eq("activa", true);
+  await supabase.from("jugadores").update({ estado: "Disponible" }).eq("id", jugadorId);
+}
+
+// Etapas de la lesión: 1. Lesión → 2. Recuperación → 3. Posible alta deportiva (fecha que pone kinesio).
+const ETAPAS_LESION = [
+  { key: "Lesión", titulo: "Lesión" },
+  { key: "Recuperación", titulo: "Recuperación" },
+  { key: "Posible alta", titulo: "Posible alta deportiva" },
+];
+async function cambiarEtapaLesion(lesionId, cambios) {
+  const { data, error } = await supabase.from("lesiones").update(cambios).eq("id", lesionId).select("*").single();
+  if (error) { console.error("Error cambiando etapa de lesión:", error); return null; }
+  return data;
+}
+
+function EtapasLesion({ lesion, editable, onCambio, onAlta, guardando }) {
+  const [fecha, setFecha] = useState(lesion?.fecha_posible_alta || lesion?.fecha_vuelta_estimada || "");
+  const [cargando, setCargando] = useState(false);
+  useEffect(() => { setFecha(lesion?.fecha_posible_alta || lesion?.fecha_vuelta_estimada || ""); }, [lesion?.id, lesion?.fecha_posible_alta]);
+  if (!lesion) return null;
+  const idx = Math.max(0, ETAPAS_LESION.findIndex((e) => e.key === (lesion.etapa || "Lesión")));
+  const fechas = [lesion.fecha_lesion, lesion.fecha_recuperacion, lesion.fecha_posible_alta];
+  const hoyIso = new Date().toLocaleDateString("sv-SE");
+  async function mover(cambios) {
+    setCargando(true);
+    const r = await cambiarEtapaLesion(lesion.id, cambios);
+    setCargando(false);
+    if (r) onCambio?.(r);
+  }
+  const ocupado = cargando || guardando;
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 6, margin: "4px 0 10px" }}>
+        {ETAPAS_LESION.map((e, i) => {
+          const hecho = i < idx, actual = i === idx;
+          const color = actual ? (i === 2 ? "var(--h-ok)" : i === 1 ? "var(--h-alerta)" : "var(--h-error)") : hecho ? "var(--h-sub)" : "var(--h-borde2)";
+          return (
+            <div key={e.key} style={{ minWidth: 0 }}>
+              <div style={{ height: 6, borderRadius: 3, background: hecho || actual ? color : "var(--h-borde)" }} />
+              <div style={{ fontSize: 11.5, fontWeight: actual ? 800 : 600, color: actual ? "var(--h-texto)" : "var(--h-sub)", marginTop: 5, lineHeight: 1.2 }}>
+                {i + 1}. {e.titulo}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--h-sub2)", marginTop: 1 }}>
+                {fechas[i] ? (i === 2 ? "el " : "desde ") + dbDateToDisplay(fechas[i]) : i === 2 && lesion.fecha_vuelta_estimada ? `estimada ${dbDateToDisplay(lesion.fecha_vuelta_estimada)}` : "—"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {idx === 2 && <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginBottom: 8 }}>La fecha de posible alta la define kinesio.</div>}
+      {editable && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          {idx === 0 && (
+            <button onClick={() => mover({ etapa: "Recuperación" })} disabled={ocupado}
+              style={{ ...pillButton, background: "var(--h-alerta)", color: "#fff", border: "none", fontSize: 12 }}>
+              {ocupado ? "Guardando…" : "Pasar a recuperación →"}
+            </button>
+          )}
+          {idx >= 1 && (
+            <>
+              <input type="date" value={fecha} min={hoyIso} onChange={(ev) => setFecha(ev.target.value)}
+                aria-label="Fecha de posible alta deportiva" style={{ ...inputStyle, width: 160, margin: 0 }} />
+              <button onClick={() => fecha && mover({ etapa: "Posible alta", fecha_posible_alta: fecha })} disabled={ocupado || !fecha || (idx === 2 && fecha === lesion.fecha_posible_alta)}
+                style={{ ...pillButton, background: "var(--h-ok)", color: "#fff", border: "none", fontSize: 12, opacity: !fecha ? 0.5 : 1 }}>
+                {ocupado ? "Guardando…" : idx === 2 ? "Cambiar fecha de alta" : "Marcar posible alta →"}
+              </button>
+            </>
+          )}
+          <button onClick={onAlta} disabled={ocupado}
+            style={{ ...pillButton, background: "transparent", color: "var(--h-ok)", border: "1px solid var(--h-ok)", fontSize: 12 }}>
+            ✓ Dar de alta
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+async function lesionActivaDe(jugadorId) {
+  const { data } = await supabase
+    .from("lesiones")
+    .select("*")
+    .eq("jugador_id", jugadorId)
+    .eq("activa", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data || null;
+}
+
+// Análisis individual por jugador de un partido puntual (lo carga el cuerpo técnico mirando el video).
+async function cargarAnalisisIndividual(partidoId) {
+  const { data, error } = await supabase.from("analisis_individual_partido").select("*").eq("partido_id", partidoId);
+  if (error) {
+    console.error("Error cargando análisis individual:", error);
+    return {};
+  }
+  return Object.fromEntries((data || []).map((r) => [r.jugador_id, r]));
+}
+
+async function guardarAnalisisJugador(partidoId, jugadorId, datos, perfilId) {
+  const { error } = await supabase.from("analisis_individual_partido").upsert(
+    {
+      partido_id: partidoId,
+      jugador_id: jugadorId,
+      tackle_hecho: datos.tackleHecho,
+      tackle_positivo: datos.tacklePositivo,
+      tackle_errado: datos.tackleErrado,
+      quiebre_con_try: datos.quiebreConTry,
+      quiebre_sin_try: datos.quiebreSinTry,
+      penal_a_favor: datos.penalAFavor,
+      penal_en_contra_ruck: datos.penalEnContraRuck,
+      penal_en_contra_maul: datos.penalEnContraMaul,
+      penal_en_contra_juego: datos.penalEnContraJuego,
+      penal_en_contra_inconducta: datos.penalEnContraInconducta,
+      es_pateador: datos.esPateador,
+      drop_convertido: datos.dropConvertido,
+      cincuenta_22: datos.cincuenta22,
+      ...(datos.tries !== undefined ? { tries: datos.tries || 0 } : {}),
+      ...(datos.recuperadas !== undefined ? { recuperadas: datos.recuperadas || 0 } : {}),
+      creado_por: perfilId,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "partido_id,jugador_id" }
+  );
+  if (error) console.error("Error guardando análisis individual:", error);
+  return !error;
+}
+
+// ── Wellness ─────────────────────────────────────────────────────────────
+// La carga se abre y se cierra sola (horarios del club, hora de Argentina) y los avisos salen
+// automáticos desde la base. Escala nueva de 1 a 5 con colores; las respuestas viejas (1 a 7) se
+// normalizan para que todo se compare en 0–100.
+const COLORES_5 = ["#D64545", "#E8843A", "#E2B93B", "#8CC152", "#2FA36B"];
+const ITEMS_WELLNESS = [
+  { k: "estres", label: "Estrés", pregunta: "¿Cómo estás de estrés?", opciones: ["Muy estresado", "Estresado", "Normal", "Tranquilo", "Muy tranquilo"] },
+  { k: "sueno", label: "Sueño", pregunta: "¿Cómo dormiste?", opciones: ["Muy mal", "Mal", "Normal", "Bien", "Muy bien"] },
+  { k: "doms", label: "Dolor muscular", pregunta: "¿Cuánto dolor muscular tenés?", opciones: ["Mucho", "Bastante", "Algo", "Poco", "Nada"] },
+  { k: "fatiga", label: "Cansancio", pregunta: "¿Qué tan cansado estás?", opciones: ["Agotado", "Cansado", "Normal", "Fresco", "Muy fresco"] },
+];
+const DIAS_NOMBRE = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+// 0 a 100: 0 = todo en lo peor, 100 = todo en lo mejor.
+function pctWellness(r) {
+  const e = r.escala || 7;
+  const suma = (r.estres || 0) + (r.sueno || 0) + (r.doms || 0) + (r.fatiga || 0);
+  return Math.max(0, Math.min(100, Math.round(((suma - 4) / (4 * (e - 1))) * 100)));
+}
+function pctItem(r, k) {
+  const e = r.escala || 7;
+  return Math.round((((r[k] || 1) - 1) / (e - 1)) * 100);
+}
+// Grupos de wellness: 100–76 / 75–51 / 50–26 / 25–0. En Inicio solo aparecen los de 50% para abajo.
+const RANGOS_WELLNESS = [
+  { k: "r4", min: 0, max: 25, titulo: "25 – 0%", sub: "Atención" },
+  { k: "r3", min: 26, max: 50, titulo: "50 – 26%", sub: "Para cuidar" },
+  { k: "r2", min: 51, max: 75, titulo: "75 – 51%", sub: "Bien" },
+  { k: "r1", min: 76, max: 100, titulo: "100 – 76%", sub: "Muy bien" },
+];
+const LIMITE_CUIDAR = 50;
+const rangoWellness = (p) => RANGOS_WELLNESS.find((r) => Math.round(p) >= r.min && Math.round(p) <= r.max) || RANGOS_WELLNESS[0];
+const colorRango = (r) => ({ r4: "var(--h-error)", r3: "#E8833A", r2: "var(--h-alerta)", r1: "var(--h-ok)" }[r.k]);
+
+function colorPct(p) {
+  return p >= 80 ? COLORES_5[4] : p >= 60 ? COLORES_5[3] : p >= 40 ? COLORES_5[2] : p >= 20 ? COLORES_5[1] : COLORES_5[0];
+}
+
+// Respuestas de los últimos días y, para hoy, a quién hay que mirar comparando contra su propio promedio.
+async function cargarWellnessHistorial(dias = 15) {
+  const desde = new Date();
+  desde.setDate(desde.getDate() - dias);
+  const desdeISO = `${desde.getFullYear()}-${String(desde.getMonth() + 1).padStart(2, "0")}-${String(desde.getDate()).padStart(2, "0")}`;
+  const { data, error } = await supabase
+    .from("wellness_respuestas")
+    .select("jugador_id, fecha, estres, sueno, doms, fatiga, escala, estado_entrenamiento, observaciones, jugadores(nombre)")
+    .gte("fecha", desdeISO)
+    .order("fecha");
+  if (error) console.error("Error cargando wellness:", error);
+  const filas = data || [];
+  const hoy = hoyISO();
+  const porJugador = {};
+  filas.forEach((r) => { (porJugador[r.jugador_id] = porJugador[r.jugador_id] || []).push(r); });
+  const hoyLista = filas.filter((r) => r.fecha === hoy).map((r) => {
+    const previas = (porJugador[r.jugador_id] || []).filter((x) => x.fecha < hoy);
+    const pct = pctWellness(r);
+    const base = previas.length >= 3 ? Math.round(previas.reduce((a, x) => a + pctWellness(x), 0) / previas.length) : null;
+    const bajos = ITEMS_WELLNESS.filter((it) => {
+      const v = pctItem(r, it.k);
+      if (v <= 25) return true;
+      if (previas.length >= 3) {
+        const prom = previas.reduce((a, x) => a + pctItem(x, it.k), 0) / previas.length;
+        return v <= prom - 30;
+      }
+      return false;
+    }).map((it) => it.label);
+    const FRASES = { Estrés: "más estresado", Sueño: "durmió peor", "Dolor muscular": "con más dolor muscular", Cansancio: "más cansado" };
+    let motivo = null;
+    if (r.estado_entrenamiento === "Lesión") motivo = "Avisó que está lesionado";
+    else if (bajos.length) motivo = (bajos.map((b) => FRASES[b] || b.toLowerCase()).join(", ") + (previas.length >= 3 ? " que de costumbre" : "")).replace(/^./, (c) => c.toUpperCase());
+    else if (base !== null && pct <= base - 15) motivo = "Llega peor que de costumbre";
+    else if (base === null && pct < 40) motivo = "Llega con poca energía";
+    return {
+      jugadorId: r.jugador_id, nombre: r.jugadores?.nombre || "—", pct, base, bajos, motivo,
+      estado: r.estado_entrenamiento, observaciones: r.observaciones, fila: r,
+      historial: (porJugador[r.jugador_id] || []).map((x) => ({ fecha: x.fecha, pct: pctWellness(x) })),
+    };
+  });
+  return { hoy: hoyLista, porJugador };
+}
+
+function AnilloAvance({ hecho, total, size = 64 }) {
+  const r = (size - 8) / 2, c = 2 * Math.PI * r;
+  const frac = total ? Math.min(1, hecho / total) : 0;
+  return (
+    <svg width={size} height={size} role="img" aria-label={`${hecho} de ${total}`}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--h-borde)" strokeWidth="7" />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--h-club)" strokeWidth="7" strokeLinecap="round"
+        strokeDasharray={`${c * frac} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+      <text x="50%" y="54%" textAnchor="middle" fontSize="15" fontWeight="800" fill="var(--h-texto)" fontFamily="Barlow Condensed, Arial, sans-serif">
+        {total ? Math.round(frac * 100) : 0}%
+      </text>
+    </svg>
+  );
+}
+
+// Wellness de un jugador para su ficha (pestaña Salud): último día, ítems, últimos 30 días y comentarios.
+function WellnessJugador({ jugadorDbId }) {
+  const [filas, setFilas] = useState(null);
+  useEffect(() => {
+    if (!jugadorDbId) { setFilas([]); return; }
+    let vivo = true;
+    const d = new Date(); d.setDate(d.getDate() - 30);
+    supabase.from("wellness_respuestas")
+      .select("fecha, estres, sueno, doms, fatiga, escala, estado_entrenamiento, observaciones")
+      .eq("jugador_id", jugadorDbId).gte("fecha", d.toLocaleDateString("sv-SE")).order("fecha")
+      .then(({ data }) => { if (vivo) setFilas(data || []); });
+    return () => { vivo = false; };
+  }, [jugadorDbId]);
+
+  const caja = { marginBottom: 16, padding: "12px", background: "var(--h-campo)", borderRadius: 8, border: "1px solid var(--h-borde2)" };
+  const etiqueta = <div style={{ fontSize: 12, color: "var(--h-sub2)", letterSpacing: 0.5, marginBottom: 8 }}>Wellness</div>;
+  if (filas === null) return <div style={caja}>{etiqueta}<div style={{ fontSize: 12.5, color: "var(--h-sub2)" }}>Cargando…</div></div>;
+  if (!filas.length) return <div style={caja}>{etiqueta}<div style={{ fontSize: 12.5, color: "var(--h-sub2)" }}>No cargó wellness en los últimos 30 días.</div></div>;
+
+  const ult = filas[filas.length - 1];
+  const pct = pctWellness(ult);
+  const r = rangoWellness(pct);
+  const esHoy = ult.fecha === hoyISO();
+  const puntos = filas.map((x) => ({ fecha: x.fecha, pct: pctWellness(x) }));
+  const prom = Math.round(puntos.reduce((a, p) => a + p.pct, 0) / puntos.length);
+  const comentarios = filas.filter((x) => x.observaciones && x.observaciones.trim()).slice(-3).reverse();
+  return (
+    <div style={caja}>
+      {etiqueta}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 12 }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 38, fontWeight: 800, color: colorRango(r), lineHeight: 1 }}>{pct}%</div>
+        <div style={{ fontSize: 12.5, color: "var(--h-texto2)", lineHeight: 1.45 }}>
+          <div style={{ fontWeight: 700, color: "var(--h-texto)" }}>{esHoy ? "Hoy" : `Último: ${dbDateToDisplay(ult.fecha)}`} · {r.titulo} ({r.sub.toLowerCase()})</div>
+          {ult.estado_entrenamiento && <div>Para entrenar: {ult.estado_entrenamiento}</div>}
+          <div>Su promedio en 30 días: {prom}% · cargó {filas.length} {filas.length === 1 ? "vez" : "veces"}</div>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginBottom: 12 }}>
+        {ITEMS_WELLNESS.map((it) => {
+          const v = pctItem(ult, it.k);
+          return (
+            <div key={it.k} style={{ minWidth: 0 }}>
+              <div style={{ height: 6, borderRadius: 3, background: "var(--h-borde)", overflow: "hidden", marginBottom: 4 }}>
+                <div style={{ width: `${Math.max(4, v)}%`, height: "100%", background: colorPct(v) }} />
+              </div>
+              <div style={{ fontSize: 11, color: "var(--h-sub)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.label} · {v}%</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--h-sub)", marginBottom: 6 }}>Últimos 30 días</div>
+      <MiniBarras puntos={puntos} alto={48} max={30} />
+      {comentarios.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          {comentarios.map((c) => (
+            <div key={c.fecha} style={{ fontSize: 12.5, color: "var(--h-texto2)", marginTop: 4 }}>
+              <span style={{ color: "var(--h-sub2)" }}>{dbDateToDisplay(c.fecha)}:</span> “{c.observaciones}”
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MiniBarras({ puntos, alto = 40, max = 14 }) {
+  if (!puntos.length) return <div style={{ fontSize: 12, color: "var(--h-sub2)" }}>Sin datos todavía.</div>;
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: max > 14 ? 2 : 3, height: alto }} aria-label={max > 14 ? "Evolución del último mes" : "Evolución de las últimas dos semanas"}>
+      {puntos.slice(-max).map((p, i) => (
+        <span key={i} title={`${p.fecha.split("-").reverse().slice(0, 2).join("/")}: ${p.pct}%`} style={{ flex: 1, maxWidth: 16, height: Math.max(4, (p.pct / 100) * alto), borderRadius: 3, background: colorPct(p.pct) }} />
+      ))}
+    </div>
+  );
+}
+
+function textoVentana(v) {
+  if (!v) return { abierta: false, texto: "No se pudo leer el horario de hoy." };
+  if (!v.abre) return { abierta: false, texto: "Hoy no hay carga de wellness." };
+  const ahora = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Argentina/Buenos_Aires" });
+  if (v.abierta) return { abierta: true, texto: `Abierta hasta las ${v.cierra}.` };
+  if (ahora < v.abre) return { abierta: false, texto: `Hoy se abre a las ${v.abre} y cierra a las ${v.cierra}.` };
+  return { abierta: false, texto: `Hoy cerró a las ${v.cierra}. Mañana se vuelve a abrir.` };
+}
+
+function FormularioWellness({ jugadorDbId, onEnviado }) {
+  const [paso, setPaso] = useState(0); // 0 estado · 1..4 ítems · 5 observaciones
+  const [estado, setEstado] = useState(null);
+  const [valores, setValores] = useState({});
+  const [observaciones, setObservaciones] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState("");
+  const total = ITEMS_WELLNESS.length + 2;
+
+  async function enviar() {
+    setEnviando(true);
+    setError("");
+    const { error: err } = await supabase.from("wellness_respuestas").upsert({
+      jugador_id: jugadorDbId, fecha: hoyISO(), estado_entrenamiento: estado, escala: 5,
+      estres: valores.estres, sueno: valores.sueno, doms: valores.doms, fatiga: valores.fatiga,
+      observaciones: observaciones.trim() || null,
+    });
+    setEnviando(false);
+    if (err) {
+      console.error("Error enviando wellness:", err);
+      setError(err.message?.includes("cerrada") ? "La carga ya está cerrada." : "No se pudo enviar. Probá de nuevo.");
+      return;
+    }
+    onEnviado();
+  }
+
+  const botonGrande = (activo, color) => ({
+    width: "100%", minHeight: 52, borderRadius: 14, border: `2px solid ${activo ? color : "var(--h-borde)"}`,
+    background: activo ? color : "var(--h-panel)", color: activo ? "#fff" : "var(--h-texto)",
+    fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: "var(--h-texto-fuente)",
+    display: "flex", alignItems: "center", gap: 12, padding: "0 16px", textAlign: "left",
+  });
+
+  let cuerpo;
+  if (paso === 0) {
+    cuerpo = (
+      <>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, color: "var(--h-texto)", marginBottom: 14 }}>¿Cómo llegás a entrenar?</div>
+        <div style={{ display: "grid", gap: 10 }}>
+          {[["Full", "Al 100%", COLORES_5[4]], ["Parcial", "Todo menos contacto", COLORES_5[2]], ["Lesión", "No puedo entrenar o hago diferenciado", COLORES_5[0]]].map(([v, desc, c]) => (
+            <button key={v} onClick={() => { setEstado(v); setPaso(1); }} style={botonGrande(estado === v, c)}>
+              <span style={{ width: 14, height: 14, borderRadius: "50%", background: estado === v ? "#fff" : c, flexShrink: 0 }} />
+              <span>{v}<span style={{ display: "block", fontSize: 12.5, fontWeight: 500, opacity: 0.85 }}>{desc}</span></span>
+            </button>
+          ))}
+        </div>
+      </>
+    );
+  } else if (paso <= ITEMS_WELLNESS.length) {
+    const it = ITEMS_WELLNESS[paso - 1];
+    cuerpo = (
+      <>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, color: "var(--h-texto)", marginBottom: 14 }}>{it.pregunta}</div>
+        <div style={{ display: "grid", gap: 8 }}>
+          {[...it.opciones].map((txt, i) => ({ txt, v: i + 1 })).reverse().map(({ txt, v }) => (
+            <button key={v} onClick={() => { setValores((p) => ({ ...p, [it.k]: v })); setPaso(paso + 1); }} style={botonGrande(valores[it.k] === v, COLORES_5[v - 1])}>
+              <span style={{ width: 14, height: 14, borderRadius: "50%", background: valores[it.k] === v ? "#fff" : COLORES_5[v - 1], flexShrink: 0 }} />
+              {txt}
+            </button>
+          ))}
+        </div>
+      </>
+    );
+  } else {
+    cuerpo = (
+      <>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, color: "var(--h-texto)", marginBottom: 6 }}>¿Algo más para contar?</div>
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 12 }}>Opcional. Ej.: tengo un golpe en la rodilla, hoy llego tarde.</div>
+        <textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical", fontSize: 15 }} />
+        {error && <div style={{ color: "var(--h-error)", fontSize: 13, marginTop: 8 }}>{error}</div>}
+        <button onClick={enviar} disabled={enviando} style={{ ...buttonStyle, marginTop: 12, minHeight: 50, fontSize: 16 }}>
+          {enviando ? "Enviando…" : "Enviar"}
+        </button>
+      </>
+    );
+  }
+
+  return (
+    <div style={{ ...cardStyle, padding: "18px", marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style={{ display: "flex", gap: 5 }} aria-label={`Paso ${paso + 1} de ${total}`}>
+          {Array.from({ length: total }, (_, i) => (
+            <span key={i} style={{ width: i === paso ? 20 : 8, height: 8, borderRadius: 4, background: i <= paso ? "var(--h-club)" : "var(--h-borde)" }} />
+          ))}
+        </div>
+        {paso > 0 && (
+          <button onClick={() => setPaso(paso - 1)} style={{ background: "none", border: "none", color: "var(--h-sub)", fontSize: 13, cursor: "pointer" }}>← Atrás</button>
+        )}
+      </div>
+      {cuerpo}
+    </div>
+  );
+}
+
+function EditorHorariosWellness() {
+  const [abierto, setAbierto] = useState(false);
+  const [h, setH] = useState(null);
+  const [aviso, setAviso] = useState("");
+  useEffect(() => {
+    if (!abierto || h) return;
+    supabase.from("wellness_horarios").select("horarios").maybeSingle().then(({ data }) => {
+      setH(data?.horarios || {
+        semana: { abre: "12:00", cierra: "19:00" }, domingo: { abre: "12:00", cierra: "20:00" },
+        sabado: { Superior: { abre: "08:00", cierra: "12:00" }, Intermedia: { abre: "08:00", cierra: "10:30" }, Resto: { abre: "08:00", cierra: "10:30" } },
+      });
+    });
+  }, [abierto]);
+  async function guardar() {
+    const { error } = await supabase.from("wellness_horarios").upsert({ horarios: h, updated_at: new Date().toISOString() }, { onConflict: "club_id" });
+    setAviso(error ? "No se pudo guardar." : "Horarios guardados.");
+    if (error) console.error("Error guardando horarios de wellness:", error);
+    setTimeout(() => setAviso(""), 2500);
+  }
+  if (!abierto) {
+    return (
+      <button onClick={() => setAbierto(true)} style={{ ...pillButton, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)", marginTop: 20 }}>
+         Horarios de carga
+      </button>
+    );
+  }
+  const fila = (titulo, valor, cambiar) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid var(--h-borde)", flexWrap: "wrap" }}>
+      <span style={{ flex: "1 1 140px", fontSize: 14, color: "var(--h-texto)" }}>{titulo}</span>
+      <input type="time" value={valor.abre} onChange={(e) => cambiar({ ...valor, abre: e.target.value })} style={{ ...inputStyle, width: 110 }} aria-label={`${titulo}: abre`} />
+      <span style={{ color: "var(--h-sub)", fontSize: 13 }}>a</span>
+      <input type="time" value={valor.cierra} onChange={(e) => cambiar({ ...valor, cierra: e.target.value })} style={{ ...inputStyle, width: 110 }} aria-label={`${titulo}: cierra`} />
+    </div>
+  );
+  return (
+    <div style={{ ...cardStyle, padding: "16px 18px", marginTop: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)" }}>Horarios de carga</span>
+        <button onClick={() => setAbierto(false)} style={{ background: "none", border: "none", color: "var(--h-sub2)", fontSize: 12.5, cursor: "pointer" }}>Cerrar</button>
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 8 }}>
+        Hora de Argentina. Se abre y se cierra solo, con aviso al abrirse y 10 minutos antes del cierre a los que faltan.
+        El sábado va según el equipo en que juega cada uno (su formación).
+      </div>
+      {!h ? <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Cargando…</div> : (
+        <>
+          {fila("Lunes a viernes", h.semana, (v) => setH({ ...h, semana: v }))}
+          {["Superior", "Intermedia", "Resto"].map((eq) =>
+            fila(`Sábado · ${eq === "Resto" ? "resto del plantel" : eq}`, h.sabado?.[eq] || { abre: "08:00", cierra: "10:30" }, (v) => setH({ ...h, sabado: { ...(h.sabado || {}), [eq]: v } }))
+          )}
+          {fila("Domingo", h.domingo, (v) => setH({ ...h, domingo: v }))}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12 }}>
+            <button onClick={guardar} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>Guardar</button>
+            {aviso && <span style={{ fontSize: 12.5, color: aviso.startsWith("No") ? "var(--h-error)" : "var(--h-ok)" }}>{aviso}</span>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Desde Inicio ("Para cuidar hoy") se entra al wellness de un jugador puntual.
+let focoWellness = null;
+function irAWellnessDe(jugadorId, onNavigate) {
+  focoWellness = jugadorId;
+  onNavigate("wellness");
+}
+
+function WellnessPage({ perfil }) {
+  const [ventana, setVentana] = useState(null);
+  const [datos, setDatos] = useState({ hoy: [], porJugador: {} });
+  const [cargando, setCargando] = useState(true);
+  const [foco, setFoco] = useState(() => { const f = focoWellness; focoWellness = null; return f; });
+  const [abiertoJugador, setAbiertoJugador] = useState(foco);
+  const [recordado, setRecordado] = useState("");
+  const fw = useFiltroJugadores("pct");
+  const esJugador = perfil?.rol === "Jugador";
+
+  async function recargar() {
+    setCargando(true);
+    const [{ data: v }, d] = await Promise.all([supabase.rpc("wellness_mi_ventana"), cargarWellnessHistorial()]);
+    setVentana(v || null);
+    setDatos(d);
+    setCargando(false);
+  }
+  useEffect(() => { recargar(); }, []);
+
+  if (cargando) return <div style={{ color: "var(--h-sub)", fontSize: 13 }}>Cargando…</div>;
+  const estadoVentana = textoVentana(ventana);
+  const titulo = (sub) => (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)" }}>Wellness</div>
+      <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>{sub}</div>
+    </div>
+  );
+  const franja = (
+    <div style={{ ...cardStyle, padding: "10px 16px", marginBottom: 16, borderLeft: "4px solid " + (estadoVentana.abierta ? "var(--h-ok)" : "var(--h-sub2)") }}>
+      <span style={{ fontSize: 13.5, color: estadoVentana.abierta ? "var(--h-ok)" : "var(--h-sub)", fontWeight: 600 }}>{estadoVentana.texto}</span>
+      {ventana?.equipo && ventana.equipo !== "Resto" && new Date().getDay() === 6 && (
+        <span style={{ fontSize: 12.5, color: "var(--h-sub)" }}> · Horario de {ventana.equipo}</span>
+      )}
+    </div>
+  );
+
+  if (esJugador) {
+    const mia = datos.hoy.find((x) => x.jugadorId === perfil.jugador_id);
+    const historial = (datos.porJugador[perfil.jugador_id] || []).map((x) => ({ fecha: x.fecha, pct: pctWellness(x) }));
+    return (
+      <div>
+        {titulo("Contá cómo llegás hoy. Lleva menos de un minuto.")}
+        {franja}
+        {!perfil.jugador_id ? (
+          <div style={{ ...cardStyle, padding: "14px 18px", borderLeft: "3px solid var(--h-error)", fontSize: 13, color: "var(--h-error)" }}>
+            Tu cuenta no está vinculada a ningún jugador del plantel. Pedile al cuerpo técnico que lo revise.
+          </div>
+        ) : mia ? (
+          <div style={{ ...cardStyle, padding: "16px 18px", marginBottom: 16, borderLeft: `4px solid ${colorPct(mia.pct)}` }}>
+            <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Tu wellness de hoy</div>
+            <div style={{ fontFamily: "var(--h-titulo)", fontSize: 40, fontWeight: 800, color: colorPct(mia.pct), lineHeight: 1.1 }}>{mia.pct}%</div>
+            <div style={{ fontSize: 13, color: "var(--h-texto2)", marginBottom: 12 }}>¡Gracias! Ya quedó cargado.</div>
+          </div>
+        ) : estadoVentana.abierta ? (
+          <FormularioWellness jugadorDbId={perfil.jugador_id} onEnviado={recargar} />
+        ) : null}
+        {perfil.jugador_id && (
+          <div style={{ ...cardStyle, padding: "16px 18px" }}>
+            <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 600, marginBottom: 10 }}>Tus últimas 2 semanas</div>
+            <MiniBarras puntos={historial} alto={56} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const respondieron = new Set(datos.hoy.map((x) => x.jugadorId));
+  const faltan = POOL.filter((j) => j.dbId && !respondieron.has(j.dbId)).sort((a, b) => a.id.localeCompare(b.id));
+  const opcionesWellness = [
+    { k: "pct", label: "Peor wellness primero", get: (x) => x.pct },
+    { k: "nombre", label: "Nombre", get: (x) => x.nombre },
+    { k: "puesto", label: "Puesto", get: (x) => indicePuesto(puestoDeId(x.jugadorId)) },
+  ];
+  const veo = (x) => pasaFiltro(fw, x.nombre, puestoDeId(x.jugadorId));
+  const aMirar = datos.hoy.filter((x) => x.pct <= LIMITE_CUIDAR && veo(x));
+  const grupos = RANGOS_WELLNESS.map((r) => ({
+    r, js: ordenarJugadores(datos.hoy.filter((x) => rangoWellness(x.pct).k === r.k && veo(x)), opcionesWellness, fw, (x) => x.nombre),
+  }));
+  const faltanVer = faltan.filter((j) => pasaFiltro(fw, j.id, j.posicionIdeal));
+  const promedio = datos.hoy.length ? Math.round(datos.hoy.reduce((a, x) => a + x.pct, 0) / datos.hoy.length) : null;
+
+  async function recordar() {
+    await crearNotificacion("wellness_recordatorio", "Todavía no cargaste tu wellness de hoy. ¡Es un minuto!", ["Jugador"], perfil?.id, faltan.map((j) => j.dbId));
+    setRecordado(`Aviso enviado a ${faltan.length}.`);
+  }
+
+  const TarjetaJugador = ({ x, alerta }) => (
+    <div style={{ ...cardStyle, padding: "12px 14px", borderLeft: `4px solid ${colorPct(x.pct)}`, cursor: "pointer" }} onClick={() => setAbiertoJugador(abiertoJugador === x.jugadorId ? null : x.jugadorId)}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
+        <span style={{ fontWeight: 600, color: "var(--h-texto)", fontSize: 14 }}>{x.nombre}</span>
+        <span style={{ fontFamily: "var(--h-titulo)", fontWeight: 800, fontSize: 20, color: colorPct(x.pct) }}>{x.pct}%</span>
+      </div>
+      <div style={{ fontSize: 12, color: alerta ? "var(--h-error)" : "var(--h-sub)", marginTop: 2 }}>
+        {alerta ? x.motivo : x.estado && x.estado !== "Full" ? x.estado : "Full"}
+        {alerta && x.estado && x.estado !== "Full" && x.motivo !== "Marcó lesión" ? ` · ${x.estado}` : ""}
+      </div>
+      {abiertoJugador === x.jugadorId && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--h-borde)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginBottom: 10 }}>
+            {ITEMS_WELLNESS.map((it) => {
+              const v = pctItem(x.fila, it.k);
+              return (
+                <div key={it.k} style={{ textAlign: "center" }}>
+                  <div style={{ height: 6, borderRadius: 3, background: colorPct(v), marginBottom: 4 }} />
+                  <div style={{ fontSize: 11, color: "var(--h-sub)" }}>{it.label}</div>
+                </div>
+              );
+            })}
+          </div>
+          <MiniBarras puntos={x.historial} />
+          {x.base !== null && <div style={{ fontSize: 11.5, color: "var(--h-sub)", marginTop: 6 }}>Su promedio: {x.base}%</div>}
+          {x.observaciones && <div style={{ fontSize: 12.5, color: "var(--h-texto2)", marginTop: 6 }}>“{x.observaciones}”</div>}
+        </div>
+      )}
+    </div>
+  );
+
+  const enFoco = foco ? datos.hoy.find((x) => x.jugadorId === foco) : null;
+  if (enFoco) {
+    const r = rangoWellness(enFoco.pct);
+    return (
+      <div>
+        <button onClick={() => { setFoco(null); setAbiertoJugador(null); }}
+          style={{ background: "transparent", border: "none", color: "var(--h-acento)", cursor: "pointer", fontSize: 13.5, fontWeight: 600, marginBottom: 14, padding: 0 }}>
+          ← Ver el wellness de todo el plantel
+        </button>
+        <div style={{ fontSize: 30, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 4 }}>{enFoco.nombre}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "var(--h-sub)", marginBottom: 14 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: colorRango(r) }} />
+          Wellness de hoy · grupo {r.titulo} ({r.sub.toLowerCase()})
+        </div>
+        <div style={{ maxWidth: 480 }}>
+          <TarjetaJugador x={enFoco} alerta={!!enFoco.motivo} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {titulo("Se abre y se cierra solo. Tocá un jugador para ver cómo viene.")}
+      {franja}
+
+      <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 20, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+        <AnilloAvance hecho={datos.hoy.length} total={POOL.length} />
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ fontSize: 15, color: "var(--h-texto)" }}><b>{datos.hoy.length}</b>{POOL.length ? ` de ${POOL.length}` : ""} ya contaron cómo llegan</div>
+          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>
+            {promedio === null ? "Todavía nadie respondió." : `El plantel llega al ${promedio}%`}{aMirar.length ? ` · ${aMirar.length} para cuidar` : ""}
+          </div>
+        </div>
+      </div>
+
+      <BarraJugadores f={fw} opciones={opcionesWellness} total={POOL.length}
+        visibles={datos.hoy.filter(veo).length + faltanVer.length} />
+
+      {datos.hoy.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6, marginBottom: 18 }}>
+          {grupos.map(({ r, js }) => (
+            <button key={r.k} type="button" disabled={!js.length}
+              onClick={() => document.getElementById("wl-" + r.k)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              style={{ ...cardStyle, padding: "8px 10px", textAlign: "left", font: "inherit", cursor: js.length ? "pointer" : "default", borderTop: `4px solid ${colorRango(r)}`, minWidth: 0, opacity: js.length ? 1 : 0.55 }}>
+              <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1.1 }}>{js.length}</div>
+              <div style={{ fontSize: 11.5, color: "var(--h-sub)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.titulo}</div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {grupos.filter(({ r }) => r.max <= LIMITE_CUIDAR).map(({ r, js }) => js.length > 0 && (
+        <div key={r.k} id={"wl-" + r.k} style={{ marginBottom: 20, scrollMarginTop: 80 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: colorRango(r) }} />
+            <span style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>{r.titulo}</span>
+            <span style={{ fontSize: 14, color: "var(--h-sub)" }}>{r.sub} · {js.length}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 10 }}>
+            {js.map((x) => <TarjetaJugador key={x.jugadorId} x={x} alerta={!!x.motivo} />)}
+          </div>
+        </div>
+      ))}
+
+      {faltan.length > 0 && (
+        <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+            <span style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 14 }}>Faltan {faltan.length}</span>
+            {estadoVentana.abierta && (
+              recordado ? <span style={{ fontSize: 12.5, color: "var(--h-ok)" }}>{recordado}</span> : (
+                <button onClick={recordar} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>Recordarles</button>
+              )
+            )}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--h-sub)", lineHeight: 1.6 }}>{faltanVer.length ? faltanVer.map((j) => j.id).join(" · ") : "Ninguno con este filtro."}</div>
+        </div>
+      )}
+
+      {grupos.filter(({ r }) => r.max > LIMITE_CUIDAR).map(({ r, js }) => js.length > 0 && (
+        <div key={r.k} id={"wl-" + r.k} style={{ marginBottom: 20, scrollMarginTop: 80 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: colorRango(r) }} />
+            <span style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>{r.titulo}</span>
+            <span style={{ fontSize: 14, color: "var(--h-sub)" }}>{r.sub} · {js.length}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 10 }}>
+            {js.map((x) => <TarjetaJugador key={x.jugadorId} x={x} alerta={!!x.motivo} />)}
+          </div>
+        </div>
+      ))}
+      {datos.hoy.length === 0 && <div style={{ ...cardStyle, padding: "16px", fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay respuestas hoy.</div>}
+
+      <CargaPlantel />
+
+      {puedeGestionar(perfil) && <EditorHorariosWellness />}
+    </div>
+  );
+}
+
+// ── Equipo del partido ───────────────────────────────────────────────────
+// Cancha con camisetas, disponibilidad a la vista, aviso a los convocados e imagen para WhatsApp.
+// Obligatorio: camisetas 1 a 15. Del 16 en adelante (suplentes) es opcional.
+const COLOR_ESTADO = { Disponible: "#2FA36B", "A vigilar": "#E2B93B", Lesionado: "#D64545", "No habilitado": "#8A94A0" };
+const POS_CANCHA = {
+  1: [28, 9], 2: [50, 9], 3: [72, 9],
+  4: [39, 22], 5: [61, 22],
+  6: [20, 35], 8: [50, 37], 7: [80, 35],
+  9: [36, 52], 10: [56, 60],
+  12: [66, 70], 13: [78, 79],
+  11: [13, 80], 14: [90, 88],
+  15: [48, 90],
+};
+
+function Camiseta({ numero, color, txt, size = 44, vacia }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true" style={{ display: "block" }}>
+      <path
+        d="M16 4 L8 8 L2 18 L9 22 L12 18 L12 44 L36 44 L36 18 L39 22 L46 18 L40 8 L32 4 C30 8 18 8 16 4 Z"
+        fill={vacia ? "rgba(255,255,255,0.18)" : color}
+        stroke={vacia ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.25)"}
+        strokeWidth="1.5"
+        strokeDasharray={vacia ? "3 3" : undefined}
+      />
+      <text x="24" y="33" textAnchor="middle" fontSize="15" fontWeight="800" fill={vacia ? "#fff" : txt} fontFamily="Barlow Condensed, Arial, sans-serif">
+        {numero}
+      </text>
+    </svg>
+  );
+}
+
+function apellido(nombre) {
+  const partes = String(nombre || "").trim().split(/\s+/);
+  return partes.length > 1 ? partes.slice(1).join(" ") : partes[0] || "";
+}
+
+function colorClub() {
+  const club = (typeof document !== "undefined" && getComputedStyle(document.documentElement).getPropertyValue("--h-club").trim()) || "#1FA37A";
+  const txt = (typeof document !== "undefined" && getComputedStyle(document.documentElement).getPropertyValue("--h-club-txt").trim()) || "#fff";
+  return { club, txt };
+}
+
+function JugadorEnCancha({ slot, info, editMode, onClick, colores }) {
+  const j = slot.jugadorId ? POOL.find((p) => p.id === slot.jugadorId) : null;
+  const estado = j ? disponibilidadReal(j) : null;
+  const w = j ? info.wellness[j.dbId] : undefined;
+  return (
+    <button
+      onClick={onClick}
+      disabled={!editMode}
+      title={j ? `${j.id} · ${estado}${w !== undefined ? ` · wellness ${w}%` : ""}` : `Camiseta ${slot.numero} vacante`}
+      style={{ background: "none", border: "none", padding: 0, cursor: editMode ? "pointer" : "default", display: "flex", flexDirection: "column", alignItems: "center", width: 78 }}
+    >
+      <span style={{ position: "relative" }}>
+        <Camiseta numero={slot.numero} color={colores.club} txt={colores.txt} vacia={!j} />
+        {j && <span style={{ position: "absolute", top: 0, right: -2, width: 11, height: 11, borderRadius: "50%", background: COLOR_ESTADO[estado], border: "2px solid #fff" }} />}
+        {j && <MarcaRespuesta r={info.respuestas?.[j.dbId]} style={{ position: "absolute", bottom: 4, left: -4 }} />}
+      </span>
+      <span style={{ marginTop: 2, fontSize: 11.5, fontWeight: 700, color: "#fff", textShadow: "0 1px 2px rgba(0,0,0,0.6)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 78 }}>
+        {j ? apellido(j.id) : editMode ? "Elegir" : "Vacante"}
+      </span>
+      {j && w !== undefined && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.85)" }}>{w}%</span>}
+    </button>
+  );
+}
+
+// Marca de la respuesta a la convocatoria: tilde verde (va) o cruz roja (no puede).
+function MarcaRespuesta({ r, style }) {
+  if (!r) return null;
+  const va = r.respuesta === "voy";
+  return (
+    <span title={va ? "Confirmó que va" : `No puede${r.motivo ? `: ${r.motivo}` : ""}`} style={{ width: 17, height: 17, borderRadius: "50%", background: va ? "var(--h-ok)" : "var(--h-error)", color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "2px solid #fff", lineHeight: 1, ...style }}>
+      {va ? "✓" : "✕"}
+    </span>
+  );
+}
+
+function Cancha({ lineup, info, editMode, onElegir }) {
+  const colores = colorClub();
+  const bySlot = (n) => lineup.find((s) => s.numero === n) || { numero: n };
+  return (
+    <div
+      style={{
+        position: "relative", width: "100%", maxWidth: 560, aspectRatio: "3 / 4", borderRadius: 16, overflow: "hidden",
+        background: "repeating-linear-gradient(180deg, #2E8B4E 0 10%, #2A814A 10% 20%)", boxShadow: "inset 0 0 0 3px rgba(255,255,255,0.6)",
+      }}
+    >
+      {/* líneas: mitad, 22 y 10 metros */}
+      {[50, 22, 78].map((t) => <span key={t} style={{ position: "absolute", left: 0, right: 0, top: `${t}%`, borderTop: `2px solid rgba(255,255,255,${t === 50 ? 0.7 : 0.45})` }} />)}
+      {[40, 60].map((t) => <span key={t} style={{ position: "absolute", left: 0, right: 0, top: `${t}%`, borderTop: "2px dashed rgba(255,255,255,0.3)" }} />)}
+      {Object.entries(POS_CANCHA).map(([n, [x, y]]) => (
+        <div key={n} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, transform: "translate(-50%, -20%)" }}>
+          <JugadorEnCancha slot={bySlot(+n)} info={info} editMode={editMode} onClick={() => onElegir(+n)} colores={colores} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FilaCamiseta({ slot, info, editMode, onClick }) {
+  const colores = colorClub();
+  const j = slot.jugadorId ? POOL.find((p) => p.id === slot.jugadorId) : null;
+  const estado = j ? disponibilidadReal(j) : null;
+  const w = j ? info.wellness[j.dbId] : undefined;
+  return (
+    <button
+      onClick={onClick}
+      disabled={!editMode}
+      style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "transparent", border: "none", borderTop: "1px solid var(--h-borde)", padding: "7px 2px", cursor: editMode ? "pointer" : "default", fontFamily: "var(--h-texto-fuente)" }}
+    >
+      <span style={{ background: j ? "transparent" : "var(--h-borde)", borderRadius: 8 }}>
+        <Camiseta numero={slot.numero} color={colores.club} txt={colores.txt} size={34} vacia={!j} />
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: j ? "var(--h-texto)" : "var(--h-sub2)", fontStyle: j ? "normal" : "italic" }}>{j ? j.id : editMode ? "Elegir jugador" : "Vacante"}</span>
+        <span style={{ display: "block", fontSize: 11.5, color: "var(--h-sub)" }}>{slot.puesto}</span>
+      </span>
+      {j && (
+        <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, fontSize: 12, color: "var(--h-sub)" }}>
+          <MarcaRespuesta r={info.respuestas?.[j.dbId]} />
+          {w !== undefined && <span>{w}%</span>}
+          <span style={{ width: 10, height: 10, borderRadius: "50%", background: COLOR_ESTADO[estado] }} title={estado} />
+        </span>
+      )}
+    </button>
+  );
+}
+
+function SelectorCamiseta({ slot, cat, lineups, info, onElegir, onCerrar }) {
+  const [busca, setBusca] = useState("");
+  const otraCat = cat === "Superior" ? "Intermedia" : "Superior";
+  const dondeEsta = (nombre) => {
+    const mismo = lineups[cat].find((s) => s.jugadorId === nombre && s.numero !== slot.numero);
+    if (mismo) return `Ya está en la ${mismo.numero}`;
+    const otro = (lineups[otraCat] || []).find((s) => s.jugadorId === nombre);
+    if (otro) return `Está en ${otraCat} (${otro.numero})`;
+    return null;
+  };
+  const lista = POOL.filter((p) => !busca || p.id.toLowerCase().includes(busca.toLowerCase()));
+  const orden = { Disponible: 0, "A vigilar": 1, "No habilitado": 2, Lesionado: 3 };
+  const grupos = [
+    ["Del puesto y disponibles", lista.filter((p) => coincidePosicion(p, slot.puesto) && disponibilidadReal(p) === "Disponible")],
+    ["Otros disponibles", lista.filter((p) => !coincidePosicion(p, slot.puesto) && disponibilidadReal(p) === "Disponible")],
+    ["No disponibles", lista.filter((p) => disponibilidadReal(p) !== "Disponible").sort((a, b) => orden[disponibilidadReal(a)] - orden[disponibilidadReal(b)])],
+  ];
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(14,22,32,0.5)", zIndex: 120, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onCerrar}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--h-panel)", width: "100%", maxWidth: 520, maxHeight: "84vh", overflowY: "auto", borderRadius: "18px 18px 0 0", padding: "16px 16px 24px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <span style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>Camiseta {slot.numero}{slot.puesto ? ` · ${slot.puesto}` : ""}</span>
+          <button onClick={onCerrar} aria-label="Cerrar" style={{ background: "none", border: "none", fontSize: 24, color: "var(--h-sub)", cursor: "pointer", minWidth: 40, minHeight: 40 }}>×</button>
+        </div>
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar jugador…" style={{ ...inputStyle, marginBottom: 10 }} />
+        {slot.jugadorId && (
+          <button onClick={() => onElegir("")} style={{ ...pillButton, marginBottom: 10, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>Dejar vacante</button>
+        )}
+        {grupos.map(([titulo, js]) => js.length > 0 && (
+          <div key={titulo} style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-sub)", textTransform: "uppercase", letterSpacing: "0.08em", margin: "8px 0 4px" }}>{titulo}</div>
+            {js.map((p) => {
+              const estado = disponibilidadReal(p);
+              const nota = dondeEsta(p.id);
+              const w = info.wellness[p.dbId];
+              const gris = estado !== "Disponible";
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => onElegir(p.id)}
+                  style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: slot.jugadorId === p.id ? "var(--h-acento-suave)" : "transparent", border: "none", borderTop: "1px solid var(--h-borde)", padding: "9px 4px", cursor: "pointer", opacity: gris ? 0.55 : 1, fontFamily: "var(--h-texto-fuente)" }}
+                >
+                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: COLOR_ESTADO[estado], flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: "var(--h-texto)" }}>{p.id}</span>
+                    <span style={{ display: "block", fontSize: 11.5, color: "var(--h-sub)" }}>
+                      {p.posicionIdeal || "—"}{gris ? ` · ${estado}` : ""}{w !== undefined ? ` · wellness ${w}%` : ""}
+                    </span>
+                  </span>
+                  {nota && <span style={{ ...tagStyle, borderRadius: 999, background: "var(--h-alerta-suave)", color: "var(--h-alerta)", fontWeight: 600, flexShrink: 0 }}>{nota}</span>}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Imagen de la formación (PNG) para mandar por WhatsApp.
+async function imagenFormacion({ cat, lineup, partido, clubNombre, colores }) {
+  const W = 1080, H = 1350;
+  const esc = (t) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const camiseta = (x, y, n, nombre) => `
+    <g transform="translate(${x - 40},${y - 40}) scale(1.67)">
+      <path d="M16 4 L8 8 L2 18 L9 22 L12 18 L12 44 L36 44 L36 18 L39 22 L46 18 L40 8 L32 4 C30 8 18 8 16 4 Z" fill="${colores.club}" stroke="rgba(0,0,0,0.3)" stroke-width="1.5"/>
+      <text x="24" y="33" text-anchor="middle" font-size="15" font-weight="800" fill="${colores.txt}" font-family="Arial, sans-serif">${n}</text>
+    </g>
+    <text x="${x}" y="${y + 58}" text-anchor="middle" font-size="26" font-weight="700" fill="#fff" font-family="Arial, sans-serif">${esc(apellido(nombre))}</text>`;
+  const top = 190, alto = 900, izq = 60, ancho = W - 120;
+  let cuerpo = "";
+  Object.entries(POS_CANCHA).forEach(([n, [x, y]]) => {
+    const s = lineup.find((sl) => sl.numero === +n);
+    cuerpo += camiseta(izq + (x / 100) * ancho, top + (y / 100) * alto, n, s?.jugadorId || "");
+  });
+  const suplentes = lineup.filter((s) => s.numero > 15 && s.jugadorId).sort((a, b) => a.numero - b.numero);
+  const suplTxt = suplentes.map((s) => `${s.numero}. ${esc(apellido(s.jugadorId))}`).join("   ");
+  const titulo = partido ? `${esc(cat)} vs ${esc(partido.rival)}` : esc(cat);
+  const sub = partido ? `${esc(partido.date)} · ${esc(partido.cond)}` : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <rect width="${W}" height="${H}" fill="#0E1620"/>
+    <text x="60" y="90" font-size="54" font-weight="800" fill="#fff" font-family="Arial, sans-serif">${titulo}</text>
+    <text x="60" y="140" font-size="30" fill="#B8C2CC" font-family="Arial, sans-serif">${sub}</text>
+    <rect x="${izq}" y="${top - 30}" width="${ancho}" height="${alto + 70}" rx="24" fill="#2E8B4E"/>
+    <line x1="${izq}" x2="${izq + ancho}" y1="${top + alto * 0.5}" y2="${top + alto * 0.5}" stroke="rgba(255,255,255,0.6)" stroke-width="3"/>
+    ${cuerpo}
+    ${suplTxt ? `<text x="60" y="${H - 110}" font-size="26" fill="#B8C2CC" font-family="Arial, sans-serif">Suplentes</text>
+    <text x="60" y="${H - 70}" font-size="26" fill="#fff" font-family="Arial, sans-serif">${suplTxt}</text>` : ""}
+    <text x="${W - 60}" y="${H - 24}" text-anchor="end" font-size="22" fill="#6B7785" font-family="Arial, sans-serif">ADN ${esc(clubNombre)}</text>
+  </svg>`;
+  const img = new Image();
+  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+  await new Promise((ok, mal) => { img.onload = ok; img.onerror = mal; img.src = url; });
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  canvas.getContext("2d").drawImage(img, 0, 0);
+  URL.revokeObjectURL(url);
+  return await new Promise((ok) => canvas.toBlob(ok, "image/png"));
+}
+
+// ───────── Confirmación de la convocatoria ("Voy" / "No puedo") ─────────
+const ROLES_STAFF_AVISOS = ["Cuerpo técnico", "Manager", "Cuerpo médico"];
+async function cargarRespuestasConvocatoria(partidoId) {
+  if (!partidoId) return {};
+  const { data, error } = await supabase.from("convocatoria_respuestas").select("jugador_id, respuesta, motivo, updated_at").eq("partido_id", partidoId);
+  if (error) { console.error("Error cargando respuestas de la convocatoria:", error); return {}; }
+  return Object.fromEntries((data || []).map((r) => [r.jugador_id, r]));
+}
+async function responderConvocatoria(partidoId, jugadorDbId, respuesta, motivo) {
+  const { error } = await supabase.from("convocatoria_respuestas").upsert(
+    { partido_id: partidoId, jugador_id: jugadorDbId, respuesta, motivo: motivo || null, updated_at: new Date().toISOString() },
+    { onConflict: "partido_id,jugador_id" }
+  );
+  if (error) console.error("Error guardando la respuesta:", error);
+  return !error;
+}
+// Dónde está convocado el jugador logueado (categoría, camiseta y el partido que viene).
+function miConvocatoria(perfil) {
+  if (!perfil?.jugador_id) return null;
+  const yo = POOL.find((j) => j.dbId === perfil.jugador_id);
+  if (!yo) return null;
+  for (const cat of ["Superior", "Intermedia"]) {
+    const slot = (LINEUPS_INICIALES[cat] || []).find((sl) => sl.jugadorId === yo.id);
+    const partido = (PROXIMOS[cat.toLowerCase()] || [])[0];
+    // El jugador solo se entera de que está en el equipo cuando el staff lo publica.
+    if (slot && partido?.id && partido.publicada) return { cat, slot, partido, yo };
+  }
+  return null;
+}
+
+function TarjetaConvocatoria({ perfil, onNavigate }) {
+  const mia = miConvocatoria(perfil);
+  const [resp, setResp] = useState(undefined); // undefined = cargando, null = sin responder
+  const [pidiendoMotivo, setPidiendoMotivo] = useState(false);
+  const [motivo, setMotivo] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const partidoId = mia?.partido.id;
+  useEffect(() => {
+    if (!partidoId) return;
+    cargarRespuestasConvocatoria(partidoId).then((m) => setResp(m[perfil.jugador_id] || null));
+  }, [partidoId]);
+  if (!mia) return null;
+  const { cat, slot, partido, yo } = mia;
+
+  async function responder(r, mot) {
+    setGuardando(true);
+    const ok = await responderConvocatoria(partido.id, perfil.jugador_id, r, mot);
+    setGuardando(false);
+    if (!ok) return;
+    setResp({ respuesta: r, motivo: mot || null });
+    setPidiendoMotivo(false);
+    if (r === "no_puedo") {
+      crearNotificacion("convocatoria_baja", `${yo.id} no puede jugar ${cat} vs ${partido.rival} (camiseta ${slot.numero})${mot ? `: ${mot}` : ""}.`, ROLES_STAFF_AVISOS, perfil?.id);
+    } else if (resp?.respuesta === "no_puedo") {
+      crearNotificacion("convocatoria_baja", `${yo.id} al final sí puede jugar ${cat} vs ${partido.rival}.`, ROLES_STAFF_AVISOS, perfil?.id);
+    }
+  }
+
+  const boton = (activo) => ({ ...pillButton, flex: 1, minHeight: 44, fontSize: 15, fontWeight: 800, border: "2px solid var(--h-club-txt)", background: activo ? "var(--h-club-txt)" : "transparent", color: activo ? "var(--h-club)" : "var(--h-club-txt)" });
+  return (
+    <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 12, background: "var(--h-club)", color: "var(--h-club-txt)", border: "none" }}>
+      <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.85 }}>Estás en el equipo</div>
+      <div style={{ fontSize: 17, fontWeight: 800, marginTop: 2 }}>Camiseta {slot.numero} · {cat} {partido.cond === "Local" ? "vs" : "en"} {partido.rival}</div>
+      <div style={{ fontSize: 13, opacity: 0.85 }}>{partido.date}{slot.puesto ? ` · ${slot.puesto}` : ""}</div>
+      {resp === undefined ? null : pidiendoMotivo ? (
+        <div style={{ marginTop: 10 }}>
+          <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="¿Por qué? (opcional)" style={{ ...inputStyle, marginBottom: 8 }} autoFocus />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setPidiendoMotivo(false)} style={boton(false)}>Volver</button>
+            <button onClick={() => responder("no_puedo", motivo.trim())} disabled={guardando} style={boton(true)}>{guardando ? "Avisando…" : "Mandar el aviso"}</button>
+          </div>
+        </div>
+      ) : resp ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 15, fontWeight: 800 }}>{resp.respuesta === "voy" ? "Confirmaste que vas." : `Avisaste que no podés${resp.motivo ? ` (${resp.motivo})` : ""}.`}</span>
+          <button onClick={() => (resp.respuesta === "voy" ? setPidiendoMotivo(true) : responder("voy"))} disabled={guardando} style={{ ...pillButton, fontSize: 12.5, border: "1px solid var(--h-club-txt)", background: "transparent", color: "var(--h-club-txt)" }}>
+            {resp.respuesta === "voy" ? "Al final no puedo" : "Al final sí voy"}
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <button onClick={() => responder("voy")} disabled={guardando} style={boton(true)}>Voy</button>
+          <button onClick={() => setPidiendoMotivo(true)} disabled={guardando} style={boton(false)}>No puedo</button>
+        </div>
+      )}
+      <button onClick={() => onNavigate("equipos")} style={{ background: "none", border: "none", color: "var(--h-club-txt)", opacity: 0.85, fontSize: 12.5, padding: 0, marginTop: 10, cursor: "pointer" }}>Ver el equipo →</button>
+    </div>
+  );
+}
+
+let focoEquipoCat = null; // desde el Inicio: abrir el equipo de esa categoría
+function EquiposPage({ perfil }) {
+  const club = useClub();
+  const [cat, setCat] = useState(() => { const c = focoEquipoCat || "Superior"; focoEquipoCat = null; return c; });
+  const [lineups, setLineups] = useState(LINEUPS_INICIALES);
+  const [editMode, setEditMode] = useState(false);
+  const [eligiendo, setEligiendo] = useState(null);
+  const [wellness, setWellness] = useState({});
+  const [aviso, setAviso] = useState("");
+  const isMobile = useIsMobile();
+  const staff = puedeGestionar(perfil);
+
+  useEffect(() => {
+    cargarWellnessHistorial(1).then((d) => setWellness(Object.fromEntries(d.hoy.map((x) => [x.jugadorId, x.pct]))));
+  }, []);
+
+  const lineup = lineups[cat] || [];
+  const partido = (PROXIMOS[cat.toLowerCase()] || [])[0] || null;
+  const [respuestas, setRespuestas] = useState({});
+  useEffect(() => {
+    setRespuestas({});
+    if (partido?.id) cargarRespuestasConvocatoria(partido.id).then(setRespuestas);
+  }, [partido?.id]);
+  const info = { wellness, respuestas };
+  const convocadosJ = lineup.filter((sl) => sl.jugadorId).map((sl) => ({ sl, j: POOL.find((p) => p.id === sl.jugadorId) })).filter((x) => x.j?.dbId);
+  const vanJ = convocadosJ.filter((x) => respuestas[x.j.dbId]?.respuesta === "voy");
+  const noPuedenJ = convocadosJ.filter((x) => respuestas[x.j.dbId]?.respuesta === "no_puedo");
+  const faltanResponder = convocadosJ.filter((x) => !respuestas[x.j.dbId]);
+  async function recordar() {
+    await crearNotificacion("convocatoria", `Recordá confirmar si vas a jugar ${cat}${partido ? ` vs ${partido.rival}` : ""}: entrá a la app y tocá Voy o No puedo.`, ["Jugador"], perfil?.id, faltanResponder.map((x) => x.j.dbId));
+    setAviso(`Listo: se le recordó a ${faltanResponder.length} ${faltanResponder.length === 1 ? "jugador" : "jugadores"}.`);
+    setTimeout(() => setAviso(""), 4000);
+  }
+  const bySlot = (n) => lineup.find((s) => s.numero === n);
+  const faltan = Array.from({ length: 15 }, (_, i) => i + 1).filter((n) => !bySlot(n)?.jugadorId);
+  const otraCat = cat === "Superior" ? "Intermedia" : "Superior";
+
+  // Los jugadores ven el equipo recién cuando el staff lo publica (antes es un borrador).
+  if (!esStaff(perfil) && !partido?.publicada) {
+    return (
+      <div>
+        <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 12 }}>Equipo del partido</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          {["Superior", "Intermedia"].map((c) => (
+            <button key={c} onClick={() => setCat(c)}
+              style={{ ...pillButton, fontWeight: 700, border: "1px solid " + (cat === c ? "var(--h-acento)" : "var(--h-borde2)"), background: cat === c ? "var(--h-acento-suave)" : "transparent", color: cat === c ? "var(--h-acento)" : "var(--h-texto2)" }}>
+              {c}
+            </button>
+          ))}
+        </div>
+        <div style={{ ...cardStyle, padding: "18px 18px" }}>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>
+            {partido ? `${cat} ${partido.cond === "Local" ? "vs" : "en"} ${partido.rival}` : `${cat}: sin próximo partido cargado`}
+          </div>
+          {partido && <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 2 }}>{etiquetaFecha(partido.fecha)} · {partido.date}</div>}
+          <div style={{ fontSize: 15, color: "var(--h-texto2)", marginTop: 10, lineHeight: 1.45 }}>
+            El equipo todavía no se publicó. Cuando el cuerpo técnico lo confirme, si estás convocado te llega el aviso con tu camiseta.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  const enLosDos = lineup.filter((s) => s.jugadorId && (lineups[otraCat] || []).some((o) => o.jugadorId === s.jugadorId)).map((s) => s.jugadorId);
+  const suplentes = lineup.filter((s) => s.numero > 15).sort((a, b) => a.numero - b.numero);
+  const suplentesVisibles = editMode ? suplentes : suplentes.filter((s) => s.jugadorId);
+
+  function elegir(numero, nombre) {
+    // Un jugador no puede estar en dos camisetas del mismo equipo: si ya tenía otra, se libera.
+    const previo = nombre ? lineup.find((s) => s.jugadorId === nombre && s.numero !== numero) : null;
+    const actual = lineup.map((s) => {
+      if (s.numero === numero) return { ...s, jugadorId: nombre || undefined };
+      if (previo && s.numero === previo.numero) return { ...s, jugadorId: undefined };
+      return s;
+    });
+    LINEUPS_INICIALES[cat] = actual;
+    setLineups((prev) => ({ ...prev, [cat]: actual }));
+    if (previo) guardarSlotFormacion(cat, previo.numero, "");
+    guardarSlotFormacion(cat, numero, nombre);
+    setEligiendo(null);
+  }
+
+  async function publicar() {
+    const rival = partido ? ` vs ${partido.rival}` : "";
+    const cuando = partido ? ` (${partido.date})` : "";
+    const convocados = lineup.filter((s) => s.jugadorId).map((s) => ({ s, j: POOL.find((p) => p.id === s.jugadorId) })).filter((x) => x.j?.dbId);
+    await Promise.all(convocados.map(({ s, j }) =>
+      crearNotificacion("convocatoria", `Estás convocado a ${cat}${rival}${cuando}, camiseta ${s.numero}. Entrá y confirmá si vas.`, ["Jugador"], perfil?.id, [j.dbId])
+    ));
+    crearNotificacion("formacion_confirmada", `Equipo de ${cat}${rival} publicado.`, ["Cuerpo técnico", "Manager", "Cuerpo médico"], perfil?.id);
+    if (partido?.id) {
+      const ahora = new Date().toISOString();
+      await supabase.from("partidos").update({ convocatoria_publicada_at: ahora }).eq("id", partido.id);
+      partido.publicada = ahora;
+    }
+    setEditMode(false);
+    setAviso(`Listo: ${convocados.length} jugadores recibieron su camiseta en el celular.`);
+    setTimeout(() => setAviso(""), 4000);
+  }
+
+  async function compartir() {
+    try {
+      const blob = await imagenFormacion({ cat, lineup, partido, clubNombre: club?.nombre_corto || club?.nombre || "", colores: colorClub() });
+      const archivo = new File([blob], `equipo-${cat.toLowerCase()}.png`, { type: "image/png" });
+      if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
+        await navigator.share({ files: [archivo], title: `Equipo de ${cat}` });
+      } else {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = archivo.name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      }
+    } catch (e) {
+      if (e?.name !== "AbortError") { console.error("Error generando la imagen:", e); setAviso("No se pudo generar la imagen."); }
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 12 }}>Equipo del partido</div>
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {["Superior", "Intermedia"].map((c) => (
+          <button
+            key={c}
+            onClick={() => { setCat(c); setEditMode(false); }}
+            style={{
+              ...pillButton, fontWeight: 700,
+              border: "1px solid " + (cat === c ? "var(--h-acento)" : "var(--h-borde2)"),
+              background: cat === c ? "var(--h-acento-suave)" : "transparent",
+              color: cat === c ? "var(--h-acento)" : "var(--h-texto2)",
+            }}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ ...cardStyle, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <Shield size={34} />
+        <span style={{ fontFamily: "var(--h-titulo)", fontWeight: 700, color: "var(--h-sub)" }}>{partido ? (partido.cond === "Local" ? "vs" : "en") : ""}</span>
+        {partido && <TeamBadge name={partido.rival} size={34} />}
+        <div style={{ flex: 1, minWidth: 160 }}>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1.1 }}>{partido ? partido.rival : "Sin próximo partido cargado"}</div>
+          {partido && <div style={{ fontSize: 13, color: "var(--h-sub)" }}>{etiquetaFecha(partido.fecha)} · {partido.date} · {partido.cond}</div>}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {faltan.length === 0 && <button onClick={compartir} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}>Mandar al grupo</button>}
+          {staff && !editMode && <button onClick={() => setEditMode(true)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)" }}>Editar</button>}
+          {staff && editMode && (
+            <>
+              <button onClick={() => setEditMode(false)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>Listo</button>
+              <button
+                onClick={publicar}
+                disabled={faltan.length > 0}
+                title={faltan.length ? "Primero completá de la 1 a la 15" : "Les llega un aviso a cada convocado con su camiseta"}
+                style={{ ...pillButton, border: "none", background: faltan.length ? "var(--h-borde2)" : "var(--h-acento)", color: faltan.length ? "var(--h-sub2)" : "var(--h-panel)", cursor: faltan.length ? "not-allowed" : "pointer" }}
+              >
+                Avisar a los convocados
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {aviso && <div style={{ fontSize: 13, color: aviso.startsWith("No") ? "var(--h-error)" : "var(--h-ok)", marginBottom: 10 }}>{aviso}</div>}
+      {partido?.id && staff && convocadosJ.length > 0 && !partido.publicada && !editMode && (
+        <div style={{ ...cardStyle, padding: "10px 14px", marginBottom: 12, fontSize: 13.5, color: "var(--h-sub)" }}>
+          Cuando el equipo esté listo, tocá Editar › <b>Avisar a los convocados</b>: a cada uno le llega su camiseta y puede confirmar si va.
+        </div>
+      )}
+      {partido?.id && partido.publicada && convocadosJ.length > 0 && (
+        <div style={{ ...cardStyle, padding: "12px 16px", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ flex: 1, fontSize: 14.5, color: "var(--h-texto)" }}>
+              <b>{vanJ.length}</b> confirmaron · <b style={{ color: noPuedenJ.length ? "var(--h-error)" : undefined }}>{noPuedenJ.length}</b> no pueden · <b>{faltanResponder.length}</b> sin responder
+            </span>
+            {staff && faltanResponder.length > 0 && (
+              <button onClick={recordar} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)", fontSize: 12.5 }}>Recordar a los que faltan</button>
+            )}
+          </div>
+          {noPuedenJ.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 13.5, color: "var(--h-texto)", lineHeight: 1.6 }}>
+              {noPuedenJ.map(({ sl, j }) => (
+                <div key={sl.numero}><b style={{ color: "var(--h-error)" }}>{sl.numero}</b> {j.id}{respuestas[j.dbId].motivo ? <span style={{ color: "var(--h-sub)" }}> · {respuestas[j.dbId].motivo}</span> : ""}</div>
+              ))}
+            </div>
+          )}
+          {staff && faltanResponder.length > 0 && faltanResponder.length <= 10 && (
+            <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--h-sub)" }}>Faltan: {faltanResponder.map((x) => apellido(x.j.id)).join(", ")}</div>
+          )}
+        </div>
+      )}
+      {faltan.length > 0 && (
+        <div style={{ ...cardStyle, padding: "10px 14px", marginBottom: 12, borderLeft: "4px solid var(--h-alerta)", fontSize: 13.5, color: "var(--h-texto)" }}>
+          Falta cubrir {faltan.length === 1 ? "la camiseta" : "las camisetas"} <b>{faltan.join(", ")}</b>. Del 1 al 15 es obligatorio; los suplentes son opcionales.
+        </div>
+      )}
+      {enLosDos.length > 0 && (
+        <div style={{ ...cardStyle, padding: "10px 14px", marginBottom: 12, borderLeft: "4px solid var(--h-error)", fontSize: 13.5, color: "var(--h-texto)" }}>
+          También {enLosDos.length === 1 ? "está" : "están"} en {otraCat}: <b>{enLosDos.join(", ")}</b>.
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div style={{ flex: "1 1 340px", maxWidth: 560 }}>
+          {isMobile ? (
+            <div style={{ ...cardStyle, padding: "8px 14px" }}>
+              {Array.from({ length: 15 }, (_, i) => i + 1).map((n) => (
+                <FilaCamiseta key={n} slot={bySlot(n) || { numero: n }} info={info} editMode={editMode} onClick={() => setEligiendo(n)} />
+              ))}
+            </div>
+          ) : (
+            <Cancha lineup={lineup} info={info} editMode={editMode} onElegir={setEligiendo} />
+          )}
+        </div>
+        {(suplentesVisibles.length > 0 || editMode) && (
+          <div style={{ ...cardStyle, padding: "12px 14px", flex: "1 1 240px" }}>
+            <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800, color: "var(--h-texto)", marginBottom: 4 }}>Banco</div>
+            <div style={{ fontSize: 12, color: "var(--h-sub)", marginBottom: 6 }}>Opcional.</div>
+            {suplentesVisibles.map((s) => <FilaCamiseta key={s.numero} slot={s} info={info} editMode={editMode} onClick={() => setEligiendo(s.numero)} />)}
+            {suplentesVisibles.length === 0 && <div style={{ fontSize: 13, color: "var(--h-sub2)" }}>Sin suplentes.</div>}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 12, fontSize: 12, color: "var(--h-sub)" }}>
+        {Object.entries(COLOR_ESTADO).map(([k, c]) => (
+          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: c }} />{k}</span>
+        ))}
+        <span>· El % es el wellness de hoy · ✓ confirmó que va · ✕ no puede.</span>
+      </div>
+
+      {eligiendo && (
+        <SelectorCamiseta
+          slot={bySlot(eligiendo) || { numero: eligiendo, puesto: "" }}
+          cat={cat}
+          lineups={lineups}
+          info={info}
+          onElegir={(nombre) => elegir(eligiendo, nombre)}
+          onCerrar={() => setEligiendo(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Estado del plantel: quién está para jugar, quién vuelve de una lesión y cuánto le falta,
+// quién está en recuperación y quién no está habilitado. Todo en una sola vista.
+let focoEstadoPlantel = null; // desde Inicio: abrir directo la ficha de ese jugador
+function EstadoPlantelPage({ perfil }) {
+  const [filtro, setFiltro] = useState("Todos");
+  const fj = useFiltroJugadores("nombre");
+  const [verId, setVerId] = useState(() => { const f = focoEstadoPlantel; focoEstadoPlantel = null; return f; });
+  const [lesiones, setLesiones] = useState({});
+  useEffect(() => {
+    supabase.from("lesiones").select("*, jugadores(nombre)").eq("activa", true).then(({ data }) => {
+      const m = {};
+      (data || []).forEach((l) => { if (l.jugadores?.nombre) m[l.jugadores.nombre] = l; });
+      setLesiones(m);
+    });
+  }, []);
+
+  useEffect(() => { window.scrollTo(0, 0); }, [verId]);
+  if (verId && POOL.some((j) => j.id === verId)) {
+    return <PlantelCompletoPage perfil={perfil} inicialId={verId} onSalir={() => setVerId(null)} textoVolver="Volver al estado del plantel" />;
+  }
+  const enCat = (cat) => new Set((LINEUPS_INICIALES[cat] || []).map((s) => s.jugadorId));
+  const delFiltro = filtro === "Todos" ? POOL : POOL.filter((j) => enCat(filtro).has(j.id));
+  const jugadores = delFiltro.filter((j) => pasaFiltro(fj, j.id, j.posicionIdeal));
+  const por = (e) => jugadores.filter((j) => disponibilidadReal(j) === e);
+  const disp = por("Disponible"), les = por("Lesionado"), vig = por("A vigilar"), sinHab = por("No habilitado");
+  const total = jugadores.length;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const aFecha = (d) => (d && DBDATE_RE.test(d) ? new Date(d + "T00:00:00") : null);
+
+  const Seccion = ({ titulo, color, cantidad, children }) => cantidad > 0 && (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ width: 10, height: 10, borderRadius: 2, background: color }} />
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>{titulo}</span>
+        <span style={{ fontSize: 14, color: "var(--h-sub)" }}>{cantidad}</span>
+      </div>
+      {children}
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 12 }}>Estado del plantel</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+        {(esStaff(perfil) ? ["Todos", "Superior", "Intermedia"] : ["Todos"]).map((t) => (
+          <button key={t} onClick={() => setFiltro(t)} style={{ ...pillButton, fontWeight: 700, border: "1px solid " + (filtro === t ? "var(--h-acento)" : "var(--h-borde2)"), background: filtro === t ? "var(--h-acento-suave)" : "transparent", color: filtro === t ? "var(--h-acento)" : "var(--h-texto2)" }}>{t}</button>
+        ))}
+      </div>
+      <BarraJugadores f={fj} total={delFiltro.length} visibles={jugadores.length} sinOrden />
+
+      <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 20 }}>
+        <div style={{ fontSize: 15, color: "var(--h-texto)", marginBottom: 8 }}><b style={{ fontFamily: "var(--h-titulo)", fontSize: 26 }}>{disp.length}</b> de {total} para jugar</div>
+        <div style={{ display: "flex", height: 12, borderRadius: 6, overflow: "hidden", background: "var(--h-borde)" }} aria-hidden="true">
+          <span style={{ flex: disp.length, background: "var(--h-ok)" }} />
+          <span style={{ flex: vig.length + sinHab.length, background: "var(--h-alerta)" }} />
+          <span style={{ flex: les.length, background: "var(--h-error)" }} />
+        </div>
+      </div>
+
+      <Seccion titulo="Volviendo de una lesión" color="var(--h-error)" cantidad={les.length}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+          {les.map((j) => {
+            const l = lesiones[j.id];
+            const ini = aFecha(l?.fecha_lesion), fin = aFecha(l?.fecha_vuelta_estimada);
+            const pct = ini && fin && fin > ini ? Math.max(0, Math.min(100, Math.round(((hoy - ini) / (fin - ini)) * 100))) : null;
+            const semanas = fin ? Math.max(0, Math.ceil((fin - hoy) / (7 * 86400000))) : null;
+            return (
+              <button key={j.id} onClick={() => setVerId(j.id)} style={{ ...cardStyle, padding: "12px 14px", textAlign: "left", cursor: "pointer", font: "inherit", width: "100%" }}>
+                <div style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 14.5 }}>{j.id} <span style={{ color: "var(--h-sub2)", fontWeight: 400 }}>›</span></div>
+                <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 2 }}>{[j.posicionIdeal, j.zona, tipoLesion(j.zona) !== "—" ? tipoLesion(j.zona) : null].filter(Boolean).join(" · ")}</div>
+                {l?.id ? (
+                  <div style={{ marginTop: 10 }}><EtapasLesion lesion={l} /></div>
+                ) : pct !== null ? (
+                  <>
+                    <div style={{ height: 8, borderRadius: 4, background: "var(--h-borde)", overflow: "hidden", margin: "10px 0 4px" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: "var(--h-club)" }} />
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "var(--h-texto2)" }}>
+                      {semanas === 0 ? "Ya debería estar por volver" : `Le faltan ${semanas} ${semanas === 1 ? "semana" : "semanas"}`} · vuelve aprox. el {dbDateToDisplay(l.fecha_vuelta_estimada)}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 12.5, color: "var(--h-sub2)", marginTop: 8 }}>Sin fecha estimada de vuelta.</div>
+                )}
+                {j.historial?.length > 0 && <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginTop: 6 }}>Antes: {j.historial.join(" · ")}</div>}
+              </button>
+            );
+          })}
+        </div>
+      </Seccion>
+
+      <Seccion titulo="En recuperación" color="var(--h-alerta)" cantidad={vig.length}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {vig.map((j) => <button key={j.id} onClick={() => setVerId(j.id)} style={{ ...tagStyle, border: "none", cursor: "pointer", font: "inherit", borderRadius: 999, padding: "6px 12px", fontSize: 13, background: "var(--h-alerta-suave)", color: "var(--h-texto)" }}>{j.id}{j.zona ? ` · ${j.zona}` : ""}</button>)}
+        </div>
+      </Seccion>
+
+      <Seccion titulo="Sin habilitar" color="var(--h-sub)" cantidad={sinHab.length}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {sinHab.map((j) => <button key={j.id} onClick={() => setVerId(j.id)} style={{ ...tagStyle, border: "none", cursor: "pointer", font: "inherit", borderRadius: 999, padding: "6px 12px", fontSize: 13, background: "var(--h-panel2)", color: "var(--h-texto)" }}>{j.id} · {textoApto(j.apto)}</button>)}
+        </div>
+      </Seccion>
+
+      <Seccion titulo="Para jugar" color="var(--h-ok)" cantidad={disp.length}>
+        {Object.entries(disp.reduce((acc, j) => { const k = j.posicionIdeal || "Sin puesto"; (acc[k] = acc[k] || []).push(j); return acc; }, {}))
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([puesto, js]) => (
+            <div key={puesto} style={{ display: "flex", gap: 10, padding: "8px 0", borderTop: "1px solid var(--h-borde)", flexWrap: "wrap", alignItems: "baseline" }}>
+              <span style={{ width: 130, flexShrink: 0, fontSize: 12.5, color: "var(--h-sub)", fontWeight: 700 }}>{puesto} · {js.length}</span>
+              <span style={{ flex: 1, fontSize: 13.5, color: "var(--h-texto)", lineHeight: 1.6 }}>
+                {js.map((j, i) => (
+                  <React.Fragment key={j.id}>
+                    {i > 0 && <span style={{ color: "var(--h-sub2)" }}> · </span>}
+                    <button onClick={() => setVerId(j.id)} style={{ background: "transparent", border: "none", padding: 0, font: "inherit", color: "var(--h-texto)", cursor: "pointer", textDecoration: "underline", textDecorationColor: "var(--h-borde2)", textUnderlineOffset: 3 }}>{j.id}</button>
+                  </React.Fragment>
+                ))}
+              </span>
+            </div>
+          ))}
+      </Seccion>
+
+    </div>
+  );
+}
+
+// ───────────────────────── Resumen del partido para compartir ─────────────────────────
+// Imagen 1080×1350 (formato de Instagram / WhatsApp) con el resultado, los tries y el jugador del partido.
+function cargarImagen(src) {
+  return new Promise((ok) => {
+    if (!src) return ok(null);
+    const img = new Image();
+    if (!String(src).startsWith("data:")) img.crossOrigin = "anonymous";
+    img.onload = () => ok(img);
+    img.onerror = () => ok(null);
+    img.src = src;
+  });
+}
+function categoriaDePartido(id) {
+  if ((FIXTURE.superior || []).some((p) => p.id === id)) return "Superior";
+  if ((FIXTURE.intermedia || []).some((p) => p.id === id)) return "Intermedia";
+  return "";
+}
+async function datosResumenPartido(p) {
+  const [{ data: ind }, mvp] = await Promise.all([
+    supabase.from("analisis_individual_partido").select("jugador_id, tries").eq("partido_id", p.id).gt("tries", 0),
+    p.votacionAbre && Date.now() >= cierreVotacion(p).getTime()
+      ? supabase.rpc("mvp_resultado", { p_partido: p.id }).then((r) => r.data || [])
+      : Promise.resolve([]),
+  ]);
+  const nombre = (id) => POOL.find((j) => j.dbId === id)?.id || "";
+  const tries = (ind || []).map((x) => ({ nombre: nombre(x.jugador_id), n: x.tries })).filter((x) => x.nombre).sort((a, b) => b.n - a.n);
+  const max = mvp[0]?.votos;
+  const ganadores = mvp.filter((x) => x.votos === max).map((x) => nombre(x.jugador_id)).filter(Boolean);
+  return { tries, mvp: ganadores };
+}
+async function imagenResumenPartido({ p, categoria, tries, mvp, clubNombre, colores, zona }) {
+  const W = 1080, H = 1350;
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  try { await document.fonts?.ready; } catch (e) { /* nada */ }
+  const TIT = "'Barlow Condensed', 'Arial Narrow', Arial, sans-serif";
+  const TXT = "Barlow, Arial, sans-serif";
+  const gano = p.res === "Ganado", perdio = p.res === "Perdido";
+  // Fondo
+  ctx.fillStyle = "#0E1620"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = colores.club; ctx.fillRect(0, 0, W, 170);
+  ctx.fillStyle = colores.txt;
+  ctx.font = `800 54px ${TIT}`; ctx.textBaseline = "middle";
+  ctx.fillText(`${categoria ? categoria.toUpperCase() + " · " : ""}${etiquetaFecha(p.fecha).toUpperCase()}`, 60, 70);
+  ctx.font = `500 32px ${TXT}`;
+  ctx.fillText(`${p.date}${p.cond ? " · " + (p.cond === "Local" ? "en casa" : "de visitante") : ""}`, 60, 125);
+  // Escudos y marcador (el local a la izquierda)
+  const obras = { nombre: clubNombre || nombreNuestro(), escudo: escudoNuestro(), tantos: p.gf };
+  const rival = { nombre: p.rival || "Rival", escudo: ESCUDOS_RIVALES[p.rival], tantos: p.gc };
+  const [izq, der] = p.cond === "Local" ? [obras, rival] : [rival, obras];
+  const [imgI, imgD] = await Promise.all([cargarImagen(izq.escudo), cargarImagen(der.escudo)]);
+  const escudo = (img, cx, cy, nombre) => {
+    const t = 230;
+    if (img) {
+      const r = Math.min(t / img.width, t / img.height);
+      ctx.drawImage(img, cx - (img.width * r) / 2, cy - (img.height * r) / 2, img.width * r, img.height * r);
+    } else {
+      ctx.fillStyle = "#24303C"; ctx.beginPath(); ctx.arc(cx, cy, t / 2.2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#fff"; ctx.font = `800 90px ${TIT}`; ctx.textAlign = "center"; ctx.fillText(String(nombre).charAt(0), cx, cy + 4); ctx.textAlign = "left";
+    }
+  };
+  escudo(imgI, 220, 390, izq.nombre);
+  escudo(imgD, W - 220, 390, der.nombre);
+  ctx.textAlign = "center"; ctx.fillStyle = "#fff";
+  const ajustar = (txt, max, base) => { let f = base; ctx.font = `700 ${f}px ${TIT}`; while (ctx.measureText(txt).width > max && f > 24) { f -= 2; ctx.font = `700 ${f}px ${TIT}`; } return txt; };
+  ajustar(izq.nombre, 380, 44); ctx.fillText(izq.nombre, 220, 545);
+  ajustar(der.nombre, 380, 44); ctx.fillText(der.nombre, W - 220, 545);
+  ctx.font = `800 150px ${TIT}`;
+  ctx.fillText(`${izq.tantos ?? "-"}`, 220, 690);
+  ctx.fillText(`${der.tantos ?? "-"}`, W - 220, 690);
+  ctx.font = `800 90px ${TIT}`; ctx.fillStyle = "#6B7785"; ctx.fillText("–", W / 2, 690);
+  // Resultado
+  const palabra = gano ? "VICTORIA" : perdio ? "DERROTA" : "EMPATE";
+  const colorRes = gano ? "#2FA36B" : perdio ? "#D64545" : "#8A94A0";
+  ctx.font = `800 44px ${TIT}`;
+  const anchoP = ctx.measureText(palabra).width + 70;
+  ctx.fillStyle = colorRes;
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(W / 2 - anchoP / 2, 790, anchoP, 74, 37) : ctx.rect(W / 2 - anchoP / 2, 790, anchoP, 74); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.fillText(palabra, W / 2, 829);
+  ctx.textAlign = "left";
+  // Tries y jugador del partido
+  let y = 935;
+  const bloque = (titulo, lineas) => {
+    ctx.fillStyle = "#8FA0B0"; ctx.font = `700 30px ${TXT}`; ctx.fillText(titulo, 60, y); y += 50;
+    ctx.fillStyle = "#fff"; ctx.font = `600 40px ${TXT}`;
+    for (const l of lineas) { ctx.fillText(l, 60, y); y += 52; }
+    y += 18;
+  };
+  if (tries.length) {
+    const t = tries.map((x) => `${apellido(x.nombre)}${x.n > 1 ? ` (${x.n})` : ""}`);
+    const lineas = [];
+    let actual = "";
+    for (const nom of t) {
+      const prueba = actual ? `${actual} · ${nom}` : nom;
+      ctx.font = `600 40px ${TXT}`;
+      if (ctx.measureText(prueba).width > W - 120 && actual) { lineas.push(actual); actual = nom; } else actual = prueba;
+    }
+    if (actual) lineas.push(actual);
+    bloque("TRIES", lineas.slice(0, 3));
+  }
+  if (mvp.length) bloque("JUGADOR DEL PARTIDO", [`🏆 ${mvp.join(" y ")}`]);
+  if (zona) {
+    ctx.fillStyle = "#8FA0B0"; ctx.font = `600 30px ${TXT}`;
+    ctx.fillText(zona, 60, Math.max(y, H - 140));
+  }
+  // Firma
+  ctx.fillStyle = "#1FA37A"; ctx.font = `800 40px ${TIT}`; ctx.textAlign = "right";
+  const firma = `ADN ${clubNombre || ""}`.trim();
+  ctx.fillText(firma, W - 60, H - 60);
+  return await new Promise((ok) => canvas.toBlob(ok, "image/png"));
+}
+
+function ResumenPartido({ p, onCerrar }) {
+  const club = useClub();
+  const [url, setUrl] = useState(null);
+  const [blob, setBlob] = useState(null);
+  const [error, setError] = useState("");
+  const categoria = p.categoria || categoriaDePartido(p.id);
+  useEffect(() => {
+    let vivo = true, creada = null;
+    (async () => {
+      try {
+        const { tries, mvp } = await datosResumenPartido(p);
+        const z = ZONA_FINAL[categoria.toLowerCase()];
+        let zonaTxt = "";
+        if (z && p.fecha > FECHAS_FASE_REGULAR) {
+          const orden = [...z.filas].sort((a, b) => (b.pts || 0) - (a.pts || 0) || (b.dif || 0) - (a.dif || 0));
+          const pos = orden.findIndex((f) => f.equipo === "Obras Sanitarias") + 1;
+          if (pos) zonaTxt = `${nombreClubCorto(club) || "Obras"}: ${pos}° de ${orden.length} en la ${z.nombre}`;
+        }
+        const b = await imagenResumenPartido({ p, categoria, tries, mvp, clubNombre: nombreClubCorto(club), colores: colorClub(), zona: zonaTxt });
+        if (!vivo) return;
+        creada = URL.createObjectURL(b);
+        setBlob(b); setUrl(creada);
+      } catch (e) {
+        console.error("Error armando el resumen:", e);
+        if (vivo) setError("No se pudo armar la imagen.");
+      }
+    })();
+    return () => { vivo = false; if (creada) URL.revokeObjectURL(creada); };
+  }, [p.id]);
+  const nombreArchivo = `obras-${(p.rival || "partido").toLowerCase().replace(/[^a-z0-9]+/gi, "-")}-${String(p.date || "").replace(/\//g, "-")}.png`;
+  async function compartir() {
+    const archivo = new File([blob], nombreArchivo, { type: "image/png" });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [archivo] })) await navigator.share({ files: [archivo], title: "Resumen del partido" });
+      else descargar();
+    } catch (e) { if (e?.name !== "AbortError") descargar(); }
+  }
+  function descargar() {
+    const a = document.createElement("a");
+    a.href = url; a.download = nombreArchivo; a.click();
+  }
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Resumen del partido" onClick={onCerrar}
+      style={{ position: "fixed", inset: 0, zIndex: 120, background: "rgba(8,12,16,0.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 420, display: "flex", flexDirection: "column", gap: 12 }}>
+        {url ? (
+          <img src={url} alt={`Resumen: ${p.cond === "Local" ? nombreNuestro() : p.rival} ${p.cond === "Local" ? p.gf : p.gc} - ${p.cond === "Local" ? p.gc : p.gf} ${p.cond === "Local" ? p.rival : nombreNuestro()}`}
+            style={{ width: "100%", maxHeight: "70vh", objectFit: "contain", borderRadius: 14, background: "#0E1620" }} />
+        ) : (
+          <div style={{ aspectRatio: "4 / 5", maxHeight: "70vh", borderRadius: 14, background: "#0E1620", display: "flex", alignItems: "center", justifyContent: "center", color: "#B8C2CC", fontSize: 14 }}>
+            {error || "Armando el resumen…"}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onCerrar} style={{ ...pillButton, flex: 1, background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "#fff" }}>Cerrar</button>
+          <button onClick={descargar} disabled={!url} style={{ ...pillButton, flex: 1, background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "#fff" }}>Descargar</button>
+          <button onClick={compartir} disabled={!url} style={{ ...pillButton, flex: 2, background: "#25D366", color: "#fff", border: "none", fontWeight: 700 }}>Compartir</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────── Jugador del partido (votación) ─────────────────────────
+// Se abre al cargar el resultado y cierra 3 días después del partido. Uno no se puede votar a sí mismo.
+const HORAS_VOTACION = 24;
+const cierreVotacion = (p) => (p.votacionAbre ? new Date(new Date(p.votacionAbre).getTime() + HORAS_VOTACION * 3600 * 1000) : null);
+const textoCierre = (f) => {
+  const hoy = new Date();
+  const dia = f.toDateString() === hoy.toDateString() ? "hoy" : f.toDateString() === new Date(hoy.getTime() + 864e5).toDateString() ? "mañana" : `el ${f.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })}`;
+  return `${dia} a las ${f.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
+};
+function sumarDiasISO(iso, n) { const f = new Date(iso + "T12:00:00"); f.setDate(f.getDate() + n); return f.toLocaleDateString("sv-SE"); }
+const hoyISO_AR = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
+
+function SelectorVoto({ partido, perfil, onElegir, onCerrar }) {
+  const [busca, setBusca] = useState("");
+  const [elegido, setElegido] = useState(null);
+  const [convocados, setConvocados] = useState([]);
+  useEffect(() => {
+    const catId = CATEGORIA_IDS[partido.categoria];
+    if (!catId) return;
+    supabase.from("lineup_slots").select("jugador_id, numero").eq("categoria_id", catId).not("jugador_id", "is", null)
+      .then(({ data }) => setConvocados((data || []).sort((a, b) => a.numero - b.numero).map((x) => x.jugador_id)));
+  }, [partido.id]);
+  const yo = perfil?.jugador_id;
+  const todos = POOL.filter((j) => j.dbId && j.dbId !== yo);
+  const filtro = (j) => !busca || j.id.toLowerCase().includes(busca.toLowerCase());
+  const deLaFormacion = convocados.map((id) => todos.find((j) => j.dbId === id)).filter(Boolean).filter(filtro);
+  const resto = todos.filter((j) => !convocados.includes(j.dbId)).filter(filtro);
+  const fila = (j) => (
+    <button key={j.dbId} onClick={() => setElegido(j)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 4px", background: "none", border: "none", borderTop: "1px solid var(--h-borde)", cursor: "pointer", textAlign: "left" }}>
+      <AvatarPlaceholder size={34} foto={j.foto} />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: 15, fontWeight: 600, color: "var(--h-texto)" }}>{j.id}</span>
+        <span style={{ display: "block", fontSize: 12, color: "var(--h-sub)" }}>{j.posicionIdeal}</span>
+      </span>
+      <span aria-hidden style={{ color: "var(--h-sub2)", fontSize: 18 }}>›</span>
+    </button>
+  );
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Elegí al jugador del partido" style={{ position: "fixed", inset: 0, zIndex: 120, background: "var(--h-fondo)", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid var(--h-borde)", background: "var(--h-panel)" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: "var(--h-texto)" }}>¿Quién fue el mejor?</div>
+          <div style={{ fontSize: 12.5, color: "var(--h-sub)" }}>{partido.categoria} · {partido.cond === "Local" ? "vs" : "en"} {partido.rival} · {partido.gf}-{partido.gc}</div>
+        </div>
+        <button onClick={onCerrar} aria-label="Cerrar" style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid var(--h-borde2)", background: "transparent", color: "var(--h-texto)", fontSize: 18, cursor: "pointer" }}>×</button>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        <div style={{ maxWidth: 560, margin: "0 auto", padding: "12px 16px 24px" }}>
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar jugador…" aria-label="Buscar jugador" style={{ ...inputStyle, marginTop: 0, marginBottom: 10 }} />
+          {deLaFormacion.length > 0 && (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-sub)", margin: "6px 0 2px" }}>De la formación</div>
+              {deLaFormacion.map(fila)}
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-sub)", margin: "16px 0 2px" }}>Resto del plantel</div>
+            </>
+          )}
+          {resto.map(fila)}
+        </div>
+      </div>
+      {elegido && (
+        <div style={{ borderTop: "1px solid var(--h-borde)", background: "var(--h-panel)", padding: "14px 16px calc(14px + env(safe-area-inset-bottom))" }}>
+          <div style={{ maxWidth: 560, margin: "0 auto" }}>
+            <div style={{ fontSize: 15, color: "var(--h-texto)" }}>¿Votás a <b>{elegido.id}</b>?</div>
+            <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 2 }}>Es un solo voto y después no se puede cambiar.</div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button onClick={() => setElegido(null)} style={{ ...pillButton, flex: 1, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}>Volver</button>
+              <button onClick={() => onElegir(elegido)} style={{ ...pillButton, flex: 2, background: "var(--h-acento)", color: "var(--h-panel)", border: "none", fontWeight: 700 }}>Confirmar voto</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function JugadorDelPartido({ perfil }) {
+  const [votos, setVotos] = useState({}); // partidoId -> jugadorId (mi voto)
+  const [conteos, setConteos] = useState({}); // partidoId -> [{jugador_id, votos}]
+  const [eligiendo, setEligiendo] = useState(null);
+  const [resumen, setResumen] = useState(null);
+  const [msg, setMsg] = useState("");
+  const staff = esStaff(perfil);
+  const ahora = Date.now();
+  const partidos = ["Superior", "Intermedia"].flatMap((cat) =>
+    (FIXTURE[cat.toLowerCase()] || []).map((p) => ({ ...p, categoria: cat, cierre: cierreVotacion(p) }))
+  ).filter((p) => p.cierre && ahora <= p.cierre.getTime() + 6 * 864e5);
+  const abiertos = partidos.filter((p) => ahora < p.cierre.getTime());
+  const cerrados = partidos.filter((p) => ahora >= p.cierre.getTime());
+  const claves = partidos.map((p) => p.id).join(",");
+
+  async function cargar() {
+    if (!partidos.length) return;
+    const ids = partidos.map((p) => p.id);
+    if (perfil?.auth_user_id) {
+      const { data } = await supabase.from("votos_partido").select("partido_id, jugador_id").in("partido_id", ids).eq("votante", perfil.auth_user_id);
+      setVotos(Object.fromEntries((data || []).map((v) => [v.partido_id, v.jugador_id])));
+    }
+    const res = {};
+    for (const p of partidos) {
+      if (!staff && ahora < p.cierre.getTime()) continue;
+      const { data } = await supabase.rpc("mvp_resultado", { p_partido: p.id });
+      res[p.id] = data || [];
+    }
+    setConteos(res);
+  }
+  useEffect(() => { cargar(); }, [claves]);
+
+  if (!partidos.length) return null;
+  const nombre = (id) => POOL.find((j) => j.dbId === id)?.id || "—";
+
+  async function votar(jugador) {
+    const p = eligiendo;
+    setEligiendo(null);
+    setMsg("");
+    const fila = { partido_id: p.id, jugador_id: jugador.dbId, votante: perfil.auth_user_id };
+    const { error } = await supabase.from("votos_partido").insert(fila);
+    if (error) { setMsg(error.code === "23505" ? "Ya votaste en este partido." : "No se pudo guardar el voto (la votación puede estar cerrada)."); cargar(); return; }
+    cargar();
+  }
+
+  const ganadores = (lista) => {
+    if (!lista?.length) return [];
+    const max = lista[0].votos;
+    return lista.filter((x) => x.votos === max);
+  };
+
+  return (
+    <>
+      {abiertos.map((p) => {
+        const mio = votos[p.id];
+        const parcial = conteos[p.id] || [];
+        const total = parcial.reduce((a, x) => a + x.votos, 0);
+        return (
+          <div key={"v" + p.id} style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14, borderLeft: "4px solid var(--h-club)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span aria-hidden style={{ fontSize: 22 }}>🏆</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>Jugador del partido</div>
+                <div style={{ fontSize: 13, color: "var(--h-sub)" }}>{p.categoria} · {p.cond === "Local" ? "vs" : "en"} {p.rival} · {p.gf}-{p.gc} · cierra {textoCierre(p.cierre)}</div>
+              </div>
+            </div>
+            {mio ? (
+              <div style={{ marginTop: 10, fontSize: 14.5, color: "var(--h-texto)" }}>✓ Votaste a <b>{nombre(mio)}</b>. El resultado sale cuando cierra la votación.</div>
+            ) : (
+              <button onClick={() => setEligiendo(p)} style={{ ...buttonStyle, marginTop: 12 }}>Votar</button>
+            )}
+            {staff && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--h-borde)", fontSize: 13, color: "var(--h-sub)" }}>
+                {total ? (
+                  <>Van {total} {total === 1 ? "voto" : "votos"} · Adelante: {parcial.slice(0, 3).map((x) => `${nombre(x.jugador_id)} (${x.votos})`).join(", ")} <span style={{ color: "var(--h-sub2)" }}>— solo lo ve el staff</span></>
+                ) : "Todavía nadie votó."}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {cerrados.map((p) => {
+        const g = ganadores(conteos[p.id]);
+        if (!g.length) return null;
+        return (
+          <div key={"g" + p.id} style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14, background: "var(--h-club)", color: "var(--h-club-txt)", border: "none" }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, opacity: 0.85 }}>🏆 Jugador del partido · {p.categoria} · {p.cond === "Local" ? "vs" : "en"} {p.rival}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
+              {g.length === 1 && <AvatarPlaceholder size={44} foto={POOL.find((j) => j.dbId === g[0].jugador_id)?.foto} />}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: "var(--h-titulo)", fontSize: 24, fontWeight: 800, lineHeight: 1.1 }}>{g.map((x) => nombre(x.jugador_id)).join(" y ")}</div>
+                <div style={{ fontSize: 13, opacity: 0.9 }}>{g[0].votos} {g[0].votos === 1 ? "voto" : "votos"}{g.length > 1 ? " cada uno" : ""}</div>
+              </div>
+            </div>
+            <button onClick={() => setResumen(p)} style={{ ...pillButton, marginTop: 12, background: "rgba(255,255,255,0.18)", color: "inherit", border: "1px solid rgba(255,255,255,0.45)", fontWeight: 700 }}>
+              Compartir el resumen del partido
+            </button>
+          </div>
+        );
+      })}
+      {msg && <div style={{ fontSize: 13, color: "var(--h-error)", marginBottom: 10 }}>{msg}</div>}
+      {eligiendo && <SelectorVoto partido={eligiendo} perfil={perfil} onElegir={votar} onCerrar={() => setEligiendo(null)} />}
+      {resumen && <ResumenPartido p={resumen} onCerrar={() => setResumen(null)} />}
+    </>
+  );
+}
+
+// ───────────────────────── Esfuerzo de la sesión (RPE) ─────────────────────────
+// El jugador marca del 1 al 10 qué tan dura fue cada sesión; carga = esfuerzo × minutos.
+const ESCALA_RPE = { 1: "Muy fácil", 2: "Fácil", 3: "Moderado", 4: "Algo duro", 5: "Duro", 6: "Duro", 7: "Muy duro", 8: "Muy duro", 9: "Casi al máximo", 10: "Al máximo" };
+const MINUTOS_TIPO = { "Práctica": 90, "Gimnasio": 60, "Partido": 80 };
+const colorRPE = (n) => (n <= 3 ? "#2FA36B" : n <= 6 ? "#E2B93B" : n <= 8 ? "#E07B39" : "#D64545");
+function sesionesDeHoy() {
+  const nombre = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date().getDay()];
+  const tipos = [];
+  const pr = SESIONES[nombre];
+  if (pr && ((pr.grupo1 || []).length || (pr.grupo2 || []).length)) tipos.push("Práctica");
+  if (DIAS_GYM.includes(nombre)) tipos.push("Gimnasio");
+  if (partidoDeHoyCategoria("Superior") || partidoDeHoyCategoria("Intermedia")) tipos.push("Partido");
+  return tipos;
+}
+
+function EsfuerzoSesion({ perfil }) {
+  const tipos = sesionesDeHoy();
+  // Una sola carga por día, por la sesión completa (si hay partido, cuenta como partido).
+  const tipo = tipos.includes("Partido") ? "Partido" : tipos.includes("Práctica") ? "Práctica" : tipos[0];
+  const [hecha, setHecha] = useState(undefined);
+  const [rpe, setRpe] = useState(null);
+  const [minutos, setMinutos] = useState(String(MINUTOS_TIPO[tipo] || 60));
+  const [editando, setEditando] = useState(false);
+  const [msg, setMsg] = useState("");
+  const jugadorId = perfil?.jugador_id;
+  const hoy = hoyISO_AR();
+
+  async function cargar() {
+    const { data } = await supabase.from("rpe_sesiones").select("tipo, rpe, minutos").eq("jugador_id", jugadorId).eq("fecha", hoy).maybeSingle();
+    setHecha(data || null);
+    if (data) setMinutos(String(data.minutos));
+  }
+  useEffect(() => { if (jugadorId && tipo) cargar(); }, [jugadorId]);
+  if (!jugadorId || !tipo || hecha === undefined) return null;
+  const mostrarForm = editando || !hecha;
+  const queHubo = tipo === "Partido" ? "el partido" : tipo === "Práctica" ? "la práctica" : "el gimnasio";
+
+  async function guardar() {
+    setMsg("");
+    const min = Number(minutos);
+    if (!rpe) { setMsg("Elegí un número del 1 al 10."); return; }
+    if (!(min >= 1 && min <= 300)) { setMsg("Revisá los minutos (entre 1 y 300)."); return; }
+    const { error } = await supabase.from("rpe_sesiones").upsert(
+      { jugador_id: jugadorId, fecha: hoy, tipo, rpe, minutos: min, updated_at: new Date().toISOString() },
+      { onConflict: "jugador_id,fecha" }
+    );
+    if (error) { setMsg("No se pudo guardar. Probá de nuevo."); return; }
+    setRpe(null); setEditando(false);
+    cargar();
+  }
+
+  return (
+    <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>¿Qué tan dura fue la sesión de hoy?</div>
+      {hecha && !editando && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "var(--h-texto)", background: "var(--h-fondo)", borderRadius: 999, padding: "5px 12px", borderLeft: `4px solid ${colorRPE(hecha.rpe)}` }}>
+            ✓ {hecha.rpe}/10 · {ESCALA_RPE[hecha.rpe]} · {hecha.minutos} min
+          </span>
+          <button onClick={() => { setEditando(true); setRpe(hecha.rpe); }} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: 0 }}>Corregir</button>
+        </div>
+      )}
+      {mostrarForm && (
+        <>
+          <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 4 }}>
+            Pensá en toda la sesión de hoy ({queHubo}), de principio a fin. 1 es muy fácil y 10, al máximo.
+          </div>
+          <div role="radiogroup" aria-label="Esfuerzo del 1 al 10" style={{ display: "grid", gridTemplateColumns: "repeat(10, minmax(0, 1fr))", gap: 4, marginTop: 12 }}>
+            {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+              <button key={n} role="radio" aria-checked={rpe === n} aria-label={`${n}: ${ESCALA_RPE[n]}`} onClick={() => setRpe(n)}
+                style={{ height: 42, borderRadius: 10, border: rpe === n ? "none" : "1.5px solid var(--h-borde2)", background: rpe === n ? colorRPE(n) : "transparent", color: rpe === n ? "#fff" : "var(--h-texto)", fontWeight: 800, fontSize: 16, cursor: "pointer", padding: 0 }}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "var(--h-sub2)", marginTop: 4 }}><span>Muy fácil</span><span>Al máximo</span></div>
+          {rpe && <div style={{ fontSize: 14, fontWeight: 700, color: colorRPE(rpe), marginTop: 6 }}>{rpe} · {ESCALA_RPE[rpe]}</div>}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "var(--h-texto2)" }}>
+              Duró en total
+              <input type="number" inputMode="numeric" min="1" max="300" value={minutos} onChange={(e) => setMinutos(e.target.value)} aria-label="Minutos de la sesión completa"
+                style={{ ...inputStyle, width: 74, marginTop: 0, textAlign: "center", padding: "8px 6px" }} />
+              min
+            </label>
+            <button onClick={guardar} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none", fontWeight: 700, marginLeft: "auto" }}>Guardar</button>
+          </div>
+          {msg && <div style={{ fontSize: 13, color: "var(--h-error)", marginTop: 8 }}>{msg}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Panel del staff: carga de la semana por jugador y relación con su promedio de las 4 semanas.
+function CargaPlantel() {
+  const [filas, setFilas] = useState(null);
+  const fc = useFiltroJugadores("estado");
+  const hoy = hoyISO_AR();
+  useEffect(() => {
+    supabase.from("rpe_sesiones").select("jugador_id, fecha, tipo, rpe, minutos, carga").gte("fecha", sumarDiasISO(hoy, -27)).order("fecha")
+      .then(({ data }) => setFilas(data || []));
+  }, []);
+  if (!filas) return null;
+  const desde7 = sumarDiasISO(hoy, -6);
+  const porJugador = {};
+  for (const r of filas) (porJugador[r.jugador_id] ||= []).push(r);
+  const lista = Object.entries(porJugador).map(([id, rs]) => {
+    const semana = rs.filter((r) => r.fecha >= desde7).reduce((a, r) => a + r.carga, 0);
+    const total28 = rs.reduce((a, r) => a + r.carga, 0);
+    const primera = rs[0].fecha;
+    const hayHistoria = primera <= sumarDiasISO(hoy, -20);
+    const cronica = total28 / 4;
+    const relacion = hayHistoria && cronica > 0 ? semana / cronica : null;
+    const deHoy = rs.filter((r) => r.fecha === hoy);
+    return { id, nombre: POOL.find((j) => j.dbId === id)?.id || "—", semana, relacion, deHoy, sesiones: rs.filter((r) => r.fecha >= desde7).length };
+  });
+  const opcionesCarga = [
+    { k: "estado", label: "Más cargados primero", get: (x) => x.relacion, dir: -1 },
+    { k: "semana", label: "Más carga en la semana", get: (x) => x.semana, dir: -1 },
+    { k: "hoy", label: "Esfuerzo de hoy", get: (x) => (x.deHoy.length ? Math.max(...x.deHoy.map((r) => r.rpe)) : null), dir: -1 },
+    { k: "nombre", label: "Nombre", get: (x) => x.nombre },
+    { k: "puesto", label: "Puesto", get: (x) => indicePuesto(puestoDeId(x.id)) },
+  ];
+  const listaVer = ordenarJugadores(lista.filter((x) => pasaFiltro(fc, x.nombre, puestoDeId(x.id))), opcionesCarga, fc, (x) => x.nombre);
+  const hoyCargaron = lista.filter((x) => x.deHoy.length).length;
+  const etiqueta = (r) => r == null ? { t: "—", c: "var(--h-sub2)" } : r > 1.5 ? { t: "Muy cargado", c: "var(--h-error)" } : r > 1.3 ? { t: "Subiendo", c: "var(--h-alerta)" } : r < 0.8 ? { t: "Bajo", c: "var(--h-sub)" } : { t: "Normal", c: "var(--h-ok)" };
+  const th = { padding: "6px 4px", fontSize: 12, fontWeight: 600, color: "var(--h-sub)", textAlign: "center" };
+  const td = { padding: "8px 4px", fontSize: 13.5, color: "var(--h-texto2)", textAlign: "center" };
+  return (
+    <div style={{ marginTop: 24, marginBottom: 8 }}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>Carga de entrenamiento</div>
+      <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 10 }}>
+        Esfuerzo (1 a 10) × minutos que cargan los jugadores al terminar cada sesión. Hoy cargaron {hoyCargaron}.
+      </div>
+      {lista.length === 0 ? (
+        <div style={{ ...cardStyle, padding: "14px 16px", fontSize: 13, color: "var(--h-sub)" }}>Todavía nadie cargó el esfuerzo de una sesión. A la noche les llega un recordatorio a los que entrenaron.</div>
+      ) : (
+        <>
+        <BarraJugadores f={fc} opciones={opcionesCarga} total={lista.length} visibles={listaVer.length} />
+        <div style={{ ...cardStyle, padding: "8px 12px", overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 320 }}>
+            <thead>
+              <tr><th style={{ ...th, textAlign: "left" }}>Jugador</th><th style={th}>Hoy</th><th style={th}>Semana</th><th style={th}>Estado</th></tr>
+            </thead>
+            <tbody>
+              {listaVer.map((x) => {
+                const e = etiqueta(x.relacion);
+                return (
+                  <tr key={x.id} style={{ borderTop: "1px solid var(--h-borde)" }}>
+                    <td style={{ ...td, textAlign: "left", color: "var(--h-texto)", fontWeight: 600, whiteSpace: "nowrap" }}>{x.nombre}</td>
+                    <td style={td}>{x.deHoy.length ? x.deHoy.map((r) => <span key={r.tipo} title={r.tipo} style={{ display: "inline-block", minWidth: 22, borderRadius: 6, background: colorRPE(r.rpe), color: "#fff", fontWeight: 800, fontSize: 12, padding: "1px 4px", margin: "0 1px" }}>{r.rpe}</span>) : "—"}</td>
+                    <td style={td}><b style={{ color: "var(--h-texto)" }}>{x.semana.toLocaleString("es-AR")}</b><div style={{ fontSize: 11, color: "var(--h-sub2)" }}>{x.sesiones} {x.sesiones === 1 ? "sesión" : "sesiones"}</div></td>
+                    <td style={{ ...td, color: e.c, fontWeight: 700 }}>{e.t}{x.relacion != null && <div style={{ fontSize: 11, fontWeight: 500, color: "var(--h-sub2)" }}>{x.relacion.toFixed(2)}</div>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        </>
+      )}
+      <div style={{ fontSize: 12, color: "var(--h-sub2)", marginTop: 8 }}>
+        "Estado" compara la carga de los últimos 7 días con el promedio semanal de las últimas 4 semanas: arriba de 1,5 es un salto grande (más riesgo de lesión), debajo de 0,8 entrenó menos que de costumbre. Aparece cuando el jugador tiene unas 3 semanas cargadas.
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────── Registro del plantel (solo staff) ─────────────────────────
+// Cuántos jugadores ya tienen cuenta, quiénes faltan y un mensaje de WhatsApp listo para cada uno.
+// Link propio de cada jugador: al abrirlo, la app ya sabe quién es.
+const linkPersonal = (jugadorId) => `${INVITE_LINK}/?soy=${jugadorId}`;
+function mensajeRegistro(nombre, jugadorId) {
+  const pila = String(nombre || "").trim().split(/\s+/)[0] || "";
+  return (
+    `${pila ? pila + ", te" : "Te"} falta sumarte a *ADN ${nombreNuestro()}*, la app del plantel ` +
+    `(práctica, gimnasio, wellness y convocatoria).\n\n` +
+    `Este link es solo tuyo: ${jugadorId ? linkPersonal(jugadorId) : INVITE_LINK}\n` +
+    `Completás tus datos y tu contraseña, y adentro. ¡Vamos ${nombreNuestro()}!`
+  );
+}
+function RegistroPlantel({ perfil }) {
+  const puedeAprobar = ["Manager", "Cuerpo técnico"].includes(perfil?.rol);
+  const [aprobando, setAprobando] = useState(null);
+  const [jugadores, setJugadores] = useState(null);
+  const [perfiles, setPerfiles] = useState([]);
+  const [abierto, setAbierto] = useState(false);
+  const [tab, setTab] = useState("faltan");
+  const [copiado, setCopiado] = useState(false);
+  const fr = useFiltroJugadores("nombre");
+  useEffect(() => {
+    Promise.all([
+      supabase.from("jugadores").select("id, nombre, posicion_ideal").order("nombre"),
+      supabase.from("profiles").select("id, jugador_id, confirmado, bloqueado").not("jugador_id", "is", null),
+    ]).then(([j, p]) => { setJugadores(j.data || []); setPerfiles(p.data || []); });
+  }, []);
+  if (!jugadores || !jugadores.length) return null;
+  const perfilDe = Object.fromEntries(perfiles.map((x) => [x.jugador_id, x]));
+  const faltan = jugadores.filter((j) => !perfilDe[j.id]);
+  const pendientes = jugadores.filter((j) => perfilDe[j.id] && !perfilDe[j.id].confirmado);
+  const listos = jugadores.filter((j) => perfilDe[j.id]?.confirmado);
+  const conCuenta = jugadores.length - faltan.length;
+  if (!faltan.length && !pendientes.length) return null;
+  const pct = Math.round((conCuenta / jugadores.length) * 100);
+  const listaTab = tab === "faltan" ? faltan : tab === "pendientes" ? pendientes : listos;
+  const lista = listaTab.filter((j) => pasaFiltro(fr, j.nombre, j.posicion_ideal));
+  const wa = (texto) => `https://wa.me/?text=${encodeURIComponent(texto)}`;
+  const textoGrupo =
+    `*Faltan registrarse en ADN ${nombreNuestro()}* (${faltan.length}):\n` + faltan.map((j) => `• ${j.nombre}`).join("\n") +
+    `\n\nEntren a ${INVITE_LINK}, toquen *Creá tu cuenta* y escriban su nombre: la app los encuentra. ¡Son 2 minutos!`;
+  async function aprobar(j) {
+    const p = perfilDe[j.id];
+    if (!p?.id) return;
+    setAprobando(j.id);
+    const { error } = await supabase.from("profiles").update({ confirmado: true }).eq("id", p.id);
+    setAprobando(null);
+    if (!error) setPerfiles((xs) => xs.map((x) => (x.id === p.id ? { ...x, confirmado: true } : x)));
+  }
+  function copiarLista() {
+    try { navigator.clipboard.writeText(textoGrupo).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 2000); }); } catch (e) { /* nada */ }
+  }
+  const pestaña = (k, l, n) => (
+    <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+      style={{ padding: "8px 4px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, background: tab === k ? "var(--h-club)" : "transparent", color: tab === k ? "var(--h-club-txt)" : "var(--h-texto2)" }}>
+      {l} · {n}
+    </button>
+  );
+  return (
+    <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>Registro del plantel</div>
+        <div style={{ fontSize: 13.5, color: "var(--h-texto2)" }}><b style={{ color: "var(--h-texto)", fontSize: 16 }}>{conCuenta}</b> de {jugadores.length} ya tienen cuenta</div>
+      </div>
+      <div style={{ height: 8, borderRadius: 4, background: "var(--h-borde)", overflow: "hidden", margin: "10px 0 8px" }} role="img" aria-label={`${pct}% del plantel registrado`}>
+        <div style={{ width: `${pct}%`, height: "100%", background: "var(--h-ok)" }} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, color: "var(--h-sub)" }}>
+          {faltan.length ? `Faltan ${faltan.length}` : "Ya están todos"}{pendientes.length ? ` · ${pendientes.length} esperando aprobación` : ""}
+        </span>
+        <button onClick={() => setAbierto((v) => !v)} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, fontSize: 13.5, cursor: "pointer", padding: 0 }}>
+          {abierto ? "Ocultar" : "Ver quiénes faltan"}
+        </button>
+      </div>
+
+      {abierto && (
+        <div style={{ marginTop: 12 }}>
+          <div role="tablist" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 4, padding: 4, borderRadius: 12, background: "var(--h-fondo)", marginBottom: 10 }}>
+            {pestaña("faltan", "Faltan", faltan.length)}
+            {pestaña("pendientes", "A aprobar", pendientes.length)}
+            {pestaña("listos", "Ya están", listos.length)}
+          </div>
+          <BarraJugadores f={fr} total={listaTab.length} visibles={lista.length} sinOrden />
+          {tab === "faltan" && faltan.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+              <a href={wa(textoGrupo)} target="_blank" rel="noopener noreferrer" style={{ ...pillButton, background: "#25D366", color: "#fff", border: "none", textDecoration: "none", fontWeight: 700 }}>
+                Mandar la lista al grupo
+              </a>
+              <button onClick={copiarLista} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}>
+                {copiado ? "✓ Copiada" : "Copiar lista"}
+              </button>
+            </div>
+          )}
+          {tab === "pendientes" && pendientes.length > 0 && (
+            <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 8 }}>
+              {puedeAprobar ? "Revisá que sea del plantel y aprobalo. Para rechazar o bloquear, andá a Ajustes › Quién entra a la app." : "Los aprueba el Manager o el Cuerpo técnico."}
+            </div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)" }}>
+            {lista.map((j) => (
+              <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderTop: "1px solid var(--h-borde)", minWidth: 0 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--h-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{j.nombre}</div>
+                  {j.posicion_ideal && <div style={{ fontSize: 12, color: "var(--h-sub)" }}>{j.posicion_ideal}</div>}
+                </div>
+                {tab === "faltan" && (
+                  <a href={wa(mensajeRegistro(j.nombre, j.id))} target="_blank" rel="noopener noreferrer" aria-label={`Mandarle el link a ${j.nombre} por WhatsApp`}
+                    style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, color: "#128C4A", border: "1.5px solid #25D366", borderRadius: 999, padding: "5px 11px", textDecoration: "none" }}>
+                    WhatsApp
+                  </a>
+                )}
+                {tab === "pendientes" && puedeAprobar && (
+                  <button onClick={() => aprobar(j)} disabled={aprobando === j.id} aria-label={`Aprobar la cuenta de ${j.nombre}`}
+                    style={{ ...pillButton, flexShrink: 0, minHeight: 36, background: "var(--h-ok)", color: "#fff", border: "none", fontWeight: 700, fontSize: 13 }}>
+                    {aprobando === j.id ? "Aprobando…" : "Aprobar"}
+                  </button>
+                )}
+                {tab === "listos" && <span style={{ color: "var(--h-ok)", fontWeight: 800 }}>✓</span>}
+              </div>
+            ))}
+            {lista.length === 0 && <div style={{ fontSize: 13, color: "var(--h-sub)", padding: "8px 0" }}>Nadie en esta lista.</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Para el staff: cuántos jugadores tienen las notificaciones activadas (si no, no les llegan los
+// recordatorios de wellness, práctica ni la convocatoria), y a quiénes hay que pedírselo.
+const MENSAJE_NOTIS = (nombre) =>
+  `Hola${nombre ? " " + nombre.split(" ")[0] : ""}! Activá las notificaciones de ADN ${nombreNuestro()} para que te lleguen la convocatoria, la práctica y el wellness. ` +
+  `Entrá desde este link y tocá "Activar" (y después "Permitir"):\n${INVITE_LINK}/?activar=notificaciones\n` +
+  `En iPhone la app te muestra cómo agregarla a la pantalla de inicio primero.`;
+function NotificacionesPlantel() {
+  const [filas, setFilas] = useState(null);
+  const [abierto, setAbierto] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  useEffect(() => {
+    supabase.rpc("estado_notificaciones_plantel").then(({ data, error }) => setFilas(error ? [] : data || []));
+  }, []);
+  if (!filas || !filas.length) return null;
+  const sin = filas.filter((f) => !f.activadas);
+  if (!sin.length) return null;
+  const con = filas.length - sin.length;
+  const pct = Math.round((con / filas.length) * 100);
+  const wa = (texto) => `https://wa.me/?text=${encodeURIComponent(texto)}`;
+  const textoGrupo = `*Activen las notificaciones de ADN ${nombreNuestro()}* — faltan ${sin.length}:\n` + sin.map((f) => `• ${f.nombre}`).join("\n") + "\n\n" + MENSAJE_NOTIS("");
+  function copiar() {
+    try { navigator.clipboard.writeText(textoGrupo).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 2000); }); } catch (e) { /* nada */ }
+  }
+  return (
+    <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>Notificaciones</div>
+        <div style={{ fontSize: 13.5, color: "var(--h-texto2)" }}><b style={{ color: "var(--h-texto)", fontSize: 16 }}>{con}</b> de {filas.length} las tienen activadas</div>
+      </div>
+      <div style={{ height: 8, borderRadius: 4, background: "var(--h-borde)", overflow: "hidden", margin: "10px 0 8px" }} role="img" aria-label={`${pct}% con notificaciones activadas`}>
+        <div style={{ width: `${pct}%`, height: "100%", background: "var(--h-ok)" }} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, color: "var(--h-sub)" }}>A {sin.length} no les llegan los avisos de práctica, wellness ni convocatoria.</span>
+        <button onClick={() => setAbierto((v) => !v)} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, fontSize: 13.5, cursor: "pointer", padding: 0 }}>
+          {abierto ? "Ocultar" : "Ver quiénes"}
+        </button>
+      </div>
+      {abierto && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            <a href={wa(textoGrupo)} target="_blank" rel="noopener noreferrer" style={{ ...pillButton, background: "#25D366", color: "#fff", border: "none", textDecoration: "none", fontWeight: 700 }}>
+              Pedírselo al grupo
+            </a>
+            <button onClick={copiar} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}>
+              {copiado ? "✓ Copiado" : "Copiar mensaje"}
+            </button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)" }}>
+            {sin.map((f) => (
+              <div key={f.jugador_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderTop: "1px solid var(--h-borde)", minWidth: 0 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--h-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.nombre}</div>
+                  {f.posicion && <div style={{ fontSize: 12, color: "var(--h-sub)" }}>{f.posicion}</div>}
+                </div>
+                <a href={wa(MENSAJE_NOTIS(f.nombre))} target="_blank" rel="noopener noreferrer" aria-label={`Pedirle a ${f.nombre} que active las notificaciones`}
+                  style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, color: "#128C4A", border: "1.5px solid #25D366", borderRadius: 999, padding: "5px 11px", textDecoration: "none" }}>
+                  WhatsApp
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Texto corto que explica un ajuste (el título lo pone la fila desplegable).
+function IntroAjuste({ children }) {
+  if (!children) return null;
+  return <div style={{ fontSize: 13, color: "var(--h-sub)", lineHeight: 1.5, marginBottom: 16 }}>{children}</div>;
+}
+
+async function subirAvatar(perfilId, file) {
+  const ext = file.name.split(".").pop();
+  const path = `${perfilId}.${ext}`;
+  const { error: errSubida } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+  if (errSubida) {
+    console.error("Error subiendo avatar:", errSubida);
+    return null;
+  }
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  const url = data.publicUrl + "?t=" + Date.now(); // evita que quede cacheada la foto vieja
+  const { error: errUpdate } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", perfilId);
+  if (errUpdate) {
+    console.error("Error guardando avatar:", errUpdate);
+    return null;
+  }
+  return url;
+}
+
+// El manager sube la foto de un jugador del plantel (no depende de que el jugador tenga cuenta).
+async function subirFotoJugador(jugadorDbId, file) {
+  const ext = file.name.split(".").pop();
+  const path = `${jugadorDbId}.${ext}`;
+  const { error: errSubida } = await supabase.storage.from("jugadores-fotos").upload(path, file, { upsert: true });
+  if (errSubida) {
+    console.error("Error subiendo foto:", errSubida);
+    return null;
+  }
+  const { data } = supabase.storage.from("jugadores-fotos").getPublicUrl(path);
+  const url = data.publicUrl + "?t=" + Date.now();
+  const { error: errUpdate } = await supabase.from("jugadores").update({ foto_url: url }).eq("id", jugadorDbId);
+  if (errUpdate) {
+    console.error("Error guardando foto:", errUpdate);
+    return null;
+  }
+  return url;
+}
+
+function PanelPerfil({ perfil }) {
+  const [nombre, setNombre] = useState(perfil?.nombre || "");
+  const [rol, setRol] = useState(perfil?.rol || "Jugador");
+  const [nacimiento, setNacimiento] = useState(perfil?.fecha_nacimiento || "");
+  const [email, setEmail] = useState(perfil?.email || "");
+  const staffPerfil = esStaff(perfil);
+  const [avatarUrl, setAvatarUrl] = useState(perfil?.avatar_url || null);
+  const [subiendo, setSubiendo] = useState(false);
+  const [msg, setMsg] = useState("");
+  const inputFileRef = React.useRef(null);
+
+  async function elegirFoto(e) {
+    const file = e.target.files?.[0];
+    if (!file || !perfil) return;
+    setSubiendo(true);
+    const url = await subirAvatar(perfil.id, file);
+    setSubiendo(false);
+    if (url) {
+      setAvatarUrl(url);
+      perfil.avatar_url = url; // mismo objeto que usa el resto  de la app, así queda al día sin recargar
+    }
+  }
+
+  async function guardar() {
+    if (!perfil) return;
+    const cambios = { nombre, fecha_nacimiento: nacimiento || null, ...(staffPerfil ? { rol } : {}) };
+    const { error } = await supabase.from("profiles").update(cambios).eq("id", perfil.id);
+    if (!error && perfil.jugador_id && nacimiento) {
+      await supabase.from("jugadores").update({ fecha_nacimiento: nacimiento }).eq("id", perfil.jugador_id);
+    }
+    if (!error) Object.assign(perfil, cambios);
+    setMsg(error ? "No se pudo guardar." : "Guardado.");
+    setTimeout(() => setMsg(""), 2500);
+  }
+
+  return (
+    <div>
+      <IntroAjuste>Así te ve el resto del club en la app.</IntroAjuste>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 22 }}>
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt="Foto de perfil"
+            style={{ width: 56, height: 56, borderRadius: "50%", objectFit: "cover" }}
+          />
+        ) : (
+          <div
+            style={{
+              width: 56, height: 56, borderRadius: "50%", background: "#3a7bd5", color: "#fff",
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 600,
+              fontFamily: "var(--h-titulo)",
+            }}
+          >
+            {(nombre || "?").charAt(0)}
+          </div>
+        )}
+        <input ref={inputFileRef} type="file" accept="image/*" onChange={elegirFoto} style={{ display: "none" }} />
+        <button
+          onClick={() => inputFileRef.current?.click()}
+          disabled={subiendo}
+          style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}
+        >
+           {subiendo ? "Subiendo…" : "Cambiar foto"}
+        </button>
+      </div>
+
+      <label style={labelStyle}>Nombre</label>
+      <input style={inputStyle} value={nombre} onChange={(e) => setNombre(e.target.value)} />
+
+      <label style={labelStyle}>Fecha de nacimiento</label>
+      <input type="date" style={inputStyle} value={nacimiento} onChange={(e) => setNacimiento(e.target.value)} max={new Date().toLocaleDateString("sv-SE")} min="1940-01-01" />
+
+      <label style={labelStyle}>Qué hacés en el club</label>
+      {staffPerfil ? (
+        <select style={inputStyle} value={rol} onChange={(e) => setRol(e.target.value)}>
+          {ROLES_REGISTRO.map((r) => (
+            <option key={r} value={r} style={{ background: "var(--h-campo)" }}>
+              {r}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input style={inputStyle} value={rol} disabled />
+      )}
+
+      <label style={labelStyle}>Email</label>
+      <input style={inputStyle} value={email} disabled />
+      <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginTop: 4 }}>Para cambiar el email, pedíselo al staff.</div>
+
+      <button onClick={guardar} style={{ ...buttonStyle, width: "auto", padding: "10px 22px", marginTop: 20 }}>Guardar cambios</button>
+      {msg && <span style={{ fontSize: 11.5, color: "var(--h-ok)", marginLeft: 12 }}>{msg}</span>}
+    </div>
+  );
+}
+
+function PanelCuenta({ perfil }) {
+  const [nueva, setNueva] = useState("");
+  const [repetir, setRepetir] = useState("");
+  const [msg, setMsg] = useState("");
+
+  async function actualizar() {
+    setMsg("");
+    if (nueva.length < 6) {
+      setMsg("La contraseña tiene que tener al menos 6 caracteres.");
+      return;
+    }
+    if (nueva !== repetir) {
+      setMsg("Las contraseñas no coinciden.");
+      return;
+    }
+    const { error } = await supabase.auth.updateUser({ password: nueva });
+    if (error) setMsg(error.message);
+    else {
+      setMsg("Contraseña actualizada.");
+      setNueva("");
+      setRepetir("");
+    }
+  }
+
+  return (
+    <div>
+      <IntroAjuste><>Entrás con <b style={{ color: "var(--h-texto2)" }}>{perfil?.email || perfil?.usuario || "—"}</b>.</></IntroAjuste>
+      <label style={labelStyle}>Contraseña nueva</label>
+      <input type="password" style={inputStyle} value={nueva} onChange={(e) => setNueva(e.target.value)} />
+      <label style={labelStyle}>Otra vez, para confirmar</label>
+      <input type="password" style={inputStyle} value={repetir} onChange={(e) => setRepetir(e.target.value)} />
+      {msg && <div style={{ fontSize: 11.5, color: msg === "Contraseña actualizada." ? "var(--h-ok)" : "var(--h-error)", marginTop: 8 }}>{msg}</div>}
+      <button onClick={actualizar} style={{ ...buttonStyle, width: "auto", padding: "10px 22px", marginTop: 20 }}>Guardar la contraseña nueva</button>
+    </div>
+  );
+}
+
+const INVITE_LINK = typeof window !== "undefined" ? window.location.origin : "https://adn-obras.up.railway.app";
+
+function textoInvitacion() {
+  return (
+    `*ADN ${nombreNuestro()}* ya está andando: práctica, gimnasio, wellness y el equipo del partido, todo en el celular.\n\n` +
+    `Para sumarte: ${INVITE_LINK}\n` +
+    `Tocá *Creá tu cuenta* y escribí tu nombre: si ya estás en el plantel, la app te encuentra; si sos nuevo, te suma.`
+  );
+}
+
+function FilaEscudo({ rival, onSubido, onRenombrado }) {
+  const [subiendo, setSubiendo] = useState(false);
+  const [editandoNombre, setEditandoNombre] = useState(false);
+  const [nombreInput, setNombreInput] = useState(rival.nombre);
+  const inputRef = React.useRef(null);
+
+  async function elegirArchivo(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSubiendo(true);
+    const ext = file.name.split(".").pop();
+    const path = `${rival.id}.${ext}`;
+    const { error: errSubida } = await supabase.storage.from("escudos").upload(path, file, { upsert: true });
+    if (!errSubida) {
+      const { data } = supabase.storage.from("escudos").getPublicUrl(path);
+      const url = data.publicUrl + "?t=" + Date.now();
+      await supabase.from("equipos_rivales").update({ escudo_url: url }).eq("id", rival.id);
+      ESCUDOS_RIVALES[rival.nombre] = url;
+      onSubido();
+    } else {
+      console.error("Error subiendo escudo:", errSubida);
+    }
+    setSubiendo(false);
+  }
+
+  async function guardarNombre() {
+    if (!nombreInput.trim() || nombreInput === rival.nombre) {
+      setEditandoNombre(false);
+      return;
+    }
+    const { error } = await supabase.from("equipos_rivales").update({ nombre: nombreInput.trim() }).eq("id", rival.id);
+    if (!error) {
+      setEditandoNombre(false);
+      onRenombrado();
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid var(--h-borde)", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}>
+        <TeamBadge name={rival.nombre} size={26} />
+        {editandoNombre ? (
+          <input
+            value={nombreInput}
+            onChange={(e) => setNombreInput(e.target.value)}
+            onBlur={guardarNombre}
+            onKeyDown={(e) => e.key === "Enter" && guardarNombre()}
+            autoFocus
+            style={{ ...editInputStyle, borderBottom: "1px solid var(--h-borde2)" }}
+          />
+        ) : (
+          <span
+            onClick={() => setEditandoNombre(true)}
+            style={{ fontSize: 13, color: "var(--h-texto)", cursor: "pointer" }}
+            title="Tocá para renombrar"
+          >
+            {rival.nombre}
+          </span>
+        )}
+      </div>
+      <input ref={inputRef} type="file" accept="image/*" onChange={elegirArchivo} style={{ display: "none" }} />
+      <button
+        onClick={() => inputRef.current?.click()}
+        disabled={subiendo}
+        style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)", fontSize: 11.5, flexShrink: 0 }}
+      >
+        {subiendo ? "Subiendo…" : rival.escudo_url ? "Cambiar escudo" : "Subir escudo"}
+      </button>
+    </div>
+  );
+}
+
+function PanelEscudos({ perfil }) {
+  const [rivales, setRivales] = useState([]);
+  const [, forzar] = useState(0);
+  const [agregando, setAgregando] = useState(false);
+  const [nuevoNombre, setNuevoNombre] = useState("");
+
+  async function recargar() {
+    const { data } = await supabase.from("equipos_rivales").select("*").order("nombre");
+    setRivales(data || []);
+  }
+  useEffect(() => {
+    recargar();
+  }, []);
+
+  async function agregarRival() {
+    if (!nuevoNombre.trim()) return;
+    const { error } = await supabase.from("equipos_rivales").insert({ nombre: nuevoNombre.trim() });
+    if (!error) {
+      setNuevoNombre("");
+      setAgregando(false);
+      recargar();
+    }
+  }
+
+  if (!puedeGestionar(perfil)) {
+    return (
+      <div>
+                <div style={{ fontSize: 12.5, color: "var(--h-sub)" }}>Esta sección es solo para Cuerpo técnico y Manager.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <IntroAjuste>El escudo de cada rival aparece en la agenda, el torneo y el equipo del partido.</IntroAjuste>
+      <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 14 }}>
+        Usá una imagen cuadrada, idealmente con fondo transparente (PNG). Tocá el nombre para renombrarlo.
+      </div>
+      {rivales.map((r) => (
+        <FilaEscudo
+          key={r.id}
+          rival={r}
+          onSubido={() => {
+            recargar();
+            forzar((n) => n + 1);
+          }}
+          onRenombrado={recargar}
+        />
+      ))}
+      {agregando ? (
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <input
+            value={nuevoNombre}
+            onChange={(e) => setNuevoNombre(e.target.value)}
+            placeholder="Nombre del club"
+            style={{ ...inputStyle, flex: 1 }}
+          />
+          <button onClick={agregarRival} style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}>
+            Agregar
+          </button>
+          <button onClick={() => setAgregando(false)} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-sub)" }}>
+            Cancelar
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setAgregando(true)}
+          style={{ ...pillButton, marginTop: 14, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}
+        >
+          + Agregar rival
+        </button>
+      )}
+    </div>
+  );
+}
+
+function BotonFotoStaff({ perfilId, onSubido }) {
+  const [subiendo, setSubiendo] = useState(false);
+  const inputRef = React.useRef(null);
+  async function elegir(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSubiendo(true);
+    const url = await subirAvatar(perfilId, file);
+    setSubiendo(false);
+    if (url) onSubido(url);
+  }
+  return (
+    <>
+      <input ref={inputRef} type="file" accept="image/*" onChange={elegir} style={{ display: "none" }} />
+      <button
+        onClick={() => inputRef.current?.click()}
+        disabled={subiendo}
+        style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)", fontSize: 11.5 }}
+      >
+        {subiendo ? "Subiendo…" : "Foto"}
+      </button>
+    </>
+  );
+}
+
+function PanelStaff({ perfil }) {
+  const [staff, setStaff] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [mostrarInvitar, setMostrarInvitar] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  const texto = textoInvitacion();
+  const puede = puedeGestionar(perfil);
+  const esManager = ["Manager", "Cuerpo técnico"].includes(perfil?.rol); // los dos pueden confirmar cuentas
+
+  async function recargar() {
+    setCargando(true);
+    const { data } = await supabase.from("profiles").select("*").order("nombre");
+    setStaff(data || []);
+    setCargando(false);
+  }
+  useEffect(() => {
+    recargar();
+  }, []);
+
+  async function confirmarUsuario(id) {
+    await supabase.from("profiles").update({ confirmado: true }).eq("id", id);
+    recargar();
+  }
+  async function toggleBloqueo(id, bloqueadoActual) {
+    await supabase.from("profiles").update({ bloqueado: !bloqueadoActual }).eq("id", id);
+    recargar();
+  }
+  async function eliminarUsuario(id, nombre) {
+    if (!window.confirm(`¿Eliminar el acceso de ${nombre}? Esto no se puede deshacer.`)) return;
+    await supabase.from("profiles").delete().eq("id", id);
+    recargar();
+  }
+
+  function copiar() {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(texto).then(() => {
+        setCopiado(true);
+        setTimeout(() => setCopiado(false), 2000);
+      });
+    }
+  }
+
+  function compartirWhatsapp() {
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
+  }
+
+  if (cargando) return <div style={{ color: "var(--h-sub)", fontSize: 13 }}>Cargando…</div>;
+
+  const pendientes = staff.filter((s) => !s.confirmado);
+  const activos = staff.filter((s) => s.confirmado);
+
+  return (
+    <div>
+      <IntroAjuste>Toda la gente del club que tiene cuenta.</IntroAjuste>
+
+      {pendientes.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 13, color: "var(--h-acento)", fontWeight: 600, marginBottom: 8 }}>
+            Esperan aprobación ({pendientes.length})
+          </div>
+          {pendientes.map((s) => (
+            <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: "1px solid var(--h-borde)", fontSize: 13 }}>
+              <div>
+                <span style={{ color: "var(--h-texto)" }}>{s.nombre || s.usuario || "(sin nombre)"}</span>
+                <span style={{ color: "var(--h-sub2)", marginLeft: 8 }}>{s.rol}</span>
+              </div>
+              {esManager ? (
+                <button
+                  onClick={() => confirmarUsuario(s.id)}
+                  style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none", fontSize: 11.5 }}
+                >
+                  Aprobar
+                </button>
+              ) : (
+                <span style={{ fontSize: 11, color: "var(--h-sub2)" }}>Esperando al staff</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 600, marginBottom: 8 }}>Con acceso ({activos.length})</div>
+      {activos.map((s) => (
+        <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: "1px solid var(--h-borde)", fontSize: 13 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <AvatarPlaceholder size={30} foto={s.avatar_url} />
+            <div>
+              <span style={{ color: s.bloqueado ? "var(--h-sub2)" : "var(--h-texto)", textDecoration: s.bloqueado ? "line-through" : "none" }}>
+                {s.nombre || s.usuario || "(sin nombre)"}
+              </span>
+              <span style={{ color: "var(--h-sub)", marginLeft: 8 }}>{s.rol}</span>
+              {s.bloqueado && <span style={{ ...tagStyle, background: "var(--h-error-suave)", color: "var(--h-error)", marginLeft: 8 }}>Bloqueado</span>}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {esManager && ["Cuerpo técnico", "Cuerpo médico", "Manager"].includes(s.rol) && (
+              <BotonFotoStaff perfilId={s.id} onSubido={recargar} />
+            )}
+            {puede && s.id !== perfil.id && (
+              <>
+                <button
+                  onClick={() => toggleBloqueo(s.id, s.bloqueado)}
+                  style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)", fontSize: 11.5 }}
+                >
+                  {s.bloqueado ? "Desbloquear" : "Bloquear"}
+                </button>
+                <button
+                  onClick={() => eliminarUsuario(s.id, s.nombre)}
+                  style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-error-suave)", color: "var(--h-error)", fontSize: 11.5 }}
+                >
+                  Eliminar
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+
+      <button
+        onClick={() => setMostrarInvitar((v) => !v)}
+        style={{ ...pillButton, marginTop: 16, background: "transparent", border: "1px dashed var(--h-borde2)", color: "var(--h-sub)" }}
+      >
+        Sumar gente a la app
+      </button>
+
+      {mostrarInvitar && (
+        <div style={{ ...cardStyle, padding: "16px 18px", marginTop: 14 }}>
+          <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 600, marginBottom: 4 }}>Mensaje para el grupo</div>
+          <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginBottom: 12 }}>
+            Para que cada uno tenga su link propio, mandáselo desde Inicio › Registro del plantel.
+          </div>
+          <div
+            style={{
+              background: "var(--h-campo)",
+              border: "1px solid var(--h-borde2)",
+              borderRadius: 6,
+              padding: "12px 14px",
+              fontSize: 12.5,
+              color: "var(--h-texto2)",
+              whiteSpace: "pre-wrap",
+              lineHeight: 1.6,
+              marginBottom: 14,
+            }}
+          >
+            {texto}
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button
+              onClick={compartirWhatsapp}
+              style={{ ...buttonStyle, width: "auto", padding: "9px 18px", marginTop: 0, background: "#25D366", color: "var(--h-fondo)" }}
+            >
+              Mandar por WhatsApp
+            </button>
+            <button
+              onClick={copiar}
+              style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: copiado ? "var(--h-ok)" : "var(--h-texto2)" }}
+            >
+              {copiado ? "✓ Copiado" : "Copiar texto"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+
+  );
+}
+
+function PanelInstalar() {
+  return (
+    <div>
+            <div style={{ fontSize: 13, color: "var(--h-texto2)", marginBottom: 20, lineHeight: 1.6 }}>
+        Con la app en el celular la abrís desde su ícono, sin el navegador alrededor. Pesa muy poco y se actualiza sola.
+      </div>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ ...cardStyle, padding: "18px", flex: "1 1 280px" }}>
+          <div style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600, marginBottom: 10 }}>Android</div>
+          <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 10 }}>Desde Chrome:</div>
+                    <ol style={{ fontSize: 12.5, color: "var(--h-texto2)", paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
+            <li>Tocá el menú ⋮ (arriba a la derecha).</li>
+            <li>Elegí «Instalar aplicación» o «Agregar a pantalla principal».</li>
+            <li>Confirmá con Instalar.</li>
+          </ol>
+        </div>
+        <div style={{ ...cardStyle, padding: "18px", flex: "1 1 280px" }}>
+          <div style={{ fontSize: 14, color: "var(--h-texto)", fontWeight: 600, marginBottom: 10 }}>iPhone / iPad</div>
+          <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 10 }}>Solo desde Safari:</div>
+          <ol style={{ fontSize: 12.5, color: "var(--h-texto2)", paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
+            <li>Tocá Compartir ⬆ (abajo, en el centro).</li>
+            <li>Deslizá y elegí «Agregar a inicio» (Add to Home Screen).</li>
+            <li>Confirmá con Agregar.</li>
+          </ol>
+        </div>
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--h-sub2)", marginTop: 16 }}>
+        Desde ahí, entrá siempre por el ícono del club.
+      </div>
+    </div>
+  );
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
+
+const VAPID_PUBLIC_KEY = "BMeBQ3YOGw2ghpHXUrnnx22MCuY3pG9k4V-wRNmaNZuvaDVt8-KAW44IceURWSs1y3m6wx5jUEFTJ0XRbSCZFuI";
+
+// ── Notificaciones: la lógica compartida ────────────────────────────────────
+// Ninguna app puede activarlas sola: el celular exige que la persona toque "Permitir".
+// Lo que sí hacemos: pedirlo en el momento justo (al entrar), con un solo botón; un link directo
+// para mandar por WhatsApp (…/?activar=notificaciones); la guía de iPhone (ahí solo funcionan con la
+// app agregada a la pantalla de inicio); y reactivarlas solas si ya habían dado el permiso.
+const esIPhone = () => typeof navigator !== "undefined" && /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+const esAppInstalada = () => {
+  try { return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true; } catch (e) { return false; }
+};
+async function estadoNotificaciones() {
+  if (esIPhone() && !esAppInstalada()) return "iphone-instalar";
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || typeof Notification === "undefined") return "no-soportado";
+  if (Notification.permission === "denied") return "bloqueadas";
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    return sub ? "activadas" : Notification.permission === "granted" ? "permiso-sin-suscripcion" : "sin";
+  } catch (e) {
+    return "sin";
+  }
+}
+async function guardarSuscripcion(perfil, sub) {
+  const j = sub.toJSON();
+  const { error } = await supabase.from("push_subscriptions").upsert(
+    { perfil_id: perfil.id, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth },
+    { onConflict: "endpoint" }
+  );
+  if (error) throw error;
+}
+async function activarNotificaciones(perfil) {
+  if (!perfil?.id) return { ok: false, msg: "Iniciá sesión de nuevo antes de activarlas." };
+  const estado = await estadoNotificaciones();
+  if (estado === "iphone-instalar") return { ok: false, msg: "En iPhone primero agregá la app a la pantalla de inicio y abrila desde ese ícono." };
+  if (estado === "no-soportado") return { ok: false, msg: "Este navegador no permite notificaciones. Probá desde Chrome (Android) o Safari (iPhone)." };
+  if (estado === "bloqueadas") return { ok: false, msg: "Las notificaciones están bloqueadas para esta app. Habilitalas en la configuración del navegador o del celular." };
+  try {
+    const permiso = await Notification.requestPermission();
+    if (permiso !== "granted") return { ok: false, msg: "No se dio el permiso. Podés volver a intentarlo cuando quieras." };
+    const reg = await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) }));
+    await guardarSuscripcion(perfil, sub);
+    return { ok: true };
+  } catch (e) {
+    console.error("Error activando notificaciones:", e);
+    reportarError("notificaciones", e?.message || String(e));
+    return { ok: false, msg: "No se pudo activar. Probá de nuevo." };
+  }
+}
+// Si ya había dado el permiso pero perdió la suscripción (otro celular, datos borrados), se reactiva sola.
+async function reactivarNotificacionesSilencioso(perfil) {
+  try {
+    if (!perfil?.id || (await estadoNotificaciones()) !== "permiso-sin-suscripcion") return;
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
+    await guardarSuscripcion(perfil, sub);
+  } catch (e) { /* silencioso */ }
+}
+// Asegura que el celular siga suscripto con la cuenta actual (por si la suscripción quedó con otra cuenta).
+async function asegurarSuscripcionDeEstaCuenta(perfil) {
+  try {
+    if (!perfil?.id || (await estadoNotificaciones()) !== "activadas") return;
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) await guardarSuscripcion(perfil, sub);
+  } catch (e) { /* silencioso */ }
+}
+
+const PIDE_NOTIS = "adn-pedir-notis"; // marca del link directo (sobrevive al inicio de sesión)
+try {
+  if (typeof window !== "undefined" && /[?&]activar=notificaciones/.test(window.location.search)) {
+    sessionStorage.setItem(PIDE_NOTIS, "1");
+    window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+  }
+} catch (e) { /* nada */ }
+
+function IconoCompartirIOS() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-label="botón Compartir" role="img" style={{ verticalAlign: "-4px" }}>
+      <path d="M12 3v12M7.5 7.5L12 3l4.5 4.5M5 11v9h14v-9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Pantalla completa para activar las notificaciones. Aparece al entrar (una vez por sesión, hasta que
+// las active) y siempre que se abre la app desde el link directo.
+function PedidoNotificaciones({ perfil }) {
+  const [estado, setEstado] = useState(null);
+  const [visible, setVisible] = useState(false);
+  const [cargando, setCargando] = useState(false);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    if (!perfil?.id) return;
+    let vivo = true;
+    reactivarNotificacionesSilencioso(perfil);
+    asegurarSuscripcionDeEstaCuenta(perfil);
+    estadoNotificaciones().then((e) => {
+      if (!vivo) return;
+      setEstado(e);
+      let porLink = false, yaPedido = false;
+      try { porLink = sessionStorage.getItem(PIDE_NOTIS) === "1"; yaPedido = sessionStorage.getItem("adn-notis-pedidas") === "1"; } catch (x) { /* nada */ }
+      const falta = ["sin", "iphone-instalar"].includes(e);
+      if (porLink || (falta && !yaPedido)) setVisible(true);
+      try { sessionStorage.setItem("adn-notis-pedidas", "1"); sessionStorage.removeItem(PIDE_NOTIS); } catch (x) { /* nada */ }
+    });
+    return () => { vivo = false; };
+  }, [perfil?.id]);
+
+  if (!visible) return null;
+  async function activar() {
+    setCargando(true); setMsg("");
+    const r = await activarNotificaciones(perfil);
+    setCargando(false);
+    if (r.ok) { setEstado("activadas"); setTimeout(() => setVisible(false), 1400); }
+    else setMsg(r.msg);
+  }
+  const caja = { width: "100%", maxWidth: 440, background: "var(--h-panel)", borderRadius: 22, padding: "26px 22px 22px", color: "var(--h-texto)", boxShadow: "0 20px 60px rgba(0,0,0,.35)", maxHeight: "90vh", overflowY: "auto" };
+  const paso = (n, contenido) => (
+    <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginTop: 14 }}>
+      <span style={{ flexShrink: 0, width: 30, height: 30, borderRadius: "50%", background: "var(--h-club)", color: "var(--h-club-txt)", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>{n}</span>
+      <div style={{ fontSize: 15.5, lineHeight: 1.45, paddingTop: 4 }}>{contenido}</div>
+    </div>
+  );
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="titulo-notis" style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(14,22,32,.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={caja}>
+        <div style={{ width: 56, height: 56, borderRadius: 16, background: "var(--h-acento-suave)", color: "var(--h-club-tinta)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
+          <Icono nombre="campana" size={28} />
+        </div>
+        <div id="titulo-notis" style={{ fontFamily: "var(--h-titulo)", fontSize: 30, fontWeight: 800, lineHeight: 1.05 }}>
+          {estado === "activadas" ? "¡Listo! Notificaciones activadas" : "Activá las notificaciones"}
+        </div>
+        {estado !== "activadas" && (
+          <div style={{ fontSize: 15, color: "var(--h-texto2)", marginTop: 8, lineHeight: 1.45 }}>
+            Te avisamos la convocatoria, la práctica y el wellness, aunque no tengas la app abierta.
+          </div>
+        )}
+        {estado === "iphone-instalar" ? (
+          <>
+            <div style={{ fontSize: 14.5, fontWeight: 700, marginTop: 16, color: "var(--h-club-tinta)" }}>En iPhone, primero instalá la app (una sola vez):</div>
+            {paso(1, <>Tocá <b>Compartir</b> <IconoCompartirIOS /> abajo en Safari.</>)}
+            {paso(2, <>Elegí <b>“Agregar a inicio”</b> (deslizá si no lo ves).</>)}
+            {paso(3, <>Abrí <b>ADN {nombreNuestro()}</b> desde el ícono nuevo y tocá <b>Activar</b>.</>)}
+          </>
+        ) : estado === "bloqueadas" ? (
+          <div style={{ fontSize: 14.5, marginTop: 14, lineHeight: 1.45 }}>Las notificaciones están bloqueadas para esta app. Entrá a la configuración del navegador o del celular, buscá ADN {nombreNuestro()} y permitilas.</div>
+        ) : estado === "no-soportado" ? (
+          <div style={{ fontSize: 14.5, marginTop: 14, lineHeight: 1.45 }}>Este navegador no permite notificaciones. Abrí la app desde Chrome (Android) o Safari (iPhone).</div>
+        ) : estado !== "activadas" && (
+          <button onClick={activar} disabled={cargando} style={{ ...buttonStyle, marginTop: 18, fontSize: 17, padding: "15px 18px" }}>
+            {cargando ? "Activando…" : "Activar notificaciones"}
+          </button>
+        )}
+        {estado !== "activadas" && estado === "sin" && <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 8, textAlign: "center" }}>El celular te va a preguntar: tocá <b>Permitir</b>.</div>}
+        {msg && <div role="alert" style={{ fontSize: 13.5, color: "var(--h-error)", marginTop: 10 }}>{msg}</div>}
+        {estado !== "activadas" && (
+          <button onClick={() => setVisible(false)} style={{ display: "block", margin: "14px auto 0", background: "none", border: "none", color: "var(--h-sub)", fontSize: 14.5, cursor: "pointer", padding: 10, minHeight: 44 }}>
+            Ahora no
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PanelNotificaciones({ perfil }) {
+  const [activadas, setActivadas] = useState(false);
+  const [estado, setEstado] = useState(null);
+  const [cargando, setCargando] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    estadoNotificaciones().then((e) => { setEstado(e); setActivadas(e === "activadas"); });
+  }, []);
+
+  async function activar() {
+    setCargando(true);
+    setMsg("");
+    const r = await activarNotificaciones(perfil);
+    if (r.ok) setActivadas(true);
+    else setMsg(r.msg);
+    setCargando(false);
+  }
+
+  return (
+    <div>
+            <div style={{ fontSize: 13, color: "var(--h-texto2)", marginBottom: 18, lineHeight: 1.6 }}>
+        Te llegan al celular aunque la app esté cerrada: el equipo del partido, el wellness que falta, las lesiones. Se permite una sola vez por celular.
+      </div>
+      <div style={{ ...cardStyle, padding: "18px" }}>
+        <div style={{ fontSize: 13, color: "var(--h-texto)", fontWeight: 600, marginBottom: 6 }}>En este celular</div>
+        <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 14 }}>
+          {activadas ? "Te llegan." : "Todavía no te llegan."}
+        </div>
+        {msg && <div style={{ fontSize: 12, color: "var(--h-error)", marginBottom: 10 }}>{msg}</div>}
+        <button
+          onClick={activar}
+          disabled={cargando || activadas}
+          style={{ ...buttonStyle, width: "auto", padding: "9px 18px", marginTop: 0 }}
+        >
+          {activadas ? "Listo, te llegan" : cargando ? "Activando…" : "Quiero recibirlos"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Ajustes: una sola página con tres bloques (vos, este celular, el club). Cada fila se despliega
+// en el lugar, de a una por vez.
+function ConfiguracionPage({ temaPref, setTemaPref, tabInicial, perfil }) {
+  const [abierta, setAbierta] = useState(tabInicial || null);
+  useEffect(() => { if (tabInicial) setAbierta(tabInicial); }, [tabInicial]);
+  const staff = esStaff(perfil);
+
+  const bloques = [
+    { titulo: "Vos", filas: [
+      { k: "datos", t: "Tus datos", r: [perfil?.nombre, perfil?.rol].filter(Boolean).join(" · "), c: <PanelPerfil perfil={perfil} /> },
+      { k: "clave", t: "Contraseña", r: "Cambiala cuando quieras", c: <PanelCuenta perfil={perfil} /> },
+    ] },
+    { titulo: "En este celular", filas: [
+      { k: "avisos", t: "Avisos al celular", r: "Equipo, wellness, lesiones", c: <PanelNotificaciones perfil={perfil} /> },
+      { k: "colores", t: "Claro u oscuro", r: temaPref, c: (
+        <div style={{ display: "flex", gap: 8 }}>
+          {["Claro", "Oscuro"].map((t) => (
+            <button key={t} onClick={() => setTemaPref(t)}
+              style={{ flex: 1, padding: "14px 10px", borderRadius: 12, cursor: "pointer", fontWeight: 700, fontSize: 14, fontFamily: "inherit",
+                border: "1.5px solid " + (temaPref === t ? "var(--h-acento)" : "var(--h-borde2)"),
+                background: t === "Oscuro" ? "#1F1F1D" : "#FFFFFF", color: t === "Oscuro" ? "#F4F2EE" : "#0E1620" }}>
+              {t}{temaPref === t ? " ✓" : ""}
+            </button>
+          ))}
+        </div>
+      ) },
+      { k: "instalar", t: "Tener la app en el celular", r: "Android y iPhone", c: <PanelInstalar /> },
+    ] },
+    ...(staff ? [{ titulo: "El club", filas: [
+      { k: "personas", t: "Quién entra a la app", r: "Aprobar, bloquear o sumar gente", c: <PanelStaff perfil={perfil} /> },
+      { k: "escudos", t: "Escudos de los rivales", r: "Subir o cambiar", c: <PanelEscudos perfil={perfil} /> },
+    ] }] : []),
+  ];
+
+  return (
+    <div style={{ maxWidth: 720 }}>
+      <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 18 }}>Ajustes</div>
+      {bloques.map((b) => (
+        <div key={b.titulo} style={{ marginBottom: 22 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--h-sub)", margin: "0 4px 8px" }}>{b.titulo}</div>
+          <div style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
+            {b.filas.map((f, i) => {
+              const abierto = abierta === f.k;
+              return (
+                <div key={f.k} style={{ borderTop: i ? "1px solid var(--h-borde)" : "none" }}>
+                  <button onClick={() => setAbierta(abierto ? null : f.k)} aria-expanded={abierto}
+                    style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", padding: "15px 18px", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15.5, fontWeight: 700, color: "var(--h-texto)" }}>{f.t}</div>
+                      {f.r && <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.r}</div>}
+                    </div>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--h-sub2)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+                      style={{ transform: abierto ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0 }}><path d="M6 9l6 6 6-6" /></svg>
+                  </button>
+                  {abierto && <div style={{ padding: "2px 18px 20px" }}>{f.c}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <button onClick={() => supabase.auth.signOut()}
+        style={{ ...cardStyle, width: "100%", padding: "14px 18px", textAlign: "center", fontSize: 15, fontWeight: 700, color: "var(--h-error)", cursor: "pointer", fontFamily: "inherit" }}>
+        Salir de la cuenta
+      </button>
+    </div>
+  );
+}
+
+function Placeholder({ label }) {
+  return (
+    <div style={{ ...cardStyle, padding: 40, textAlign: "center", color: "var(--h-sub)", fontSize: 14 }}>
+      {label}: esta sección todavía no está disponible.
+    </div>
+  );
+}
+
+// "Tu semana": lo que le toca al jugador de lunes a domingo y qué ya hizo (wellness, gimnasio, práctica, partido).
+const DIAS_ORDEN = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+function TuSemana({ perfil, onNavigate }) {
+  const yoDb = perfil?.jugador_id;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const lunes = new Date(hoy); lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+  const dias = DIAS_ORDEN.map((nombre, i) => { const f = new Date(lunes); f.setDate(lunes.getDate() + i); return { nombre, f, iso: f.toLocaleDateString("sv-SE") }; });
+  const hoyIdx = (hoy.getDay() + 6) % 7;
+  const [sel, setSel] = useState(hoyIdx);
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    if (!yoDb) return;
+    const L = dias[0].iso, D = dias[6].iso;
+    Promise.all([
+      supabase.from("wellness_respuestas").select("fecha, estres, sueno, doms, fatiga, escala").eq("jugador_id", yoDb).gte("fecha", L).lte("fecha", D),
+      supabase.from("registros_gimnasio").select("fecha").eq("jugador_id", yoDb).gte("fecha", L).lte("fecha", D),
+      supabase.from("asistencias").select("fecha, presente").eq("jugador_id", yoDb).gte("fecha", L).lte("fecha", D),
+      supabase.from("practica_respuestas").select("fecha, respuesta, motivo").eq("jugador_id", yoDb).gte("fecha", L).lte("fecha", D),
+    ]).then(([w, g, a, pr]) => setD({
+      conf: Object.fromEntries((pr.data || []).map((r) => [r.fecha, r])),
+      well: Object.fromEntries((w.data || []).map((r) => [r.fecha, pctWellness(r)])),
+      gym: new Set((g.data || []).map((r) => r.fecha)),
+      asis: Object.fromEntries((a.data || []).map((r) => [r.fecha, r.presente])),
+    }));
+  }, [yoDb]);
+  if (!yoDb) return null;
+
+  const grupo = calcularGrupos().grupo[yoDb] || 1;
+  const mia = miConvocatoria(perfil);
+  const partidoDia = (x) => {
+    if (mia && mia.partido?.date && fechaDesdeDisplay(mia.partido.date)?.toDateString() === x.f.toDateString()) return mia;
+    return null;
+  };
+  const practica = (x) => SESIONES[x.nombre]?.[`grupo${grupo}`] || [];
+  const gym = (x) => (DIAS_GYM.includes(x.nombre) ? planGymDe(x.nombre, yoDb) : []);
+
+  // Cuentas de la semana (hasta hoy)
+  const pasados = dias.slice(0, hoyIdx + 1);
+  const wHechos = d ? pasados.filter((x) => d.well[x.iso] !== undefined).length : 0;
+  const gymDias = pasados.filter((x) => gym(x).length);
+  const gymHechos = d ? gymDias.filter((x) => d.gym.has(x.iso)).length : 0;
+  const pracDias = pasados.filter((x) => practica(x).length);
+  const pracHechas = d ? pracDias.filter((x) => d.asis[x.iso] === true).length : 0;
+
+  const x = dias[sel];
+  const esPasado = sel < hoyIdx, esHoy = sel === hoyIdx;
+  const pr = practica(x), gy = gym(x), pa = partidoDia(x);
+  const w = d?.well[x.iso];
+  const fila = { display: "flex", gap: 12, alignItems: "flex-start", padding: "10px 0", borderTop: "1px solid var(--h-borde)" };
+  const icono = (n) => <span style={{ width: 34, height: 34, borderRadius: 10, background: "var(--h-acento-suave)", color: "var(--h-club-tinta)", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icono nombre={n} size={18} /></span>;
+  const ok = (t) => <span style={{ color: "var(--h-ok)", fontWeight: 700 }}>✓ {t}</span>;
+  const falta = (t) => <span style={{ color: "var(--h-error)", fontWeight: 700 }}>{t}</span>;
+  const irBtn = (t, k) => <button onClick={() => onNavigate(k)} style={{ ...pillButton, fontSize: 12.5, padding: "6px 12px", background: "var(--h-club)", color: "var(--h-club-txt)", border: "none", marginTop: 6 }}>{t}</button>;
+
+  return (
+    <div style={{ ...cardStyle, padding: "16px 16px 8px", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+        <span style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>Tu semana</span>
+        {d && (
+          <span style={{ fontSize: 12.5, color: "var(--h-sub)" }}>
+            Wellness {wHechos}/{pasados.length}{gymDias.length ? ` · Gimnasio ${gymHechos}/${gymDias.length}` : ""}{pracDias.length ? ` · Prácticas ${pracHechas}/${pracDias.length}` : ""}
+          </span>
+        )}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+        {dias.map((y, i) => {
+          const marcas = [practica(y).length ? (d?.conf[y.iso] ? (d.conf[y.iso].respuesta === "voy" ? "P✓" : "P✕") : "P") : null, gym(y).length ? "G" : null, partidoDia(y) ? "⚑" : null].filter(Boolean);
+          const activo = sel === i;
+          const wOk = d && d.well[y.iso] !== undefined;
+          return (
+            <button key={y.iso} onClick={() => setSel(i)} aria-pressed={activo} aria-label={y.nombre}
+              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "7px 0 6px", borderRadius: 12, border: i === hoyIdx && !activo ? "1px solid var(--h-club)" : "1px solid transparent", cursor: "pointer", background: activo ? "var(--h-club)" : "transparent", color: activo ? "var(--h-club-txt)" : "var(--h-texto)", opacity: i < hoyIdx && !activo ? 0.75 : 1 }}>
+              <span style={{ fontSize: 11, fontWeight: 600 }}>{y.nombre.charAt(0)}</span>
+              <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--h-titulo)", lineHeight: 1.1 }}>{y.f.getDate()}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, minHeight: 13, letterSpacing: 1 }}>{marcas.join("")}</span>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: wOk ? (activo ? "var(--h-club-txt)" : "var(--h-ok)") : "transparent" }} />
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--h-sub)", margin: "6px 2px 4px" }}>P práctica (✓ confirmaste, ✕ no vas) · G gimnasio · ⚑ partido · el punto verde es el wellness cargado</div>
+
+      <div style={{ marginTop: 6 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: "var(--h-texto)", padding: "6px 0" }}>{esHoy ? "Hoy" : x.nombre} {x.f.getDate()}/{x.f.getMonth() + 1}</div>
+        {pa && (
+          <div style={fila}>
+            {icono("equipos")}
+            <div style={{ fontSize: 14, color: "var(--h-texto)" }}>
+              <b>Partido: {pa.cat} {pa.partido.cond === "Local" ? "vs" : "en"} {pa.partido.rival}</b>
+              <div style={{ color: "var(--h-sub)" }}>Camiseta {pa.slot.numero}{pa.slot.puesto ? ` · ${pa.slot.puesto}` : ""}</div>
+            </div>
+          </div>
+        )}
+        {pr.length > 0 && (
+          <div style={fila}>
+            {icono("sesion")}
+            <div style={{ fontSize: 14, color: "var(--h-texto)", flex: 1 }}>
+              <b>Práctica · Grupo {letraGrupo(grupo)}</b> <span style={{ color: "var(--h-sub)" }}>{pr.reduce((a, f) => a + minutosBloque(f), 0)} min</span>
+              <div style={{ color: "var(--h-sub)" }}>{pr.map((f) => f.c).filter(Boolean).join(" · ")}</div>
+              {esPasado && d && (d.asis[x.iso] === true ? ok("Fuiste") : d.asis[x.iso] === false ? falta("Faltaste") : null)}
+              {!esPasado && d && (
+                <ConfirmarPractica perfil={perfil} fecha={x.iso} diaNombre={x.nombre} inicial={d.conf[x.iso]}
+                  onCambio={(r) => setD((prev) => ({ ...prev, conf: { ...prev.conf, [x.iso]: r } }))} />
+              )}
+              {esHoy && irBtn("Ver la práctica", "sesion")}
+            </div>
+          </div>
+        )}
+        {gy.length > 0 && (
+          <div style={fila}>
+            {icono("gimnasio")}
+            <div style={{ fontSize: 14, color: "var(--h-texto)", flex: 1 }}>
+              <b>Gimnasio</b> <span style={{ color: "var(--h-sub)" }}>{gy.reduce((a, b) => a + b.ejercicios.length, 0)} ejercicios</span>
+              <div style={{ color: "var(--h-sub)" }}>{gy.map((b) => b.titulo).join(" · ")}</div>
+              {d && (esPasado || esHoy) && (d.gym.has(x.iso) ? ok("Registraste tus cargas") : esPasado ? falta("No registraste cargas") : irBtn("Registrar mis cargas", "gimnasio"))}
+            </div>
+          </div>
+        )}
+        <div style={fila}>
+          {icono("wellness")}
+          <div style={{ fontSize: 14, color: "var(--h-texto)", flex: 1 }}>
+            <b>Wellness</b>
+            <div>
+              {!d ? "…" : w !== undefined ? ok(`Cargado · ${w}%`) : esPasado ? falta("No lo cargaste") : esHoy ? <>{<span style={{ color: "var(--h-sub)" }}>Todavía no lo cargaste.</span>} {irBtn("Cargar wellness", "wellness")}</> : <span style={{ color: "var(--h-sub)" }}>Se carga ese día.</span>}
+            </div>
+          </div>
+        </div>
+        {!pa && !pr.length && !gy.length && <div style={{ fontSize: 13, color: "var(--h-sub)", padding: "4px 0 8px" }}>Día libre: solo el wellness.</div>}
+      </div>
+    </div>
+  );
+}
+
+function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista, perfil }) {
+  const esCelular = useIsMobile();
+  // El aviso de "Activá las notificaciones" solo aparece si este celular/compu todavía no las tiene
+  // activadas y no se cerró antes. Una vez activadas (o cerrado el aviso), no vuelve a salir.
+  const [showBanner, setShowBanner] = useState(false);
+  useEffect(() => {
+    let cerrado = false;
+    // Si se cerró, vuelve a aparecer a los 3 días (antes se cerraba para siempre y casi nadie las activaba).
+    try { const v = Number(localStorage.getItem("adn-aviso-notis-cerrado-at") || 0); cerrado = v > 0 && Date.now() - v < 3 * 86400000; } catch (e) {}
+    if (cerrado || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    if (typeof Notification !== "undefined" && Notification.permission === "denied") return;
+    let vivo = true;
+    navigator.serviceWorker.ready
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((sub) => { if (vivo && !sub) setShowBanner(true); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, []);
+  function cerrarAvisoNotis() {
+    setShowBanner(false);
+    try { localStorage.setItem("adn-aviso-notis-cerrado-at", String(Date.now())); } catch (e) {}
+  }
+  const [novedad, setNovedad] = useState(null);
+  const [alertasHoy, setAlertasHoy] = useState({ cargando: true, respuestas: [] });
+  const [categoriaEnVivo, setCategoriaEnVivo] = useState(null); // null | "Superior" | "Intermedia"
+  const [convocatoria, setConvocatoria] = useState(null);
+  useEffect(() => {
+    if (perfil?.rol !== "Jugador" || !perfil?.jugador_id) return;
+    const desde = new Date(Date.now() - 7 * 86400000).toISOString();
+    supabase.from("notificaciones").select("*").eq("tipo", "convocatoria").gte("created_at", desde).order("created_at", { ascending: false }).limit(20)
+      .then(({ data }) => setConvocatoria((data || []).find((n) => esParaMi(n, perfil)) || null));
+  }, [perfil?.jugador_id]);
+
+  const intermediaHoy = partidoDeHoyCategoria("Intermedia");
+  const superiorHoy = partidoDeHoyCategoria("Superior");
+  // Intermedia juega primero: el MD de Superior se habilita recién cuando el de Intermedia ya jugó
+  // (ya sea porque se cerró desde acá, o porque alguien cargó el resultado a mano en Calendario).
+  const intermediaTerminada = !intermediaHoy || !!intermediaHoy.res;
+
+  useEffect(() => {
+    cargarWellnessHistorial().then((d) => setAlertasHoy({ cargando: false, respuestas: d.hoy }));
+  }, []);
+
+  useEffect(() => {
+    supabase
+      .from("notificaciones")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(5)
+      .then(({ data }) => {
+        const relevante = (data || []).find((n) => esParaMi(n, perfil));
+        if (relevante) setNovedad(relevante);
+      });
+  }, [perfil?.rol]);
+
+  const disponibles = POOL.filter((j) => disponibilidadReal(j) === "Disponible").length;
+  const lesionados = POOL.filter((j) => disponibilidadReal(j) === "Lesionado").length;
+  const aVigilarRtp = POOL.filter((j) => disponibilidadReal(j) === "A vigilar").length;
+  const noHabilitados = POOL.filter((j) => disponibilidadReal(j) === "No habilitado").length;
+  const aMirarWellness = alertasHoy.respuestas.filter((r) => r.pct <= LIMITE_CUIDAR).sort((a, b) => a.pct - b.pct);
+
+  const fixture = FIXTURE.superior;
+  const proximos = PROXIMOS.superior;
+  const ultimo = fixture[fixture.length - 1];
+  const proximo = proximos[0];
+  const record = fixture.reduce(
+    (acc, p) => {
+      if (p.res === "Ganado") acc.g++;
+      else if (p.res === "Perdido") acc.p++;
+      else if (p.res === "Empate") acc.e++;
+      return acc;
+    },
+    { g: 0, e: 0, p: 0 }
+  );
+  const hoyStr = new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "numeric" }).replace(",", "").replace("-", "/");
+
+  if (categoriaEnVivo) {
+    const partido = categoriaEnVivo === "Superior" ? superiorHoy : intermediaHoy;
+    return <PartidoVivoPage partido={partido} categoria={categoriaEnVivo} perfil={perfil} onSalir={() => setCategoriaEnVivo(null)} />;
+  }
+
+  const TarjetaEnVivo = ({ categoria, partido, bloqueada }) => (
+    <div
+      style={{
+        background: bloqueada ? "var(--h-panel)" : "var(--h-error-suave)",
+        border: "1px solid " + (bloqueada ? "var(--h-borde)" : "var(--h-error)"),
+        borderRadius: 16, padding: "16px 18px", marginBottom: 12,
+        display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 11, color: bloqueada ? "var(--h-sub2)" : "var(--h-error)", fontWeight: 700, letterSpacing: 0.5 }}>
+          {partido.res ? "PARTIDO FINALIZADO" : "● HOY SE JUEGA"}
+        </div>
+        <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 600, marginTop: 4 }}>
+          {categoria} vs {partido.rival}
+        </div>
+        {bloqueada && !partido.res && (
+          <div style={{ fontSize: 11, color: "var(--h-sub)", marginTop: 3 }}>Se habilita cuando termine el de Intermedia</div>
+        )}
+      </div>
+      {!partido.res && (
+        <button
+          onClick={() => !bloqueada && setCategoriaEnVivo(categoria)}
+          disabled={bloqueada}
+          style={{
+            ...pillButton, fontWeight: 600, border: "none",
+            background: bloqueada ? "var(--h-borde2)" : "var(--h-error)",
+            color: bloqueada ? "var(--h-sub2)" : "var(--h-panel)",
+            cursor: bloqueada ? "not-allowed" : "pointer",
+          }}
+        >
+          Abrir el partido en vivo
+        </button>
+      )}
+    </div>
+  );
+
+  const staff = puedeGestionar(perfil) || perfil?.rol === "Cuerpo médico";
+  const esJugador = perfil?.rol === "Jugador";
+  const esManagerInicio = perfil?.rol === "Manager";
+  const yaHizoWellness = esJugador && alertasHoy.respuestas.some((x) => x.jugadorId === perfil?.jugador_id);
+  const diaHoy = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date().getDay()];
+  const gymHoy = DIAS_GYM.includes(diaHoy) ? planGymDe(diaHoy, esJugador ? perfil?.jugador_id : null) : undefined;
+  const proximoGym = DIAS_GYM.find((d) => ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].indexOf(d) > ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].indexOf(diaHoy)) || DIAS_GYM[0];
+  const practicaHoy = SESIONES[diaHoy];
+  const miGrupoPractica = esJugador && perfil?.jugador_id ? calcularGrupos().grupo[perfil.jugador_id] || 1 : 1;
+  const bloquesPractica = practicaHoy ? practicaHoy[`grupo${miGrupoPractica}`] || [] : [];
+  const aVigilarNombres = POOL.filter((j) => ["A vigilar", "Lesionado"].includes(disponibilidadReal(j))).map((j) => ({ nombre: j.id, estado: disponibilidadReal(j) }));
+  const ultimos = fixture.filter((p) => p.res).slice(-3).reverse();
+  const fechaCorta = (() => { const f = new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" }); return f.charAt(0).toUpperCase() + f.slice(1); })();
+  const totalPlantel = POOL.length;
+
+  const tarjeta = { ...cardStyle, padding: "16px 18px" };
+  // Celular: los tres accesos en una fila, solo ícono, nombre y un dato corto.
+  const AccesoChico = ({ icono, titulo, dato, activo, onClick }) => (
+    <button
+      onClick={onClick}
+      aria-label={`${titulo}: ${dato}`}
+      style={{
+        ...tarjeta, margin: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, width: "100%",
+        padding: "12px 6px 10px", fontFamily: "var(--h-texto-fuente)", color: "var(--h-texto)", borderTop: "3px solid " + (activo ? "var(--h-club)" : "var(--h-borde)"),
+      }}
+    >
+      <span style={{ width: 40, height: 40, borderRadius: 12, background: "var(--h-acento-suave)", color: "var(--h-club-tinta)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Icono nombre={icono} size={22} />
+      </span>
+      <span style={{ fontFamily: "var(--h-titulo)", fontSize: 16, fontWeight: 800, lineHeight: 1 }}>{titulo}</span>
+      <span style={{ fontSize: 11.5, color: activo ? "var(--h-club-tinta)" : "var(--h-sub)", fontWeight: activo ? 700 : 500, whiteSpace: "nowrap" }}>{dato}</span>
+    </button>
+  );
+  const AccesoDiario = ({ icono, titulo, linea, estado, onClick }) => (
+    <button
+      onClick={onClick}
+      style={{
+        ...tarjeta, margin: 0, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, width: "100%",
+        fontFamily: "var(--h-texto-fuente)", color: "var(--h-texto)", borderLeft: "4px solid var(--h-club)",
+      }}
+    >
+      <span style={{ width: 42, height: 42, borderRadius: 12, background: "var(--h-acento-suave)", color: "var(--h-club-tinta)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <Icono nombre={icono} size={22} />
+      </span>
+      <span style={{ minWidth: 0, flex: 1 }}>
+        <span style={{ display: "block", fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800 }}>{titulo}</span>
+        <span style={{ display: "block", fontSize: 13, color: "var(--h-sub)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{linea}</span>
+      </span>
+      {estado && <span style={{ ...tagStyle, borderRadius: 999, fontWeight: 700, background: estado.fondo, color: estado.color, flexShrink: 0 }}>{estado.texto}</span>}
+    </button>
+  );
+
+  let lineaWellness, estadoWellness;
+  if (alertasHoy.cargando) lineaWellness = "Cargando…";
+  else if (staff) {
+    lineaWellness = `${alertasHoy.respuestas.length}${totalPlantel ? ` de ${totalPlantel}` : ""} respondieron hoy`;
+    estadoWellness = aMirarWellness.length
+      ? { texto: `${aMirarWellness.length} para cuidar`, fondo: "var(--h-error-suave)", color: "var(--h-error)" }
+      : alertasHoy.respuestas.length ? { texto: "Todo bien", fondo: "var(--h-ok-suave, var(--h-acento-suave))", color: "var(--h-ok)" } : null;
+  } else if (yaHizoWellness) {
+    lineaWellness = "Ya lo cargaste hoy. ¡Gracias!";
+    estadoWellness = { texto: "Listo", fondo: "var(--h-ok-suave, var(--h-acento-suave))", color: "var(--h-ok)" };
+  } else {
+    lineaWellness = "Contá cómo llegás hoy: lleva un minuto.";
+    estadoWellness = { texto: "Pendiente", fondo: "var(--h-alerta-suave, var(--h-acento-suave))", color: "var(--h-alerta)" };
+  }
+  const lineaGym = gymHoy
+    ? gymHoy.map((b) => b.titulo.charAt(0) + b.titulo.slice(1).toLowerCase()).join(" · ")
+    : `Hoy no hay gimnasio. El próximo es el ${proximoGym.toLowerCase()}.`;
+
+  return (
+    <div>
+      {puedeGestionar(perfil) && intermediaHoy && <TarjetaEnVivo categoria="Intermedia" partido={intermediaHoy} bloqueada={false} />}
+      {puedeGestionar(perfil) && superiorHoy && <TarjetaEnVivo categoria="Superior" partido={superiorHoy} bloqueada={!intermediaTerminada} />}
+
+      {novedad && !novedadVista && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 80,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+          }}
+          onClick={() => setNovedadVista(true)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ ...cardStyle, maxWidth: 380, padding: "22px 24px", border: "1px solid var(--h-acento)" }}
+          >
+            <div style={{ fontSize: 12, color: "var(--h-acento)", fontWeight: 600, marginBottom: 8, letterSpacing: 0.5 }}>
+               ÚLTIMA NOVEDAD
+            </div>
+            <div style={{ fontSize: 14, color: "var(--h-texto)", marginBottom: 4 }}>{sinEmojis(novedad.mensaje)}</div>
+            <div style={{ fontSize: 11, color: "var(--h-sub2)", marginBottom: 16 }}>{tiempoRelativo(novedad.created_at)}</div>
+            <button
+              onClick={() => setNovedadVista(true)}
+              style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none" }}
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showBanner && (
+        <Banner
+          title="Activá las notificaciones"
+          body="Recibí los avisos del club aunque no tengas la app abierta."
+          cta="Activar"
+          onCta={() => onIrAConfiguracion("avisos")}
+          onClose={cerrarAvisoNotis}
+        />
+      )}
+
+      {/* Encabezado: la fecha y el club, sin saludo */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-club-tinta)", textTransform: "uppercase", letterSpacing: "0.12em" }}>{saludoHora()}{perfil?.nombre ? `, ${perfil.nombre.split(" ")[0]}` : ""}</div>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, lineHeight: 1.05, color: "var(--h-texto)" }}>{fechaCorta}</div>
+        </div>
+      </div>
+
+      {convocatoria && <TarjetaConvocatoria perfil={perfil} onNavigate={onNavigate} />}
+      {/* Primero el partido que viene; lo administrativo arriba solo para el manager. */}
+      <CaminoAlPartido perfil={perfil} onNavigate={onNavigate} />
+      <JugadorDelPartido perfil={perfil} />
+      {esJugador && <TarjetaCuotaJugador perfil={perfil} />}
+      {esJugador && <EsfuerzoSesion perfil={perfil} />}
+      {esJugador && <TuSemana perfil={perfil} onNavigate={onNavigate} />}
+      {esManagerInicio && <RegistroPlantel perfil={perfil} />}
+      {esManagerInicio && <NotificacionesPlantel />}
+      {esManagerInicio && <TarjetaCuotasStaff perfil={perfil} onNavigate={onNavigate} />}
+
+      {/* Lo de todos los días: wellness, gimnasio y práctica, a un toque (el jugador lo tiene en "Tu semana") */}
+      {!esJugador && esCelular && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 14 }}>
+          <AccesoChico icono="wellness" titulo="Wellness" dato={alertasHoy.cargando ? "…" : `${alertasHoy.respuestas.length}/${totalPlantel}`} activo={alertasHoy.respuestas.length > 0} onClick={() => onNavigate("wellness")} />
+          <AccesoChico icono="gimnasio" titulo="Gimnasio" dato={gymHoy ? "Hoy" : "No hay hoy"} activo={!!gymHoy} onClick={() => onNavigate("gimnasio")} />
+          <AccesoChico icono="sesion" titulo="Práctica" dato={bloquesPractica.length ? `${bloquesPractica.reduce((a, f) => a + minutosBloque(f), 0)} min` : "No hay hoy"} activo={bloquesPractica.length > 0} onClick={() => onNavigate("sesion")} />
+        </div>
+      )}
+      {!esJugador && !esCelular && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 14 }}>
+        <AccesoDiario icono="wellness" titulo="Wellness" linea={lineaWellness} estado={estadoWellness} onClick={() => onNavigate("wellness")} />
+        <AccesoDiario
+          icono="gimnasio"
+          titulo={gymHoy ? `Gimnasio de hoy` : "Gimnasio"}
+          linea={lineaGym}
+          estado={gymHoy ? { texto: esJugador ? "Registrar cargas" : "Ver plan", fondo: "var(--h-acento-suave)", color: "var(--h-club-tinta)" } : null}
+          onClick={() => onNavigate("gimnasio")}
+        />
+        <AccesoDiario
+          icono="sesion"
+          titulo={esJugador ? `Tu práctica · Grupo ${letraGrupo(miGrupoPractica)}` : "Práctica"}
+          linea={bloquesPractica.length ? bloquesPractica.map((f) => textoBloque(f.c)).join(" · ") : "Hoy no hay práctica en cancha."}
+          estado={bloquesPractica.length ? { texto: `${bloquesPractica.reduce((a, f) => a + minutosBloque(f), 0)} min`, fondo: "var(--h-acento-suave)", color: "var(--h-club-tinta)" } : null}
+          onClick={() => onNavigate("sesion")}
+        />
+      </div>}
+
+      {/* Estado del plantel en una sola barra */}
+      {staff && totalPlantel > 0 && (
+        <button
+          onClick={() => onNavigate("disponibilidad")}
+          style={{ ...tarjeta, width: "100%", textAlign: "left", cursor: "pointer", marginBottom: 14, fontFamily: "var(--h-texto-fuente)" }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 14.5, color: "var(--h-texto)" }}>
+              <b style={{ fontFamily: "var(--h-titulo)", fontSize: 22 }}>{disponibles}</b> de {totalPlantel} para jugar
+            </span>
+            <span style={{ fontSize: 12.5, color: "var(--h-sub)" }}>Ver el plantel →</span>
+          </div>
+          <div style={{ display: "flex", height: 10, borderRadius: 5, overflow: "hidden", background: "var(--h-borde)" }} aria-hidden="true">
+            <span style={{ flex: disponibles, background: "var(--h-ok)" }} />
+            <span style={{ flex: aVigilarRtp + noHabilitados, background: "var(--h-alerta)" }} />
+            <span style={{ flex: lesionados, background: "var(--h-error)" }} />
+          </div>
+          {(aVigilarRtp + noHabilitados + lesionados) > 0 && (
+            <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 6 }}>
+              {[lesionados ? `${lesionados} con lesión` : null, aVigilarRtp ? `${aVigilarRtp} en recuperación` : null, noHabilitados ? `${noHabilitados} sin habilitar` : null].filter(Boolean).join(" · ")}
+            </div>
+          )}
+        </button>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
+        {staff && (aMirarWellness.length > 0 || aVigilarNombres.length > 0) && (
+          <div style={tarjeta}>
+            <EncabezadoTarjeta titulo="Para cuidar hoy" />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {aMirarWellness.map((a) => (
+                <button key={"w" + a.nombre} onClick={() => irAWellnessDe(a.jugadorId, onNavigate)} title={a.motivo || `${a.pct}%`} style={{ ...pillButton, background: "var(--h-panel2)", border: "1px solid var(--h-borde)", color: "var(--h-texto)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: colorRango(rangoWellness(a.pct)) }} />{a.nombre}
+                  <span style={{ fontSize: 12, color: "var(--h-sub)", fontWeight: 700 }}>{a.pct}%</span>
+                </button>
+              ))}
+              {aVigilarNombres.slice(0, 8).map((a) => (
+                <button key={"r" + a.nombre} onClick={() => { focoEstadoPlantel = a.nombre; onNavigate("disponibilidad"); }} title={a.estado} style={{ ...pillButton, background: "var(--h-panel2)", border: "1px solid var(--h-borde)", color: "var(--h-texto)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: a.estado === "Lesionado" ? "var(--h-error)" : "var(--h-alerta)" }} />{a.nombre}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 8 }}>Círculo: wellness de hoy en 50% o menos · Cuadrado: lesión o recuperación.</div>
+          </div>
+        )}
+
+        <div style={tarjeta}>
+          <EncabezadoTarjeta titulo="Últimos resultados" accion="Agenda" onAccion={() => onNavigate("calendario")} />
+          {ultimos.length === 0 ? (
+            <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Todavía no hay partidos jugados.</div>
+          ) : (
+            ultimos.map((p, i) => {
+              const color = p.res === "Ganado" ? "var(--h-ok)" : p.res === "Perdido" ? "var(--h-error)" : "var(--h-sub)";
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: i ? "1px solid var(--h-borde)" : "none", fontSize: 13.5 }}>
+                  <span style={{ width: 22, height: 22, borderRadius: 6, background: color, color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{(p.res || "")[0]}</span>
+                  <TeamBadge name={p.rival} size={20} />
+                  <span style={{ flex: 1, minWidth: 0, color: "var(--h-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.cond === "Local" ? "vs" : "en"} {p.rival}</span>
+                  <b style={{ color: "var(--h-texto)", fontFamily: "var(--h-titulo)", fontSize: 16 }}>{p.gf}-{p.gc}</b>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* Lo administrativo, para el cuerpo técnico y el médico, va al final. */}
+      {!esManagerInicio && esStaff(perfil) && (
+        <div style={{ marginTop: 14 }}>
+          <RegistroPlantel perfil={perfil} />
+          <NotificacionesPlantel />
+          <TarjetaCuotasStaff perfil={perfil} onNavigate={onNavigate} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Los avisos viejos guardados en la base pueden traer emojis: se muestran sin ellos.
+function sinEmojis(t) {
+  return String(t || "").replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{2712}\u{2714}-\u{27BF}\u{231A}-\u{23FF}\u{2B50}\u{FE0F}\u{200D}]/gu, "").replace(/^\s+/, "");
+}
+
+function saludoHora() {
+  const h = Number(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", hour12: false, timeZone: "America/Argentina/Buenos_Aires" }));
+  return h < 13 ? "Buen día" : h < 20 ? "Buenas tardes" : "Buenas noches";
+}
+
+
+function EncabezadoTarjeta({ titulo, accion, onAccion }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 14 }}>
+      <h2 style={{ margin: 0, fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-texto)" }}>{titulo}</h2>
+      {accion && (
+        <button onClick={onAccion} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 600, color: "var(--h-acento)", cursor: "pointer", fontFamily: "var(--h-texto-fuente)" }}>
+          {accion} →
+        </button>
+      )}
+    </div>
+  );
+}
+
+// "dd/mm/aaaa" → Date (a medianoche)
+function fechaDesdeDisplay(s) {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s || "");
+  return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
+}
+
+// Tarjeta del partido que viene (Matchday de la semana): las dos categorías, cuánto falta y en qué
+// estado está cada equipo. El staff ve borrador/publicado y las confirmaciones; el jugador, su camiseta
+// o el botón para ver los equipos (solo cuando el staff los publicó).
+function CaminoAlPartido({ perfil, onNavigate }) {
+  const verStaff = esStaff(perfil);
+  const arma = puedeGestionar(perfil);
+  const filas = [["Superior", (PROXIMOS.superior || [])[0]], ["Intermedia", (PROXIMOS.intermedia || [])[0]]].filter(([, p]) => p);
+  const [respuestas, setRespuestas] = useState({});
+  const ids = filas.map(([, p]) => p.publicada ? p.id : null).filter(Boolean).join(",");
+  useEffect(() => {
+    if (!verStaff || !ids) return;
+    let vivo = true;
+    Promise.all(ids.split(",").map((id) => cargarRespuestasConvocatoria(id).then((m) => [id, m]))).then((r) => { if (vivo) setRespuestas(Object.fromEntries(r)); });
+    return () => { vivo = false; };
+  }, [ids, verStaff]);
+  const caja = { borderRadius: 16, padding: "16px 18px", marginBottom: 14, background: "var(--h-club)", color: "var(--h-club-txt)" };
+  if (!filas.length) {
+    return (
+      <div style={{ ...caja, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 20, fontWeight: 800 }}>Sin próximo partido confirmado</div>
+        <BotonCamino fuerte onClick={() => onNavigate("calendario")}>Ver agenda</BotonCamino>
+      </div>
+    );
+  }
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const primero = filas.map(([, p]) => p).sort((a, b) => (fechaDesdeDisplay(a.date) || 0) - (fechaDesdeDisplay(b.date) || 0))[0];
+  const fecha = fechaDesdeDisplay(primero.date);
+  const faltan = fecha ? Math.round((fecha - hoy) / 86400000) : null;
+  const cuando = faltan === 0 ? "Hoy se juega" : faltan === 1 ? "Mañana se juega" : faltan > 1 ? `Se juega en ${faltan} días` : "Lo que viene";
+  const mismoRival = filas.every(([, p]) => p.rival === primero.rival);
+  const yo = perfil?.jugador_id ? POOL.find((j) => j.dbId === perfil.jugador_id) : null;
+  const abrir = (cat) => { focoEquipoCat = cat; onNavigate("equipos"); };
+  const algunoPublicado = filas.some(([, p]) => p.publicada);
+
+  const estado = (cat, p) => {
+    const slots = (LINEUPS_INICIALES[cat] || []).filter((sl) => sl.jugadorId);
+    if (verStaff) {
+      if (p.publicada) {
+        const r = respuestas[p.id] || {};
+        const dbIds = slots.map((sl) => POOL.find((j) => j.id === sl.jugadorId)?.dbId).filter(Boolean);
+        const van = dbIds.filter((id) => r[id]?.respuesta === "voy").length;
+        const no = dbIds.filter((id) => r[id]?.respuesta === "no_puedo").length;
+        return `Publicado · ${van} van · ${no} no pueden · ${dbIds.length - van - no} sin responder`;
+      }
+      const titulares = slots.filter((sl) => sl.numero <= 15).length;
+      return titulares ? `Borrador · ${titulares} de 15` : "Sin armar";
+    }
+    if (!p.publicada) return "El equipo se publica antes del partido";
+    const mio = yo ? slots.find((sl) => sl.jugadorId === yo.id) : null;
+    return mio ? `Estás convocado · camiseta ${mio.numero}` : "Equipo publicado";
+  };
+
+  return (
+    <section style={caja} aria-label="El partido que viene">
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <span style={{ display: "inline-flex" }}><Shield size={40} /></span>
+          <span style={{ fontFamily: "var(--h-titulo)", fontSize: 14, fontWeight: 700, opacity: 0.8 }}>{primero.cond === "Local" ? "vs" : "en"}</span>
+          <TeamBadge name={primero.rival} size={40} />
+        </div>
+        <div style={{ flex: 1, minWidth: 160 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>{cuando}</div>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, lineHeight: 1.05 }}>{mismoRival ? primero.rival : "Fin de semana de partido"}</div>
+          <div style={{ fontSize: 13, opacity: 0.85, marginTop: 2 }}>{etiquetaFecha(primero.fecha)} · {primero.date} · {primero.cond}</div>
+        </div>
+      </div>
+      <div style={{ marginTop: 12, borderTop: "1px solid color-mix(in srgb, currentColor 25%, transparent)" }}>
+        {filas.map(([cat, p]) => (
+          <div key={cat} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0 2px", flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>{cat}{mismoRival ? "" : ` · ${p.cond === "Local" ? "vs" : "en"} ${p.rival}`}</div>
+              <div style={{ fontSize: 13, opacity: 0.88 }}>{estado(cat, p)}</div>
+            </div>
+            {(verStaff || p.publicada) && (
+              <BotonCamino fuerte={arma && !p.publicada} onClick={() => abrir(cat)}>
+                {arma && !p.publicada ? "Armar el equipo" : "Ver el equipo"}
+              </BotonCamino>
+            )}
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 14, marginTop: 10, flexWrap: "wrap" }}>
+        <button onClick={() => onNavigate("videoteca")} style={{ background: "none", border: "none", color: "inherit", fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0, textDecoration: "underline", opacity: 0.9 }}>
+          Videos del rival
+        </button>
+        {!verStaff && !algunoPublicado && <span style={{ fontSize: 12.5, opacity: 0.8 }}>Te avisamos cuando se publiquen los equipos.</span>}
+      </div>
+    </section>
+  );
+}
+
+function BotonCamino({ fuerte, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        ...pillButton, fontWeight: 600, fontSize: 14, minHeight: 40,
+        background: fuerte ? "var(--h-club-txt)" : "transparent",
+        color: fuerte ? "var(--h-club)" : "var(--h-club-txt)",
+        border: "1px solid var(--h-club-txt)",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+const ROLES_REGISTRO = ["Jugador", "Cuerpo técnico", "Manager", "Cuerpo médico"];
+
+// Gestión general (resultados de partidos, plantel): Cuerpo técnico y Manager.
+function puedeGestionar(perfil) {
+  return !!perfil && (perfil.rol === "Cuerpo técnico" || perfil.rol === "Manager");
+}
+// Trabajo técnico específico (formaciones, análisis de video, informe de partido): solo Cuerpo técnico.
+function esEntrenador(perfil) {
+  return !!perfil && perfil.rol === "Cuerpo técnico";
+}
+// Herramientas internas del club (staff, escudos, evaluaciones, métricas): todo el staff.
+// ── Cuota del club ──
+// Mes a mes: pagada (la marca el manager), informada (el jugador avisó que pagó; el manager confirma)
+// o adeudada (no hay registro). La ven el cuerpo técnico y el manager; cada jugador ve solo la suya.
+const ROLES_CUOTA = ["Cuerpo técnico", "Manager"];
+const MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const mesDe = (iso) => (iso ? String(iso).slice(0, 7) + "-01" : null);
+const mesActualAR = () => mesDe(hoyISO_AR());
+function sumarMeses(mes, n) {
+  const [a, m] = mes.split("-").map(Number);
+  const d = new Date(Date.UTC(a, m - 1 + n, 1));
+  return d.toISOString().slice(0, 10);
+}
+function nombreMes(mes, conAnio = false) {
+  const [a, m] = mes.split("-").map(Number);
+  return MESES_ES[m - 1] + (conAnio ? ` ${a}` : "");
+}
+function listaMeses(meses) {
+  const n = meses.map((m) => nombreMes(m));
+  return n.length <= 1 ? n.join("") : `${n.slice(0, -1).join(", ")} y ${n[n.length - 1]}`;
+}
+const pesos = (n) => (n == null || n === "" ? "" : new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(Number(n)));
+
+// Último mes que ya se tiene que haber pagado (el actual, recién después del día de vencimiento).
+function ultimoMesVencido(config) {
+  const hoy = hoyISO_AR();
+  const dia = Number(hoy.slice(8, 10));
+  return dia >= (config?.dia_vencimiento || 10) ? mesDe(hoy) : sumarMeses(mesDe(hoy), -1);
+}
+// Estado de la cuota de un jugador: meses adeudados y meses que avisó que pagó (a confirmar).
+function estadoCuota(config, extra, pagosJugador = {}) {
+  if (!config || extra?.becado) return { debe: [], informados: [], becado: !!extra?.becado };
+  const desde = [mesDe(config.desde), mesDe(extra?.desde)].filter(Boolean).sort().pop();
+  const hasta = ultimoMesVencido(config);
+  const debe = [], informados = [];
+  for (let m = desde; m && m <= hasta; m = sumarMeses(m, 1)) {
+    if (!pagosJugador[m]) debe.push(m);
+    else if (pagosJugador[m] === "informada") informados.push(m);
+  }
+  return { debe, informados, becado: false };
+}
+
+function useCuotas(soloJugadorId) {
+  const [datos, setDatos] = useState(null);
+  const cargar = useCallback(async () => {
+    let qp = supabase.from("cuotas_pagos").select("jugador_id, mes, estado");
+    let qe = supabase.from("cuota_jugadores").select("jugador_id, becado, desde");
+    if (soloJugadorId) { qp = qp.eq("jugador_id", soloJugadorId); qe = qe.eq("jugador_id", soloJugadorId); }
+    const [c, p, e] = await Promise.all([supabase.from("cuota_config").select("*").maybeSingle(), qp, qe]);
+    const pagos = {};
+    for (const r of p.data || []) (pagos[r.jugador_id] ||= {})[mesDe(r.mes)] = r.estado;
+    setDatos({ config: c.data || null, pagos, extras: Object.fromEntries((e.data || []).map((x) => [x.jugador_id, x])) });
+  }, [soloJugadorId]);
+  useEffect(() => { cargar(); }, [cargar]);
+  return [datos, cargar, setDatos];
+}
+
+// Inicio del jugador: aviso si debe la cuota, con pago por Mercado Pago y "Ya pagué".
+function TarjetaCuotaJugador({ perfil }) {
+  const [datos, recargar] = useCuotas(perfil?.jugador_id);
+  const [enviando, setEnviando] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  if (!perfil?.jugador_id || !datos?.config) return null;
+  const { config } = datos;
+  const { debe, informados } = estadoCuota(config, datos.extras[perfil.jugador_id], datos.pagos[perfil.jugador_id]);
+  if (!debe.length && !informados.length) return null;
+  async function yaPague() {
+    setEnviando(true);
+    const filas = debe.map((mes) => ({ jugador_id: perfil.jugador_id, mes, estado: "informada", marcado_por: perfil.id }));
+    const { error } = await supabase.from("cuotas_pagos").insert(filas);
+    if (!error) await crearNotificacion("cuota_informada", `${perfil.nombre || "Un jugador"} avisó que pagó la cuota de ${listaMeses(debe)}. Falta confirmarlo.`, ["Manager"], perfil.id);
+    else reportarError("cuotas", error.message);
+    setEnviando(false);
+    recargar();
+  }
+  function copiarAlias() {
+    try { navigator.clipboard.writeText(config.alias).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 2000); }); } catch (e) { /* nada */ }
+  }
+  if (!debe.length) {
+    return (
+      <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14, borderLeft: "4px solid var(--h-ok)" }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>Cuota del club</div>
+        <div style={{ fontSize: 14, color: "var(--h-texto2)", marginTop: 4 }}>Avisaste que pagaste {listaMeses(informados)}. El manager lo va a confirmar.</div>
+      </div>
+    );
+  }
+  const total = config.monto ? Number(config.monto) * debe.length : null;
+  return (
+    <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14, borderLeft: "4px solid var(--h-alerta)", background: "var(--h-panel)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>Tenés la cuota pendiente</div>
+        {total != null && <div style={{ fontFamily: "var(--h-titulo)", fontSize: 22, fontWeight: 800, color: "var(--h-alerta)" }}>{pesos(total)}</div>}
+      </div>
+      <div style={{ fontSize: 14, color: "var(--h-texto2)", marginTop: 4, lineHeight: 1.45 }}>
+        {debe.length === 1 ? `Falta la cuota de ${nombreMes(debe[0])}` : `Faltan ${debe.length} meses: ${listaMeses(debe)}`}
+        {config.monto ? ` (${pesos(config.monto)} por mes)` : ""}.
+        {config.nota ? <span style={{ display: "block", color: "var(--h-sub)", fontSize: 13, marginTop: 4 }}>{config.nota}</span> : null}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+        {config.link_pago && (
+          <a href={config.link_pago} target="_blank" rel="noopener noreferrer"
+            style={{ ...pillButton, background: "#009EE3", color: "#fff", border: "none", textDecoration: "none", fontWeight: 700, minHeight: 40, display: "inline-flex", alignItems: "center" }}>
+            Pagar con Mercado Pago
+          </a>
+        )}
+        {config.alias && (
+          <button onClick={copiarAlias} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto)", minHeight: 40 }}>
+            {copiado ? "Alias copiado" : `Alias: ${config.alias}`}
+          </button>
+        )}
+        <button onClick={yaPague} disabled={enviando} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)", fontWeight: 700, minHeight: 40 }}>
+          {enviando ? "Avisando…" : "Ya pagué"}
+        </button>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 8 }}>Después de pagar, tocá "Ya pagué" así el manager lo confirma.</div>
+    </div>
+  );
+}
+
+// Inicio del staff: cuántos deben y cuántos pagos hay para confirmar.
+function TarjetaCuotasStaff({ perfil, onNavigate }) {
+  const [datos] = useCuotas(null);
+  if (!ROLES_CUOTA.includes(perfil?.rol) || !datos?.config || !POOL.length) return null;
+  let deben = 0, aConfirmar = 0;
+  for (const j of POOL) {
+    const e = estadoCuota(datos.config, datos.extras[j.dbId], datos.pagos[j.dbId]);
+    if (e.debe.length) deben++;
+    if (e.informados.length) aConfirmar++;
+  }
+  if (!deben && !aConfirmar) return null;
+  return (
+    <button onClick={() => onNavigate?.("cuotas")} style={{ ...cardStyle, width: "100%", textAlign: "left", cursor: "pointer", padding: "14px 16px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontFamily: "var(--h-texto-fuente)" }}>
+      <span>
+        <span style={{ display: "block", fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>Cuotas</span>
+        <span style={{ display: "block", fontSize: 13.5, color: "var(--h-texto2)", marginTop: 2 }}>
+          {[deben ? `${deben} ${deben === 1 ? "jugador debe" : "jugadores deben"}` : null, aConfirmar && perfil.rol === "Manager" ? `${aConfirmar} ${aConfirmar === 1 ? "pago" : "pagos"} para confirmar` : null].filter(Boolean).join(" · ")}
+        </span>
+      </span>
+      <span style={{ color: "var(--h-acento)", fontWeight: 700, fontSize: 13.5, whiteSpace: "nowrap" }}>Ver →</span>
+    </button>
+  );
+}
+
+function ConfigCuota({ config, onGuardado, onCancelar }) {
+  const [f, setF] = useState({
+    monto: config?.monto ?? "", link_pago: config?.link_pago || "", alias: config?.alias || "", nota: config?.nota || "",
+    desde: (config?.desde || mesActualAR()).slice(0, 7), dia_vencimiento: config?.dia_vencimiento || 10,
+  });
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
+  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
+  async function guardar() {
+    const link = f.link_pago.trim();
+    if (link && !/^https:\/\//i.test(link)) { setError("El link de pago tiene que empezar con https://"); return; }
+    setGuardando(true); setError("");
+    const fila = {
+      club_id: clubActual()?.id, monto: f.monto === "" ? null : Number(f.monto), link_pago: link || null, alias: f.alias.trim() || null,
+      nota: f.nota.trim() || null, desde: `${f.desde}-01`, dia_vencimiento: Math.min(28, Math.max(1, Number(f.dia_vencimiento) || 10)), updated_at: new Date().toISOString(),
+    };
+    const { error: err } = await supabase.from("cuota_config").upsert(fila, { onConflict: "club_id" });
+    setGuardando(false);
+    if (err) { setError("No se pudo guardar. Probá de nuevo."); reportarError("cuotas", err.message); return; }
+    onGuardado?.();
+  }
+  return (
+    <div style={{ ...cardStyle, padding: "14px 16px", marginBottom: 14 }}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 19, fontWeight: 800, color: "var(--h-texto)" }}>Cómo se cobra la cuota</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0 12px" }}>
+        <label><span style={labelStyle}>Monto por mes ($)</span><input type="number" min="0" inputMode="numeric" value={f.monto} onChange={set("monto")} style={inputStyle} placeholder="Ej: 15000" /></label>
+        <label><span style={labelStyle}>Se cobra desde</span><input type="month" value={f.desde} onChange={set("desde")} style={inputStyle} /></label>
+        <label><span style={labelStyle}>Vence el día</span><input type="number" min="1" max="28" value={f.dia_vencimiento} onChange={set("dia_vencimiento")} style={inputStyle} /></label>
+        <label><span style={labelStyle}>Alias o CVU para transferir</span><input value={f.alias} onChange={set("alias")} style={inputStyle} placeholder="Ej: club.rugby.cuota" /></label>
+      </div>
+      <label><span style={labelStyle}>Link de pago de Mercado Pago</span><input value={f.link_pago} onChange={set("link_pago")} style={inputStyle} placeholder="https://mpago.la/…" /></label>
+      <div style={{ fontSize: 12, color: "var(--h-sub)", marginTop: 6 }}>Se crea en Mercado Pago → Cobrar → Link de pago. Los jugadores que deben ven el botón para pagar en su inicio.</div>
+      <label><span style={labelStyle}>Nota para los jugadores (opcional)</span><input value={f.nota} onChange={set("nota")} style={inputStyle} placeholder="Ej: también se puede pagar en la secretaría" /></label>
+      {error && <div style={{ color: "var(--h-error)", fontSize: 13, marginTop: 10 }}>{error}</div>}
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <button onClick={guardar} disabled={guardando} style={{ ...pillButton, background: "var(--h-club)", color: "var(--h-club-txt)", border: "none", fontWeight: 700 }}>{guardando ? "Guardando…" : "Guardar"}</button>
+        {onCancelar && <button onClick={onCancelar} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}>Cancelar</button>}
+      </div>
+    </div>
+  );
+}
+
+function CuotasPage({ perfil }) {
+  const esManager = perfil?.rol === "Manager";
+  const [datos, recargar, setDatos] = useCuotas(null);
+  const [editando, setEditando] = useState(false);
+  const [tab, setTab] = useState("deben");
+  const [mes, setMes] = useState(null);
+  const [ocupado, setOcupado] = useState(null);
+  const [aviso, setAviso] = useState("");
+  const fr = useFiltroJugadores("nombre");
+  if (!ROLES_CUOTA.includes(perfil?.rol)) return <div style={{ color: "var(--h-sub)" }}>Esta sección es del cuerpo técnico y el manager.</div>;
+  const titulo = <div style={{ fontSize: 34, lineHeight: 1.05, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", marginBottom: 12 }}>Cuotas</div>;
+  if (!datos) return <div>{titulo}<div style={{ color: "var(--h-sub)" }}>Cargando…</div></div>;
+  const { config } = datos;
+  if (!config || editando) {
+    return (
+      <div>
+        {titulo}
+        {esManager
+          ? <ConfigCuota config={config} onGuardado={() => { setEditando(false); recargar(); }} onCancelar={config ? () => setEditando(false) : null} />
+          : <div style={{ ...cardStyle, padding: 16, color: "var(--h-texto2)" }}>El manager todavía no configuró la cuota del club.</div>}
+      </div>
+    );
+  }
+
+  const mesHoy = mesActualAR();
+  const mesSel = mes || mesHoy;
+  const meses = [];
+  for (let m = mesDe(config.desde); m <= mesHoy; m = sumarMeses(m, 1)) meses.push(m);
+  const filas = POOL.map((j) => {
+    const est = estadoCuota(config, datos.extras[j.dbId], datos.pagos[j.dbId]);
+    return { j, est, esteMes: datos.pagos[j.dbId]?.[mesSel] || null };
+  });
+  const deben = filas.filter((x) => x.est.debe.length);
+  const informados = filas.filter((x) => x.est.informados.length);
+  const alDia = filas.filter((x) => !x.est.debe.length && !x.est.informados.length && !x.est.becado);
+  const becados = filas.filter((x) => x.est.becado);
+  const porTab = { deben, confirmar: informados, aldia: alDia, todos: filas }[tab];
+  const lista = porTab.filter((x) => pasaFiltro(fr, x.j.id, x.j.posicionIdeal)).sort((a, b) => b.est.debe.length - a.est.debe.length || a.j.id.localeCompare(b.j.id));
+
+  function cambiarLocal(jid, m, estado) {
+    setDatos((d) => {
+      const pagos = { ...d.pagos, [jid]: { ...(d.pagos[jid] || {}) } };
+      if (estado) pagos[jid][m] = estado; else delete pagos[jid][m];
+      return { ...d, pagos };
+    });
+  }
+  async function marcar(j, m, estado) {
+    setOcupado(j.dbId + m);
+    const { error } = estado
+      ? await supabase.from("cuotas_pagos").upsert({ jugador_id: j.dbId, mes: m, estado, marcado_por: perfil.id, updated_at: new Date().toISOString() }, { onConflict: "jugador_id,mes" })
+      : await supabase.from("cuotas_pagos").delete().eq("jugador_id", j.dbId).eq("mes", m);
+    setOcupado(null);
+    if (error) { setAviso("No se pudo guardar. Probá de nuevo."); reportarError("cuotas", error.message); return; }
+    cambiarLocal(j.dbId, m, estado);
+  }
+  async function confirmarTodo(j, ms) {
+    for (const m of ms) await marcar(j, m, "pagada");
+    crearNotificacion("cuota_confirmada", `El manager confirmó tu pago de la cuota de ${listaMeses(ms)}. ¡Gracias!`, null, perfil.id, [j.dbId]);
+  }
+  async function becar(j, valor) {
+    setOcupado(j.dbId + "becado");
+    const { error } = await supabase.from("cuota_jugadores").upsert({ jugador_id: j.dbId, becado: valor, updated_at: new Date().toISOString() }, { onConflict: "jugador_id" });
+    setOcupado(null);
+    if (error) { setAviso("No se pudo guardar. Probá de nuevo."); return; }
+    setDatos((d) => ({ ...d, extras: { ...d.extras, [j.dbId]: { ...(d.extras[j.dbId] || {}), jugador_id: j.dbId, becado: valor } } }));
+  }
+  async function recordar() {
+    const ids = deben.map((x) => x.j.dbId);
+    if (!ids.length) return;
+    await crearNotificacion("cuota_recordatorio", "Tenés la cuota del club pendiente. La podés pagar desde el inicio de la app.", null, perfil.id, ids);
+    setAviso(`Listo: les llegó el recordatorio a ${ids.length} ${ids.length === 1 ? "jugador" : "jugadores"}.`);
+  }
+
+  const resumen = (n, l, color) => (
+    <div style={{ ...cardStyle, padding: "10px 12px" }}>
+      <div style={{ fontFamily: "var(--h-titulo)", fontSize: 26, fontWeight: 800, color }}>{n}</div>
+      <div style={{ fontSize: 12.5, color: "var(--h-sub)" }}>{l}</div>
+    </div>
+  );
+  const pestaña = (k, l, n) => (
+    <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+      style={{ padding: "8px 4px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, background: tab === k ? "var(--h-club)" : "transparent", color: tab === k ? "var(--h-club-txt)" : "var(--h-texto2)" }}>
+      {l} · {n}
+    </button>
+  );
+  const chip = (texto, color, fondo) => <span style={{ fontSize: 12, fontWeight: 700, color, background: fondo, borderRadius: 999, padding: "3px 9px", whiteSpace: "nowrap" }}>{texto}</span>;
+  const botonChico = (texto, onClick, principal, deshabilitado) => (
+    <button onClick={onClick} disabled={deshabilitado}
+      style={{ ...pillButton, padding: "6px 12px", minHeight: 34, fontWeight: 700, background: principal ? "var(--h-club)" : "transparent", color: principal ? "var(--h-club-txt)" : "var(--h-texto2)", border: principal ? "none" : "1px solid var(--h-borde2)" }}>
+      {texto}
+    </button>
+  );
+
+  return (
+    <div>
+      {titulo}
+      <div style={{ fontSize: 13.5, color: "var(--h-sub)", marginTop: -6, marginBottom: 12 }}>
+        {config.monto ? `${pesos(config.monto)} por mes · ` : ""}vence el {config.dia_vencimiento} de cada mes · se cobra desde {nombreMes(mesDe(config.desde), true)}
+        {esManager && <> · <button onClick={() => setEditando(true)} style={{ background: "none", border: "none", padding: 0, color: "var(--h-acento)", fontWeight: 700, cursor: "pointer", fontSize: 13.5 }}>Cambiar</button></>}
+      </div>
+      {esManager && !config.link_pago && !config.alias && (
+        <div style={{ ...cardStyle, padding: "10px 14px", marginBottom: 12, fontSize: 13.5, color: "var(--h-texto2)", borderLeft: "4px solid var(--h-alerta)" }}>
+          Falta el link de Mercado Pago o el alias: sin eso los jugadores ven que deben, pero no tienen cómo pagar desde la app.
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, marginBottom: 12 }}>
+        {resumen(deben.length, deben.length === 1 ? "debe" : "deben", "var(--h-error)")}
+        {resumen(informados.length, "avisaron que pagaron", "var(--h-alerta)")}
+        {resumen(alDia.length, "al día", "var(--h-ok)")}
+        {becados.length > 0 && resumen(becados.length, becados.length === 1 ? "becado" : "becados", "var(--h-sub)")}
+      </div>
+      {deben.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          <button onClick={recordar} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-acento)", color: "var(--h-acento)", fontWeight: 700 }}>
+            Recordarles a los que deben
+          </button>
+        </div>
+      )}
+      {aviso && <div style={{ fontSize: 13.5, color: "var(--h-texto2)", marginBottom: 10 }}>{aviso}</div>}
+
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6, marginBottom: 10 }}>
+        {meses.slice(-12).map((m) => (
+          <button key={m} onClick={() => setMes(m)} style={{ ...pillButton, padding: "6px 12px", flexShrink: 0, fontWeight: 700, border: "1px solid " + (mesSel === m ? "var(--h-acento)" : "var(--h-borde2)"), background: mesSel === m ? "var(--h-acento-suave)" : "transparent", color: mesSel === m ? "var(--h-acento)" : "var(--h-texto2)", textTransform: "capitalize" }}>
+            {nombreMes(m)}
+          </button>
+        ))}
+      </div>
+      <div role="tablist" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 4, padding: 4, borderRadius: 12, background: "var(--h-panel2)", marginBottom: 10 }}>
+        {pestaña("deben", "Deben", deben.length)}
+        {pestaña("confirmar", "A confirmar", informados.length)}
+        {pestaña("aldia", "Al día", alDia.length)}
+        {pestaña("todos", "Todos", filas.length)}
+      </div>
+      <BarraJugadores f={fr} total={porTab.length} visibles={lista.length} sinOrden />
+
+      <div style={{ ...cardStyle, overflow: "hidden" }}>
+        {lista.length === 0 && <div style={{ padding: 16, color: "var(--h-sub)", fontSize: 14 }}>{tab === "deben" ? "Nadie debe la cuota. 🎉" : "No hay jugadores acá."}</div>}
+        {lista.map(({ j, est, esteMes }, i) => (
+          <div key={j.dbId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: i ? "1px solid var(--h-borde)" : "none", flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 180px", minWidth: 0 }}>
+              <div style={{ fontWeight: 700, color: "var(--h-texto)", fontSize: 15 }}>{j.id}</div>
+              <div style={{ fontSize: 12.5, color: "var(--h-sub)" }}>
+                {est.becado ? "Becado" : est.debe.length ? `Debe ${est.debe.length === 1 ? nombreMes(est.debe[0]) : `${est.debe.length} meses (${listaMeses(est.debe)})`}` : est.informados.length ? `Avisó que pagó ${listaMeses(est.informados)}` : "Al día"}
+                {!est.becado && est.debe.length > 0 && config.monto ? ` · ${pesos(Number(config.monto) * est.debe.length)}` : ""}
+              </div>
+            </div>
+            {!est.becado && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: "var(--h-sub)", textTransform: "capitalize" }}>{nombreMes(mesSel)}:</span>
+                {esteMes === "pagada" ? chip("Pagada", "var(--h-ok)", "var(--h-ok-suave)")
+                  : esteMes === "informada" ? chip("Avisó que pagó", "var(--h-alerta)", "var(--h-alerta-suave)")
+                  : chip("Sin pagar", "var(--h-error)", "var(--h-error-suave)")}
+                {esManager && (esteMes === "pagada"
+                  ? botonChico("Deshacer", () => marcar(j, mesSel, null), false, ocupado === j.dbId + mesSel)
+                  : esteMes === "informada"
+                    ? <>{botonChico("Confirmar", () => confirmarTodo(j, [mesSel]), true, ocupado === j.dbId + mesSel)}{botonChico("No pagó", () => marcar(j, mesSel, null), false, ocupado === j.dbId + mesSel)}</>
+                    : botonChico("Marcar pagada", () => marcar(j, mesSel, "pagada"), true, ocupado === j.dbId + mesSel))}
+                {esManager && est.informados.length > 1 && esteMes === "informada" && botonChico(`Confirmar los ${est.informados.length}`, () => confirmarTodo(j, est.informados), false)}
+              </div>
+            )}
+            {esManager && (
+              <button onClick={() => becar(j, !est.becado)} disabled={ocupado === j.dbId + "becado"} style={{ background: "none", border: "none", color: "var(--h-sub)", fontSize: 12.5, cursor: "pointer", textDecoration: "underline", padding: 4 }}>
+                {est.becado ? "Quitar beca" : "Becar"}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      {!esManager && <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginTop: 10 }}>Los pagos los marca el manager.</div>}
+    </div>
+  );
+}
+
+function esStaff(perfil) {
+  return !!perfil && ["Cuerpo técnico", "Cuerpo médico", "Manager"].includes(perfil.rol);
+}
+
+// Registro: números escritos de cualquier forma ("1,88", "1.88 m", "188cm", "95,5") → cm / kg enteros.
+function numeroRegistro(t, minimo, maximo, metros) {
+  const s = String(t || "").replace(",", ".").replace(/[^0-9.]/g, "");
+  if (!s) return "";
+  let v = parseFloat(s);
+  if (!isFinite(v)) return "";
+  if (metros && v < 3) v *= 100;
+  return v >= minimo && v <= maximo ? String(Math.round(v)) : null; // null = no se entiende
+}
+const claveNombre = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+// ¿El "nuevo" ya está en la lista? Mismo nombre completo, o mismo primer nombre y mismo último apellido.
+function jugadorParecido(lista, nombre) {
+  const k = claveNombre(nombre);
+  const p = k.split(" ");
+  if (p.length < 2) return null;
+  return lista.find((j) => claveNombre(j.nombre) === k)
+    || lista.find((j) => { const q = claveNombre(j.nombre).split(" "); return q[0] === p[0] && q[q.length - 1] === p[p.length - 1]; })
+    || null;
+}
+// Errores típicos al tipear el email.
+function errorEmail(e) {
+  const m = String(e || "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m)) return "Revisá el email: parece que tiene un error.";
+  const dom = m.split("@")[1];
+  if (/^gmail\.com\..+/.test(dom)) return "Revisá el email: Gmail termina en @gmail.com (sin .ar).";
+  if (/^(gmial|gmal|gamil|gnail|gmai)\.com$/.test(dom) || /^gmail\.(co|con|cm|om)$/.test(dom)) return "Revisá el email: ¿quisiste poner @gmail.com?";
+  if (/^(hotmial|hotmal|hotmai)\./.test(dom)) return "Revisá el email: ¿quisiste poner @hotmail?";
+  return "";
+}
+
+// ── Demo (solo en la versión de demostración, con datos de ejemplo) ──
+function LoginDemo() {
+  const club = useClub();
+  const nombre = club?.nombre_corto || club?.nombre || "tu club";
+  const boton = (rol, titulo, sub) => (
+    <button onClick={() => supabase.demo?.entrar(rol)}
+      style={{ display: "block", width: "100%", textAlign: "left", background: rol === "staff" ? "var(--h-club)" : "var(--h-panel)", color: rol === "staff" ? "var(--h-club-txt)" : "var(--h-texto)", border: rol === "staff" ? "none" : "2px solid var(--h-borde2)", borderRadius: 16, padding: "18px 20px", cursor: "pointer", fontFamily: "var(--h-texto-fuente)", marginTop: 12 }}>
+      <span style={{ display: "block", fontFamily: "var(--h-titulo)", fontSize: 24, fontWeight: 800 }}>{titulo}</span>
+      <span style={{ display: "block", fontSize: 14, opacity: 0.85, marginTop: 2 }}>{sub}</span>
+    </button>
+  );
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--h-fondo)", display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 16px", fontFamily: "var(--h-texto-fuente)" }}>
+      <style>{FONTS}</style>
+      <div style={{ width: "100%", maxWidth: 420 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 22 }}>
+          <InsigniaADN size={46} />
+          {club?.logo_url && club.logo_url !== "/logo-adn.svg" && <img src={club.logo_url} alt={`Escudo de ${nombre}`} style={{ width: 64, height: 64, objectFit: "contain" }} />}
+        </div>
+        <div style={{ fontFamily: "var(--h-titulo)", fontSize: 40, fontWeight: 800, lineHeight: 1, color: "var(--h-texto)" }}>ADN {nombre}</div>
+        <div style={{ fontSize: 15.5, color: "var(--h-texto2)", marginTop: 10, lineHeight: 1.45 }}>
+          Demo de la app con datos de ejemplo. No hace falta cuenta: elegí cómo querés verla.
+        </div>
+        {boton("staff", "Entrar como entrenador", "Plantel, wellness, lesiones, equipo del partido y análisis")}
+        {boton("jugador", "Entrar como jugador", "Tu semana: práctica, wellness, gimnasio y convocatoria")}
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginTop: 18, lineHeight: 1.5 }}>
+          Los jugadores, partidos y resultados son inventados. Podés tocar todo: lo que cambies se borra al cerrar la pestaña.
+        </div>
+        <div style={{ fontSize: 12, color: "var(--h-sub2)", marginTop: 26 }}>Hecha por ADN Sports · Cada club tiene su ADN</div>
+      </div>
+    </div>
+  );
+}
+
+function BandaDemo() {
+  const rol = supabase.demo?.rol();
+  const otro = rol === "jugador" ? "staff" : "jugador";
+  function cambiar() {
+    supabase.demo?.entrar(otro);
+    try { window.location.reload(); } catch (e) { /* nada */ }
+  }
+  return (
+    <div style={{ position: "fixed", ...(typeof window !== "undefined" && window.innerWidth >= 900 ? { right: 20, bottom: 20 } : { left: "50%", transform: "translateX(-50%)", bottom: 96 }), zIndex: 70, display: "flex", alignItems: "center", gap: 10, background: "#16212D", color: "#F4F2EE", borderRadius: 999, padding: "6px 6px 6px 14px", fontSize: 13, boxShadow: "0 6px 20px rgba(0,0,0,.25)", whiteSpace: "nowrap" }}>
+      <span>Demo · viendo como <b>{rol === "jugador" ? "jugador" : "entrenador"}</b></span>
+      <button onClick={cambiar} style={{ background: "#F4F2EE", color: "#16212D", border: "none", borderRadius: 999, padding: "7px 12px", fontWeight: 700, fontSize: 13, cursor: "pointer", minHeight: 34 }}>
+        Ver como {otro === "jugador" ? "jugador" : "entrenador"}
+      </button>
+    </div>
+  );
+}
+
+function LoginPage() {
+  const [modo, setModo] = useState("ingresar"); // "ingresar" | "registro"
+  const [noSoyEse, setNoSoyEse] = useState(""); // nombre sugerido que el jugador dijo que no es él
+  const [rol, setRol] = useState("Jugador");
+  const [jugadoresLista, setJugadoresLista] = useState([]);
+  const [jugadorId, setJugadorId] = useState(""); // nombre del jugador del plantel que confirmó ser él
+  const [busqueda, setBusqueda] = useState("");
+  const [linkPersonal, setLinkPersonal] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
+  const [nombreCompleto, setNombreCompleto] = useState("");
+  const [altura, setAltura] = useState("");
+  const [nacimiento, setNacimiento] = useState("");
+  const [peso, setPeso] = useState("");
+  const [soyNuevo, setSoyNuevo] = useState(false);
+  const [nombreNuevoJugador, setNombreNuevoJugador] = useState("");
+  const [posicionNueva, setPosicionNueva] = useState("Centro");
+  const [mensaje, setMensaje] = useState("");
+  const [cargando, setCargando] = useState(false);
+  const [mantener, setMantener] = useState(mantenerSesion());
+  const [recuperando, setRecuperando] = useState(false); // "¿Olvidaste tu contraseña?"
+  const [avisoOk, setAvisoOk] = useState("");
+
+  async function handleRecuperar() {
+    setMensaje(""); setAvisoOk("");
+    if (!email.trim()) { setMensaje("Escribí el email con el que te registraste."); return; }
+    setCargando(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin });
+    setCargando(false);
+    if (error) {
+      const m = (error.message || "").toLowerCase();
+      setMensaje(m.includes("rate limit") || error.status === 429
+        ? "Se pidieron muchos links seguidos. Esperá un rato y probá de nuevo."
+        : "No se pudo enviar el link. Revisá el email y probá de nuevo.");
+      return;
+    }
+    setAvisoOk("Listo. Si ese email tiene cuenta, te llega un link para elegir una contraseña nueva (mirá también en Correo no deseado).");
+  }
+
+  useEffect(() => {
+    // Lista para el selector de registro — no requiere estar logueado. Viene de una función de
+    // la base que devuelve solo los nombres de jugadores de ESTE club que todavía no tienen cuenta
+    // (la tabla de jugadores ya no se puede leer sin iniciar sesión).
+    supabase
+      .rpc("jugadores_para_registro", { p_slug: CLUB_SLUG })
+      .then(({ data, error }) => {
+        if (!error && data) {
+          setJugadoresLista(data);
+          // Link personal que manda el staff (?soy=<id>): ya viene con el jugador puesto.
+          let soy = null;
+          try { soy = new URLSearchParams(window.location.search).get("soy"); } catch (e) { /* nada */ }
+          const j = soy && data.find((x) => String(x.id) === soy);
+          if (j) { setModo("registro"); setRol("Jugador"); setJugadorId(j.nombre); setLinkPersonal(true); }
+        }
+      });
+  }, []);
+
+  async function handleIngresar() {
+    setMensaje("");
+    setCargando(true);
+    setMantenerSesion(mantener);
+    if (!email.trim() || !password) { setCargando(false); setMensaje("Completá tu email y tu contraseña."); return; }
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+    setCargando(false);
+    if (error) {
+      const m = (error.message || "").toLowerCase();
+      setMensaje(
+        m.includes("not confirmed") ? "Todavía no confirmaste tu email. Buscá el mail de confirmación (mirá también en Correo no deseado)."
+        : m.includes("invalid login") ? "Email o contraseña incorrectos. Si no te acordás la contraseña, tocá \"¿Olvidaste tu contraseña?\"."
+        : m.includes("rate limit") ? "Demasiados intentos seguidos. Esperá un rato y probá de nuevo."
+        : error.message
+      );
+      if (!m.includes("not confirmed") && !m.includes("invalid login") && !m.includes("rate limit")) reportarError("ingreso", error.message, `status ${error.status || ""}`);
+    }
+    // Si no hay error, el listener de sesión en AppRoot te lleva solo a la app.
+  }
+
+  async function handleRegistro() {
+    setMensaje("");
+    if (password !== password2) {
+      setMensaje("Las contraseñas no coinciden.");
+      return;
+    }
+    if (!nacimiento) {
+      setMensaje("Completá tu fecha de nacimiento.");
+      return;
+    }
+    if (rol === "Jugador" && !soyNuevo && !jugadorId) {
+      setMensaje("Escribí tu nombre y apellido y tocá el tuyo cuando aparezca (o \"No aparezco\" si sos nuevo).");
+      return;
+    }
+    const emailLimpio = email.trim().toLowerCase();
+    const errEmail = errorEmail(emailLimpio);
+    if (errEmail) { setMensaje(errEmail); return; }
+    if (rol === "Jugador" && soyNuevo) {
+      if (claveNombre(nombreNuevoJugador).split(" ").length < 2) { setMensaje("Escribí tu nombre y apellido."); return; }
+      const parecido = jugadorParecido(jugadoresLista, nombreNuevoJugador);
+      if (parecido && parecido.nombre !== noSoyEse) {
+        setMensaje(`Ya estás en el plantel como "${parecido.nombre}". Tocá "Volver" y elegite, así no queda repetido.`);
+        return;
+      }
+    }
+    const alturaOk = rol === "Jugador" ? numeroRegistro(altura, 120, 230, true) : "";
+    const pesoOk = rol === "Jugador" ? numeroRegistro(peso, 35, 200, false) : "";
+    if (alturaOk === null) { setMensaje("Revisá la altura: escribila en centímetros, por ejemplo 182."); return; }
+    if (pesoOk === null) { setMensaje("Revisá el peso: escribilo en kilos, por ejemplo 88."); return; }
+    setCargando(true);
+
+    const nombreFinal = rol === "Jugador" ? (soyNuevo ? nombreNuevoJugador : jugadorId) : nombreCompleto;
+    const jugadorDb = jugadoresLista.find((j) => j.nombre === jugadorId);
+
+    // Mandamos todo como metadata del usuario: así el perfil se crea solo del lado del servidor
+    // (un trigger en la base), sin depender de que el navegador ya tenga sesión activa en este
+    // instante — que es justo lo que fallaba si el proyecto pide confirmar el email antes de entrar.
+    setMantenerSesion(true);
+    const { data, error } = await supabase.auth.signUp({
+      email: emailLimpio,
+      password,
+      options: {
+        emailRedirectTo: window.location.origin,
+        data: {
+          club_slug: CLUB_SLUG,
+          nombre: nombreFinal,
+          usuario: "",
+          rol,
+          jugador_id: rol === "Jugador" && !soyNuevo ? jugadorDb?.id || "" : "",
+          nombre_nuevo_jugador: rol === "Jugador" && soyNuevo ? nombreNuevoJugador : "",
+          posicion_nueva: rol === "Jugador" && soyNuevo ? posicionNueva : "",
+          altura: alturaOk,
+          fecha_nacimiento: nacimiento,
+          peso: pesoOk,
+        },
+      },
+    });
+    setCargando(false);
+    if (error) {
+      const m = (error.message || "").toLowerCase();
+      if (m.includes("rate limit") || error.status === 429) {
+        setMensaje("Hay muchos registros al mismo tiempo y el envío de mails de confirmación está saturado. Tu cuenta no se creó todavía: probá de nuevo en un rato.");
+      } else if (m.includes("already registered") || m.includes("already been registered")) {
+        setMensaje("Ese email ya tiene una cuenta. Iniciá sesión (o usá \"Olvidé mi contraseña\").");
+      } else if (m.includes("password") && m.includes("characters")) {
+        setMensaje("La contraseña tiene que tener al menos 6 caracteres.");
+      } else if (m.includes("invalid") && m.includes("email")) {
+        setMensaje("Revisá el email: parece que tiene un error.");
+      } else if (m.includes("database error") || error.status === 500) {
+        reportarError("registro", error.message, `status ${error.status || ""}`);
+        setMensaje("No se pudo crear la cuenta por un error del sistema. Revisá los datos y probá de nuevo; si sigue pasando, avisale al staff.");
+      } else {
+        reportarError("registro", error.message, `status ${error.status || ""}`);
+        setMensaje("No se pudo crear la cuenta: " + error.message);
+      }
+      return;
+    }
+
+    if (!data.session) {
+      setMensaje("¡Cuenta creada! Revisá tu email para confirmarla y después iniciá sesión.");
+      setModo("ingresar");
+    }
+    // Si Supabase ya devolvió sesión activa, el listener en AppRoot te lleva directo a la app.
+  }
+
+  return (
+    <div
+      style={{
+        minHeight: 620,
+        background: "var(--h-fondo)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "40px 16px",
+        fontFamily: "var(--h-texto-fuente)",
+      }}
+    >
+      <style>{FONTS}</style>
+      <div style={{ width: "100%", maxWidth: 400 }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 24 }}>
+          <InsigniaADN size={40} />
+          <div
+            style={{
+              marginTop: 10,
+              fontFamily: "var(--h-titulo)",
+              fontWeight: 600,
+              fontSize: 18,
+              letterSpacing: 0.5,
+              color: "var(--h-texto)",
+            }}
+          >
+            <NombreApp size={22} />
+          </div>
+          <div style={{ width: 36, height: 2, background: "var(--h-acento)", marginTop: 10 }} />
+        </div>
+
+        <div style={{ background: "var(--h-panel)", border: "1px solid var(--h-borde)", borderRadius: 10, padding: "26px 26px" }}>
+          {modo === "ingresar" && recuperando ? (
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "var(--h-texto)", marginBottom: 4 }}>Recuperar contraseña</div>
+              <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 6 }}>
+                Escribí tu email y te mandamos un link para elegir una contraseña nueva.
+              </div>
+              <label style={labelStyle}>Email</label>
+              <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@email.com" />
+              {mensaje && <div style={{ color: "var(--h-error)", fontSize: 12.5, marginTop: 10 }}>{mensaje}</div>}
+              {avisoOk && <div style={{ color: "var(--h-ok)", fontSize: 13, marginTop: 10 }}>{avisoOk}</div>}
+              <button type="button" onClick={handleRecuperar} disabled={cargando} style={buttonStyle}>
+                {cargando ? "Enviando…" : "Enviarme el link"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setRecuperando(false); setMensaje(""); setAvisoOk(""); }}
+                style={{ background: "none", border: "none", color: "var(--h-acento)", fontSize: 13.5, fontWeight: 600, marginTop: 14, cursor: "pointer", padding: 0 }}
+              >
+                ← Volver a ingresar
+              </button>
+            </div>
+          ) : modo === "ingresar" ? (
+            <div>
+              <label style={labelStyle}>Email</label>
+              <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@email.com" />
+              <label style={labelStyle}>Contraseña</label>
+              <input type="password" style={inputStyle} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••"
+                onKeyDown={(e) => { if (e.key === "Enter") handleIngresar(); }} />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: "var(--h-texto2)", cursor: "pointer" }}>
+                  <input type="checkbox" checked={mantener} onChange={(e) => setMantener(e.target.checked)}
+                    style={{ width: 18, height: 18, accentColor: "var(--h-acento)", margin: 0 }} />
+                  Mantener la sesión abierta
+                </label>
+                <button
+                  type="button"
+                  onClick={() => { setRecuperando(true); setMensaje(""); setAvisoOk(""); }}
+                  style={{ background: "none", border: "none", color: "var(--h-acento)", fontSize: 13.5, fontWeight: 600, cursor: "pointer", padding: 0 }}
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
+              {mensaje && <div style={{ color: "var(--h-error)", fontSize: 12.5, marginTop: 10 }}>{mensaje}</div>}
+              <button type="button" onClick={handleIngresar} disabled={cargando} style={buttonStyle}>
+                {cargando ? "Ingresando…" : "Ingresar"}
+              </button>
+            </div>
+          ) : (
+            <RegistroCuenta
+              rol={rol} setRol={setRol} jugadoresLista={jugadoresLista}
+              jugadorId={jugadorId} setJugadorId={setJugadorId} busqueda={busqueda} setBusqueda={setBusqueda}
+              soyNuevo={soyNuevo} setSoyNuevo={setSoyNuevo} setNombreNuevoJugador={setNombreNuevoJugador} setNoSoyEse={setNoSoyEse}
+              posicionNueva={posicionNueva} setPosicionNueva={setPosicionNueva} linkPersonal={linkPersonal} setLinkPersonal={setLinkPersonal}
+              nombreCompleto={nombreCompleto} setNombreCompleto={setNombreCompleto}
+              nacimiento={nacimiento} setNacimiento={setNacimiento} altura={altura} setAltura={setAltura} peso={peso} setPeso={setPeso}
+              email={email} setEmail={setEmail} password={password} setPassword={setPassword} password2={password2} setPassword2={setPassword2}
+              mensaje={mensaje} setMensaje={setMensaje} cargando={cargando} onCrear={handleRegistro}
+            />
+          )}
+        </div>
+
+        <div style={{ textAlign: "center", marginTop: 16 }}>
+          {modo === "ingresar" ? (
+            <button type="button" onClick={() => { setModo("registro"); setRecuperando(false); setMensaje(""); }}
+              style={{ background: "none", border: "none", color: "var(--h-texto2)", fontSize: 14, cursor: "pointer", padding: 8 }}>
+              ¿Primera vez? <b style={{ color: "var(--h-acento)" }}>Creá tu cuenta</b>
+            </button>
+          ) : (
+            <button type="button" onClick={() => { setModo("ingresar"); setMensaje(""); }}
+              style={{ background: "none", border: "none", color: "var(--h-texto2)", fontSize: 14, cursor: "pointer", padding: 8 }}>
+              ¿Ya tenés cuenta? <b style={{ color: "var(--h-acento)" }}>Ingresá</b>
+            </button>
+          )}
+        </div>
+
+        <div style={{ textAlign: "center", fontSize: 11, color: "var(--h-sub2)", marginTop: 18 }}>
+          Hecho por ADN Sports
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Coincidencias del plantel para lo que escribe el jugador: cada palabra tiene que ser el comienzo
+// de alguna palabra de su nombre ("gonza med" encuentra a Gonzalo Medina). No se muestra la lista entera.
+function buscarEnPlantel(lista, texto) {
+  const palabras = claveNombre(texto).split(" ").filter(Boolean);
+  if (palabras.join("").length < 3) return [];
+  return lista
+    .filter((j) => { const q = claveNombre(j.nombre).split(" "); return palabras.every((w) => q.some((x) => x.startsWith(w))); })
+    .slice(0, 4);
+}
+
+// Alta de cuenta en pasos: primero quién sos y, si sos jugador, te encontramos en el plantel
+// a partir de tu nombre (o entrás directo con el link personal que te manda el staff).
+function RegistroCuenta(p) {
+  const esJugador = p.rol === "Jugador";
+  const opcion = (activa) => ({
+    flex: 1, padding: "12px 10px", borderRadius: 12, cursor: "pointer", fontSize: 14.5, fontWeight: 700, fontFamily: "inherit",
+    border: "1.5px solid " + (activa ? "var(--h-acento)" : "var(--h-borde2)"),
+    background: activa ? "var(--h-acento-suave)" : "transparent",
+    color: activa ? "var(--h-acento)" : "var(--h-texto2)",
+  });
+  const paso = (n, t) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "22px 0 8px" }}>
+      <span style={{ width: 24, height: 24, borderRadius: "50%", background: "var(--h-acento)", color: "#fff", fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{n}</span>
+      <span style={{ fontSize: 15, fontWeight: 700, color: "var(--h-texto)" }}>{t}</span>
+    </div>
+  );
+  const encontrados = esJugador && !p.jugadorId && !p.soyNuevo ? buscarEnPlantel(p.jugadoresLista, p.busqueda) : [];
+  const escribio = claveNombre(p.busqueda).replace(/ /g, "").length >= 3;
+  function soyYo(j) { p.setJugadorId(j.nombre); p.setSoyNuevo(false); p.setMensaje(""); }
+  function soyNuevo() {
+    const parecido = jugadorParecido(p.jugadoresLista, p.busqueda);
+    p.setNoSoyEse(parecido ? parecido.nombre : "");
+    p.setNombreNuevoJugador(p.busqueda.trim());
+    p.setSoyNuevo(true); p.setJugadorId(""); p.setMensaje("");
+  }
+  function cambiar() { p.setJugadorId(""); p.setSoyNuevo(false); p.setLinkPersonal(false); }
+
+  return (
+    <div>
+      {p.linkPersonal && p.jugadorId ? (
+        <div style={{ fontSize: 15, color: "var(--h-texto)", lineHeight: 1.5 }}>
+          <b>¡Hola, {String(p.jugadorId).split(" ")[0]}!</b> Este link es tuyo: completá estos datos y ya quedás en la app.
+        </div>
+      ) : (
+        <>
+          {paso(1, "¿Qué hacés en el club?")}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={() => p.setRol("Jugador")} style={opcion(esJugador)}>Juego</button>
+            <button type="button" onClick={() => p.setRol("Cuerpo técnico")} style={opcion(!esJugador)}>Soy del staff</button>
+          </div>
+          {!esJugador && (
+            <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+              {["Cuerpo técnico", "Cuerpo médico", "Manager"].map((r) => (
+                <button key={r} type="button" onClick={() => p.setRol(r)}
+                  style={{ ...opcion(p.rol === r), flex: "1 1 30%", fontSize: 12.5, padding: "9px 6px", fontWeight: 600 }}>{r}</button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {esJugador && !p.linkPersonal && (
+        <>
+          {paso(2, "Encontrate en el plantel")}
+          {p.jugadorId ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 14px", borderRadius: 12, background: "var(--h-acento-suave)", border: "1px solid var(--h-acento)" }}>
+              <span style={{ fontSize: 14.5, color: "var(--h-texto)" }}>Sos <b>{p.jugadorId}</b></span>
+              <button type="button" onClick={cambiar} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Cambiar</button>
+            </div>
+          ) : p.soyNuevo ? (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 14px", borderRadius: 12, background: "var(--h-panel2)", border: "1px solid var(--h-borde)" }}>
+                <span style={{ fontSize: 14, color: "var(--h-texto)" }}>Te sumamos como jugador nuevo</span>
+                <button type="button" onClick={cambiar} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Volver</button>
+              </div>
+              <label style={labelStyle}>Nombre y apellido</label>
+              <input style={inputStyle} value={p.busqueda} onChange={(e) => { p.setBusqueda(e.target.value); p.setNombreNuevoJugador(e.target.value); }} />
+              <label style={labelStyle}>¿En qué puesto jugás?</label>
+              <select value={p.posicionNueva} onChange={(e) => p.setPosicionNueva(e.target.value)} style={inputStyle}>
+                {Object.keys(POSICIONES_ALT).map((x) => <option key={x} value={x} style={{ background: "var(--h-campo)" }}>{x}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <input style={inputStyle} value={p.busqueda} onChange={(e) => p.setBusqueda(e.target.value)} placeholder="Tu nombre y apellido" autoComplete="name" />
+              {encontrados.map((j) => (
+                <button key={j.id} type="button" onClick={() => soyYo(j)}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", marginTop: 8, padding: "11px 14px", borderRadius: 12, border: "1px solid var(--h-borde2)", background: "var(--h-panel)", cursor: "pointer", textAlign: "left" }}>
+                  <span style={{ fontSize: 14.5, color: "var(--h-texto)", fontWeight: 600 }}>{j.nombre}</span>
+                  <span style={{ fontSize: 13, color: "var(--h-acento)", fontWeight: 700 }}>Soy yo</span>
+                </button>
+              ))}
+              {escribio && (
+                <button type="button" onClick={soyNuevo}
+                  style={{ display: "block", marginTop: 10, background: "none", border: "none", color: "var(--h-sub)", fontSize: 13.5, cursor: "pointer", padding: "4px 0" }}>
+                  {encontrados.length ? "No soy ninguno: soy nuevo" : "No aparezco: soy nuevo"}
+                </button>
+              )}
+              {!escribio && <div style={{ fontSize: 12.5, color: "var(--h-sub2)", marginTop: 6 }}>Escribí tu nombre y apellido y tocá el tuyo cuando aparezca.</div>}
+            </div>
+          )}
+        </>
+      )}
+
+      {paso(esJugador ? (p.linkPersonal ? 1 : 3) : 2, "Tus datos")}
+      {!esJugador && (
+        <>
+          <label style={labelStyle}>Nombre y apellido</label>
+          <input style={inputStyle} value={p.nombreCompleto} onChange={(e) => p.setNombreCompleto(e.target.value)} />
+        </>
+      )}
+      <label style={labelStyle}>Fecha de nacimiento</label>
+      <input type="date" style={inputStyle} value={p.nacimiento} onChange={(e) => p.setNacimiento(e.target.value)} max={new Date().toLocaleDateString("sv-SE")} min="1940-01-01" />
+      {esJugador && (
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <label style={labelStyle}>Altura (cm)</label>
+            <input style={inputStyle} inputMode="decimal" value={p.altura} onChange={(e) => p.setAltura(e.target.value)} placeholder="182" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={labelStyle}>Peso (kg)</label>
+            <input style={inputStyle} inputMode="decimal" value={p.peso} onChange={(e) => p.setPeso(e.target.value)} placeholder="88" />
+          </div>
+        </div>
+      )}
+
+      {paso(esJugador ? (p.linkPersonal ? 2 : 4) : 3, "Para entrar")}
+      <label style={labelStyle}>Email</label>
+      <input style={inputStyle} type="email" value={p.email} onChange={(e) => p.setEmail(e.target.value)} placeholder="tu@email.com" autoComplete="email" />
+      <label style={labelStyle}>Contraseña</label>
+      <input type="password" style={inputStyle} value={p.password} onChange={(e) => p.setPassword(e.target.value)} placeholder="Mínimo 6 caracteres" autoComplete="new-password" />
+      <label style={labelStyle}>Otra vez la contraseña</label>
+      <input type="password" style={inputStyle} value={p.password2} onChange={(e) => p.setPassword2(e.target.value)} autoComplete="new-password" />
+
+      {p.mensaje && <div style={{ color: p.mensaje.startsWith("¡Cuenta") ? "var(--h-ok)" : "var(--h-error)", fontSize: 12.5, marginTop: 10 }}>{p.mensaje}</div>}
+      <button type="button" onClick={p.onCrear} disabled={p.cargando} style={buttonStyle}>
+        {p.cargando ? "Creando…" : "Crear la cuenta"}
+      </button>
+    </div>
+  );
+}
+
+let ESCUDOS_RIVALES = {}; // nombre de club -> url del escudo real subido a Supabase Storage
+let TEMPORADA_ACTIVA = "2026"; // se sobreescribe con el valor real de la base al cargar
+
+// Crea una notificación in-app. roles null = la ven todos; si no, solo esos roles.
+// Una notificación es para este usuario si coincide el rol (o no tiene) y, si va a jugadores puntuales, él está entre ellos.
+function esParaMi(n, perfil) {
+  if (n.roles_destino && !(perfil && n.roles_destino.includes(perfil.rol))) return false;
+  if (n.jugadores_destino && n.jugadores_destino.length && !(perfil?.jugador_id && n.jugadores_destino.includes(perfil.jugador_id))) return false;
+  if (n.perfiles_destino && n.perfiles_destino.length && !(perfil?.id && n.perfiles_destino.includes(perfil.id))) return false;
+  return true;
+}
+
+async function crearNotificacion(tipo, mensaje, roles, creadoPor, jugadoresDestino) {
+  const { error } = await supabase
+    .from("notificaciones")
+    .insert({ tipo, mensaje, roles_destino: roles || null, creado_por: creadoPor || null, jugadores_destino: jugadoresDestino?.length ? jugadoresDestino : null });
+  if (error) console.error("Error creando notificación:", error);
+}
+
+async function cargarEscudos() {
+  const { data, error } = await supabase.from("equipos_rivales").select("nombre, escudo_url");
+  if (error) {
+    console.error("Error cargando escudos:", error);
+    return;
+  }
+  ESCUDOS_RIVALES = Object.fromEntries((data || []).filter((r) => r.escudo_url).map((r) => [r.nombre, r.escudo_url]));
+}
+
+async function cargarConfig() {
+  const { data, error } = await supabase.from("config").select("clave, valor").eq("clave", "temporada_activa").maybeSingle();
+  if (!error && data?.valor) TEMPORADA_ACTIVA = String(data.valor);
+}
+
+let EVALUACIONES_REALES = {};
+let EVALUACIONES_ANTERIORES = {}; // nombre de jugador -> test anterior al último (para ver si mejoró) // nombre de jugador -> última evaluación real cargada por el cuerpo técnico
+
+async function cargarEvaluaciones() {
+  const { data, error } = await supabase
+    .from("evaluaciones")
+    .select("fecha, potencia, reactividad, fuerza, velocidad, resistencia, jugadores(nombre)")
+    .order("fecha", { ascending: false });
+  if (error) {
+    console.error("Error cargando evaluaciones:", error);
+    return;
+  }
+  const porNombre = {};
+  const anteriores = {};
+  (data || []).forEach((r) => {
+    const nombre = r.jugadores?.nombre;
+    if (!nombre) return;
+    if (porNombre[nombre]) {
+      // Viene ordenado del más nuevo al más viejo: la segunda fila de cada jugador es su test anterior.
+      if (!anteriores[nombre] && r.fecha !== porNombre[nombre].fecha) {
+        anteriores[nombre] = { fecha: r.fecha, Potencia: r.potencia, Reactividad: r.reactividad, Fuerza: r.fuerza, Velocidad: r.velocidad, Resistencia: r.resistencia };
+      }
+      return;
+    }
+    porNombre[nombre] = {
+      fecha: r.fecha,
+      Potencia: r.potencia,
+      Reactividad: r.reactividad,
+      Fuerza: r.fuerza,
+      Velocidad: r.velocidad,
+      Resistencia: r.resistencia,
+    };
+  });
+  EVALUACIONES_REALES = porNombre;
+  EVALUACIONES_ANTERIORES = anteriores;
+}
+
+async function cargarTodo() {
+  await Promise.all([cargarJugadores(), cargarCalendario(), cargarFormaciones(), cargarEscudos(), cargarConfig(), cargarEvaluaciones(), cargarSesiones(), cargarGruposPractica(), cargarPlanGym()]);
+}
+
+function PantallaCarga() {
+  return (
+    <div
+      style={{
+        minHeight: 620,
+        background: "var(--h-fondo)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 14,
+        fontFamily: "var(--h-texto-fuente)",
+      }}
+    >
+      <style>{FONTS}</style>
+      <InsigniaADN size={40} />
+      <div style={{ fontSize: 13, color: "var(--h-sub)" }}>Cargando datos del club…</div>
+    </div>
+  );
+}
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("Error atrapado por el ErrorBoundary:", error, info?.componentStack);
+    reportarError("componente", error?.message || String(error), `${error?.stack || ""}\n${info?.componentStack || ""}`);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div
+          style={{
+            minHeight: 400,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 14,
+            padding: 24,
+            fontFamily: "var(--h-texto-fuente)",
+            textAlign: "center",
+          }}
+        >
+          <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 500 }}>Esta pantalla tuvo un problema.</div>
+          <div style={{ fontSize: 12, color: "var(--h-sub)", maxWidth: 420 }}>
+            El resto de la app sigue funcionando. Si podés, abrí la consola del navegador (F12), copiá el error en
+            rojo y pasámelo — así lo corrijo de raíz.
+          </div>
+          <div
+            style={{
+              fontSize: 10.5, color: "var(--h-error)", background: "var(--h-panel2)", padding: "8px 12px",
+              borderRadius: 6, maxWidth: 480, overflowWrap: "break-word", fontFamily: "monospace",
+            }}
+          >
+            {String(this.state.error?.message || this.state.error)}
+          </div>
+          <button
+            onClick={() => this.setState({ error: null }, this.props.onReset)}
+            style={{ ...pillButton, background: "var(--h-acento)", color: "var(--h-panel)", border: "none", marginTop: 6 }}
+          >
+            Volver a Hoy
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function NuevaContrasenaPage({ onListo }) {
+  const [p1, setP1] = useState("");
+  const [p2, setP2] = useState("");
+  const [msg, setMsg] = useState("");
+  const [cargando, setCargando] = useState(false);
+  async function guardar() {
+    setMsg("");
+    if (p1.length < 6) { setMsg("La contraseña tiene que tener al menos 6 caracteres."); return; }
+    if (p1 !== p2) { setMsg("Las contraseñas no coinciden."); return; }
+    setCargando(true);
+    const { error } = await supabase.auth.updateUser({ password: p1 });
+    setCargando(false);
+    if (error) {
+      const m = (error.message || "").toLowerCase();
+      setMsg(m.includes("different") || m.includes("same") ? "Elegí una contraseña distinta a la anterior." : "No se pudo guardar. Probá de nuevo o pedí otro link.");
+      return;
+    }
+    try { window.history.replaceState(null, "", window.location.pathname); } catch { /* nada */ }
+    onListo();
+  }
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--h-fondo)", padding: 24 }}>
+      <div style={{ ...cardStyle, maxWidth: 380, width: "100%", padding: "28px 26px" }}>
+        <div style={{ fontSize: 17, color: "var(--h-texto)", fontWeight: 700, marginBottom: 6 }}>Elegí tu contraseña nueva</div>
+        <div style={{ fontSize: 13, color: "var(--h-sub)", marginBottom: 6 }}>Después entrás directo a la app.</div>
+        <label style={labelStyle}>Contraseña nueva</label>
+        <input type="password" style={inputStyle} value={p1} onChange={(e) => setP1(e.target.value)} placeholder="••••••••" />
+        <label style={labelStyle}>Repetir contraseña</label>
+        <input type="password" style={inputStyle} value={p2} onChange={(e) => setP2(e.target.value)} placeholder="••••••••"
+          onKeyDown={(e) => { if (e.key === "Enter") guardar(); }} />
+        {msg && <div style={{ color: "var(--h-error)", fontSize: 12.5, marginTop: 10 }}>{msg}</div>}
+        <button type="button" onClick={guardar} disabled={cargando} style={buttonStyle}>
+          {cargando ? "Guardando…" : "Guardar y entrar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default function AppRoot() {
+  const [sesion, setSesion] = useState(null); // null = todavía no se sabe, undefined-like inicial
+  const [chequeandoSesion, setChequeandoSesion] = useState(true);
+  const [datosListos, setDatosListos] = useState(false);
+  const [perfil, setPerfil] = useState(null);
+  const userIdCargado = React.useRef(null);
+  // Entró desde el link de "Olvidé mi contraseña": primero elige la nueva.
+  const [nuevaClave, setNuevaClave] = useState(() => typeof window !== "undefined" && /type=recovery/.test(window.location.hash));
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSesion(data.session);
+      setChequeandoSesion(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((evento, nuevaSesion) => {
+      if (evento === "PASSWORD_RECOVERY") setNuevaClave(true);
+      setSesion(nuevaSesion);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const userId = sesion?.user?.id || null;
+    // Supabase renueva el token de sesión solo cada tanto (y dispara este evento) sin que
+    // cambie el usuario — antes eso recargaba todo  la app y te devolvía a "Hoy". Ahora solo
+    // recargamos cuando el usuario logueado realmente cambia (login/logout/otra cuenta).
+    if (userId === userIdCargado.current) return;
+    userIdCargado.current = userId;
+
+    if (sesion) {
+      setDatosListos(false);
+      Promise.all([
+        cargarTodo(),
+        supabase.from("profiles").select("*").eq("auth_user_id", sesion.user.id).maybeSingle(),
+      ]).then(([, { data }]) => {
+        setPerfil(data ? { ...data, email: sesion.user.email } : null);
+        setDatosListos(true);
+      });
+    } else {
+      setDatosListos(false);
+      setPerfil(null);
+    }
+  }, [sesion]);
+
+  if (chequeandoSesion) return <PantallaCarga />;
+  if (sesion && nuevaClave) return <NuevaContrasenaPage onListo={() => setNuevaClave(false)} />;
+  if (!sesion) return ES_DEMO ? <LoginDemo /> : <LoginPage />;
+  if (!datosListos) return <PantallaCarga />;
+  if (perfil?.bloqueado) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--h-fondo)", padding: 24 }}>
+        <div style={{ ...cardStyle, maxWidth: 380, padding: "28px 26px", textAlign: "center" }}>
+          <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 600, marginBottom: 8 }}>Tu acceso está bloqueado</div>
+          <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 18 }}>
+            Hablá con el cuerpo técnico o el manager del club si creés que es un error.
+          </div>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (perfil && !perfil.confirmado) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--h-fondo)", padding: 24 }}>
+        <div style={{ ...cardStyle, maxWidth: 380, padding: "28px 26px", textAlign: "center" }}>
+          <div style={{ fontSize: 15, color: "var(--h-texto)", fontWeight: 600, marginBottom: 8 }}>Cuenta pendiente de aprobación</div>
+          <div style={{ fontSize: 12.5, color: "var(--h-sub)", marginBottom: 18 }}>
+            Tu cuenta ya está creada. Ahora falta que el staff del club (Manager o Cuerpo técnico) la apruebe.
+            Te avisamos apenas puedas entrar.
+          </div>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return <AppClub perfil={perfil} />;
+}
+
+const RESPONSIVE_CSS = `
+${FONTS}
+`;
+
+// El viewport dentro del visor de artifacts a veces no tiene <meta viewport>, así que el
+// ancho de layout que usan los @media queries de CSS puede quedar "pegado" en modo escritorio
+// aunque el teléfono sea angosto. window.screen.width lee el ancho físico real de la pantalla,
+// que no se ve afectado por eso, así que decidimos el layout mobile/desktop en JS con ese dato.
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    function check() {
+      const w = Math.min((window.screen && window.screen.width) || window.innerWidth, window.innerWidth || 9999);
+      setIsMobile(w <= 820);
+    }
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+  return isMobile;
+}
+
+const BOTTOM_NAV_ITEMS = [
+  { key: "hoy", label: "Inicio", icono: "inicio" },
+  { key: "wellness", label: "Wellness", icono: "wellness" },
+  { key: "gimnasio", label: "Gimnasio", icono: "gimnasio" },
+  { key: "equipos", label: "Partido", icono: "equipos" },
+];
+
+// Botón de una sección del menú (lateral o del panel "Más").
+function BotonNav({ item, activo, onClick, grande, compacto }) {
+  return (
+    <button
+      className="h-nav-btn"
+      onClick={onClick}
+      aria-current={activo ? "page" : undefined}
+      aria-label={item.label}
+      title={compacto ? item.label : undefined}
+      style={{
+        display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", whiteSpace: "nowrap", overflow: "hidden",
+        padding: grande ? "11px 12px" : "9px 14px", borderRadius: 10, border: "none", marginBottom: 2,
+        fontSize: grande ? 15 : 14, fontFamily: "var(--h-texto-fuente)", fontWeight: activo ? 600 : 500, cursor: "pointer",
+        background: activo ? "var(--h-club)" : "transparent",
+        color: activo ? "var(--h-club-txt)" : "var(--h-texto2)",
+      }}
+    >
+      <Icono nombre={item.icono} size={grande ? 20 : 20} />
+      <span style={{ opacity: compacto ? 0 : 1, transition: "opacity .15s" }}>{item.label}</span>
+    </button>
+  );
+}
+
+function TituloGrupo({ children }) {
+  return (
+    <div style={{ fontFamily: "var(--h-titulo)", fontSize: 14, fontWeight: 800, color: "var(--h-texto)", padding: "0 10px 4px" }}>
+      {children}
+    </div>
+  );
+}
+
+function FirmaADN() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 10px 4px", fontSize: 12, color: "var(--h-sub)" }}>
+      <InsigniaADN size={18} />
+      Hecho por ADN Sports
+    </div>
+  );
+}
+
+function MasMenu({ onSelect, onClose, active, perfil }) {
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(14,22,32,0.45)", zIndex: 100, display: "flex", alignItems: "flex-end" }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--h-panel)", borderTop: "1px solid var(--h-borde)", borderRadius: "18px 18px 0 0",
+          width: "100%", maxHeight: "82vh", overflowY: "auto", padding: "16px 16px 24px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <span style={{ fontSize: 22, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", flex: 1 }}>Menú</span>
+          <BotonAjustes activo={active === CONFIG_ITEM.key} onClick={() => onSelect(CONFIG_ITEM.key)} />
+          <button onClick={onClose} aria-label="Cerrar" style={{ background: "transparent", border: "none", color: "var(--h-sub)", fontSize: 24, cursor: "pointer", minWidth: 44, minHeight: 44 }}>
+            ×
+          </button>
+        </div>
+        {NAV.map((g) => (
+          <div key={g.group || "inicio"} style={{ marginBottom: 14 }}>
+            {g.group && <TituloGrupo>{g.group}</TituloGrupo>}
+            {itemsVisibles(g.items, perfil).map((item) => (
+              <BotonNav key={item.key} item={item} grande activo={active === item.key} onClick={() => onSelect(item.key)} />
+            ))}
+          </div>
+        ))}
+        <FirmaADN />
+      </div>
+    </div>
+  );
+}
+
+function tiempoRelativo(fechaISO) {
+  const diffMin = Math.round((Date.now() - new Date(fechaISO).getTime()) / 60000);
+  if (diffMin < 1) return "recién";
+  if (diffMin < 60) return `hace ${diffMin} min`;
+  const diffH = Math.round(diffMin / 60);
+  if (diffH < 24) return `hace ${diffH} h`;
+  return `hace ${Math.round(diffH / 24)} d`;
+}
+
+const NOTI_DESTINO = {
+  wellness_abierto: "wellness",
+  resultado_cargado: "calendario",
+  partido_agregado: "calendario",
+  formacion_confirmada: "equipos",
+  convocatoria: "hoy",
+  convocatoria_baja: "equipos",
+  alerta_wellness: "wellness",
+  alerta_lesion: "disponibilidad",
+  resumen_semanal: "resumenes",
+  practica_confirmar: "hoy",
+  practica_baja: "sesion",
+  cumpleanos: "hoy",
+  resumen_mensual: "resumenes",
+  sesion_planificada: "sesion",
+  video_partido: "veo",
+  informe_partido: "reportes",
+  lesion_reportada: "disponibilidad",
+  lesion_etapa: "disponibilidad",
+  cuota_informada: "cuotas",
+  cuota_recordatorio: "hoy",
+  cuota_confirmada: "hoy",
+  sync_urba: "calendario",
+  votar_mvp: "hoy",
+  mvp_ganador: "hoy",
+  rpe_cargar: "hoy",
+};
+
+function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfiguracion }) {
+  const [abierto, setAbierto] = useState(false);
+  const [notis, setNotis] = useState([]);
+  const [leidas, setLeidas] = useState(new Set());
+
+  async function cargar() {
+    const desde = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const [{ data: n }, { data: l }] = await Promise.all([
+      supabase.from("notificaciones").select("*").gte("created_at", desde).order("created_at", { ascending: false }),
+      perfil ? supabase.from("notificaciones_leidas").select("notificacion_id").eq("perfil_id", perfil.id) : Promise.resolve({ data: [] }),
+    ]);
+    const leidasSet = new Set((l || []).map((x) => x.notificacion_id));
+    const relevantes = (n || []).filter(
+      (x) => esParaMi(x, perfil) && !leidasSet.has(x.id)
+    );
+    setNotis(relevantes);
+    setLeidas(leidasSet);
+  }
+
+  useEffect(() => {
+    cargar();
+    const intervalo = setInterval(cargar, 60000); // repasa cada 1 min mientras la app está abierta
+    return () => clearInterval(intervalo);
+  }, [perfil?.id]);
+
+  async function marcarLeida(id) {
+    if (!perfil || leidas.has(id)) return;
+    setLeidas((prev) => new Set(prev).add(id));
+    setNotis((prev) => prev.filter((n) => n.id !== id)); // desaparece de la lista apenas se abre
+    await supabase.from("notificaciones_leidas").insert({ notificacion_id: id, perfil_id: perfil.id });
+  }
+
+  function abrirNotificacion(n) {
+    marcarLeida(n.id);
+    setAbierto(false);
+    if (n.tipo === "usuario_pendiente" && onIrAConfiguracion) {
+      onIrAConfiguracion("personas");
+      return;
+    }
+    const destino = n.tipo === "lesion_etapa" && perfil?.rol === "Jugador" ? "hoy" : NOTI_DESTINO[n.tipo];
+    if (destino && onNavigate) onNavigate(destino);
+  }
+
+  const sinLeer = notis.length;
+  const botonRef = React.useRef(null);
+  const [pos, setPos] = useState(null);
+  function alternar() {
+    if (!abierto && botonRef.current) {
+      // El panel se ubica fijo en la pantalla, así no lo corta el menú lateral.
+      const r = botonRef.current.getBoundingClientRect();
+      const ancho = Math.min(360, window.innerWidth - 24);
+      const left = align === "left" ? Math.max(12, Math.min(r.left, window.innerWidth - ancho - 12)) : Math.max(12, r.right - ancho);
+      setPos({ top: r.bottom + 8, left, ancho, alto: Math.max(240, window.innerHeight - r.bottom - 24) });
+    }
+    setAbierto((v) => !v);
+  }
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        ref={botonRef}
+        onClick={alternar}
+        aria-label="Notificaciones"
+        style={{ background: "transparent", border: "none", cursor: "pointer", position: "relative", padding: 8, color: "var(--h-texto2)", display: "flex", minWidth: 40, minHeight: 40, alignItems: "center", justifyContent: "center" }}
+      >
+        <Icono nombre="campana" size={22} />
+        {sinLeer > 0 && (
+          <span
+            aria-label={`${sinLeer} sin leer`}
+            style={{
+              position: "absolute", top: 8, right: 8, width: 9, height: 9, borderRadius: "50%",
+              background: "var(--h-club)", boxShadow: "0 0 0 2px var(--h-fondo)",
+            }}
+          />
+        )}
+      </button>
+      {abierto && pos && (
+        <>
+          <div onClick={() => setAbierto(false)} style={{ position: "fixed", inset: 0, zIndex: 90 }} />
+          <div
+            role="dialog"
+            aria-label="Notificaciones"
+            style={{
+              position: "fixed", top: pos.top, left: pos.left, width: pos.ancho, maxHeight: Math.min(480, pos.alto), overflowY: "auto",
+              background: "var(--h-panel)", border: "1px solid var(--h-borde)", borderRadius: 14, zIndex: 91,
+              boxShadow: "0 12px 32px rgba(14,22,32,0.18)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px 8px", position: "sticky", top: 0, background: "var(--h-panel)" }}>
+              <span style={{ fontFamily: "var(--h-titulo)", fontSize: 18, fontWeight: 800, color: "var(--h-texto)" }}>Avisos</span>
+              <button onClick={() => setAbierto(false)} aria-label="Cerrar" style={{ background: "none", border: "none", fontSize: 22, color: "var(--h-sub)", cursor: "pointer", minWidth: 36, minHeight: 36 }}>×</button>
+            </div>
+            {notis.length === 0 && <div style={{ fontSize: 13.5, color: "var(--h-sub)", padding: "8px 14px 16px" }}>No tenés avisos nuevos.</div>}
+            {notis.map((n) => (
+              <button
+                key={n.id}
+                onClick={() => abrirNotificacion(n)}
+                style={{
+                  display: "flex", gap: 10, width: "100%", textAlign: "left", padding: "12px 14px", border: "none", borderTop: "1px solid var(--h-borde)",
+                  background: "transparent", cursor: "pointer", fontFamily: "var(--h-texto-fuente)",
+                }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--h-club)", marginTop: 6, flexShrink: 0 }} />
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: 14, color: "var(--h-texto)", lineHeight: 1.4 }}>{sinEmojis(n.mensaje)}</span>
+                  <span style={{ display: "block", fontSize: 12, color: "var(--h-sub)", marginTop: 3 }}>{tiempoRelativo(n.created_at)}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Nombre de la app: "ADN Obras", "ADN Berazategui"… ("ADN" en verde ADN, el club en su color).
+function nombreClubCorto(club) {
+  return club?.nombre_corto || club?.nombre || (CLUB_SLUG === "obras" ? "Obras" : "");
+}
+function NombreApp({ chico, size }) {
+  const club = useClub();
+  const nombre = nombreClubCorto(club);
+  return (
+    <span style={{ fontFamily: "var(--h-titulo)", fontSize: size || (chico ? 19 : 21), fontWeight: 800, lineHeight: 1.05, color: "var(--h-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
+      <span style={{ color: "#1FA37A" }}>ADN</span> <span style={{ color: "var(--h-club-tinta, var(--h-acento))" }}>{nombre}</span>
+    </span>
+  );
+}
+
+function AppClub({ perfil }) {
+  const club = useClub();
+  const [active, setActive] = useState("hoy");
+  const [configTabInicial, setConfigTabInicial] = useState(null);
+  const [masAbierto, setMasAbierto] = useState(false);
+  const [temaPref, setTemaPrefEstado] = useState(() => {
+    try { return (localStorage.getItem("adn-tema")) === "oscuro" ? "Oscuro" : "Claro"; } catch (e) { return "Claro"; }
+  });
+  const [novedadVista, setNovedadVista] = useState(false); // una sola vez por sesión iniciada, no cada vez que se entra a Hoy
+  const isMobile = useIsMobile();
+
+  function setTemaPref(t) {
+    setTemaPrefEstado(t);
+    try { localStorage.setItem("adn-tema", t === "Oscuro" ? "oscuro" : "claro"); } catch (e) {}
+  }
+  // El tema y el color del club se aplican a toda la página (también a los paneles que se abren por encima).
+  useEffect(() => {
+    if (temaPref === "Oscuro") document.documentElement.dataset.tema = "oscuro";
+    else delete document.documentElement.dataset.tema;
+  }, [temaPref]);
+  useEffect(() => {
+    const n = nombreClubCorto(club);
+    if (n) document.title = `ADN ${n}`;
+  }, [club?.nombre_corto, club?.nombre]);
+  useEffect(() => {
+    const c = club?.color_primario;
+    if (!c || !/^#[0-9a-f]{6}$/i.test(c)) return;
+    const raiz = document.documentElement.style;
+    raiz.setProperty("--h-club", c);
+    raiz.setProperty("--h-club-txt", luminancia(c) > 0.4 ? "#0E1620" : "#FFFFFF");
+    raiz.setProperty("--h-club-oscuro", tonoLegible(c));
+  }, [club?.color_primario]);
+
+  // Menú lateral (compu): plegado en íconos y se despliega al pasar el mouse.
+  const RIEL = 76;
+  const [menuAbierto, setMenuAbierto] = useState(false);
+  const timerMenu = React.useRef(null);
+  function abrirMenu() { clearTimeout(timerMenu.current); timerMenu.current = setTimeout(() => setMenuAbierto(true), 80); }
+  function cerrarMenu() { clearTimeout(timerMenu.current); timerMenu.current = setTimeout(() => setMenuAbierto(false), 180); }
+
+  // Celular: la barra de abajo se esconde al bajar y aparece al subir. La cabecera (logos) queda fija.
+  const [barraVisible, setBarraVisible] = useState(true);
+  useEffect(() => {
+    let ultimo = 0;
+    function alScrollear(e) {
+      const el = e?.target && e.target !== document ? e.target : document.scrollingElement || document.documentElement;
+      const y = el.scrollTop || window.scrollY || 0;
+      const dif = y - ultimo;
+      if (y < 40) setBarraVisible(true);
+      else if (dif > 6) setBarraVisible(false);
+      else if (dif < -6) setBarraVisible(true);
+      if (Math.abs(dif) > 6 || y < 40) ultimo = y;
+    }
+    window.addEventListener("scroll", alScrollear, { passive: true });
+    const main = document.querySelector(".main-content");
+    main?.addEventListener("scroll", alScrollear, { passive: true });
+    return () => { window.removeEventListener("scroll", alScrollear); main?.removeEventListener("scroll", alScrollear); };
+  }, []);
+  useEffect(() => { setBarraVisible(true); }, [active]);
+
+  // Tocar el logo de ADN vuelve al inicio (y arriba de todo).
+  function irAlInicio() {
+    setMasAbierto(false);
+    setActive("hoy");
+    try { window.scrollTo({ top: 0, behavior: "smooth" }); document.querySelector(".main-content")?.scrollTo({ top: 0 }); } catch (e) { /* nada */ }
+  }
+  function irAConfiguracion(tabKey) {
+    setConfigTabInicial(tabKey);
+    setActive(CONFIG_ITEM.key);
+  }
+  // Compu: menú al costado. Celular: barra abajo.
+  const mostrarSidebar = !isMobile;
+  const activeLabel =
+    NAV.flatMap((g) => g.items).find((i) => i.key === active)?.label ||
+    (active === CONFIG_ITEM.key ? CONFIG_ITEM.label : undefined);
+
+  return (
+    <div style={{ display: "flex", minHeight: "100vh", background: "var(--h-fondo)", fontFamily: "var(--h-texto-fuente)", color: "var(--h-texto)" }}>
+      <style>{RESPONSIVE_CSS}</style>
+
+      {mostrarSidebar && (
+        // Menú lateral plegado: logo de ADN, escudo del club e íconos. Al acercar el mouse se despliega
+        // por encima del contenido (sin moverlo) con los nombres de cada sección.
+        <div style={{ width: RIEL, flexShrink: 0, position: "sticky", top: 0, height: "100vh", zIndex: 60 }}>
+          <nav
+            aria-label="Menú principal"
+            onMouseEnter={abrirMenu}
+            onMouseLeave={cerrarMenu}
+            onFocus={abrirMenu}
+            onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) cerrarMenu(); }}
+            style={{
+              position: "absolute", top: 0, left: 0, height: "100vh", width: menuAbierto ? 248 : RIEL,
+              transition: "width .18s ease, box-shadow .18s ease", overflowX: "hidden", overflowY: "auto", scrollbarWidth: menuAbierto ? "thin" : "none",
+              background: "var(--h-panel)", borderRight: "1px solid var(--h-borde)", boxSizing: "border-box",
+              padding: "16px 14px", display: "flex", flexDirection: "column",
+              boxShadow: menuAbierto ? "8px 0 28px rgba(14,22,32,0.18)" : "none",
+            }}
+          >
+            <button onClick={() => { irAlInicio(); setMenuAbierto(false); }} aria-label="Ir al inicio" title="Ir al inicio"
+              style={{ display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", padding: "0 6px", cursor: "pointer", textAlign: "left", width: "100%", minHeight: 40 }}>
+              <InsigniaADN size={36} />
+              <span style={{ opacity: menuAbierto ? 1 : 0, transition: "opacity .15s", whiteSpace: "nowrap", minWidth: 0, overflow: "hidden" }}><NombreApp /></span>
+            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 9px 0" }}>
+              <span style={{ flexShrink: 0, display: "inline-flex" }}><Shield size={30} /></span>
+              <span style={{ opacity: menuAbierto ? 1 : 0, transition: "opacity .15s", fontSize: 13, color: "var(--h-sub)", whiteSpace: "nowrap" }}>{club?.nombre || "Tu club"}</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: menuAbierto ? "row" : "column", alignItems: menuAbierto ? "center" : "flex-start", gap: 6, padding: "12px 6px 14px", borderBottom: "1px solid var(--h-borde)", marginBottom: 12 }}>
+              <CampanaNotificaciones perfil={perfil} align="left" onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
+              <BotonAjustes activo={active === CONFIG_ITEM.key} onClick={() => { setActive(CONFIG_ITEM.key); setMenuAbierto(false); }} />
+            </div>
+
+            {NAV.map((g, gi) => (
+              <div key={g.group || "inicio"} style={{ marginBottom: 10 }}>
+                {g.group && (
+                  menuAbierto
+                    ? <TituloGrupo>{g.group}</TituloGrupo>
+                    : gi > 0 && <div aria-hidden style={{ height: 1, background: "var(--h-borde)", margin: "4px 10px 8px" }} />
+                )}
+                {itemsVisibles(g.items, perfil).map((item) => (
+                  <BotonNav key={item.key} item={item} compacto={!menuAbierto} activo={active === item.key} onClick={() => { setActive(item.key); setMenuAbierto(false); }} />
+                ))}
+              </div>
+            ))}
+
+            <div style={{ marginTop: "auto", opacity: menuAbierto ? 1 : 0, transition: "opacity .15s", whiteSpace: "nowrap" }}>
+              <FirmaADN />
+            </div>
+          </nav>
+        </div>
+      )}
+
+      <div className="main-content" style={{ flex: 1, minWidth: 0, padding: mostrarSidebar ? "28px 32px" : "0 14px 92px", ...(mostrarSidebar ? { overflow: "auto" } : { overflowX: "clip" }) }}>
+        <SubidorPartidosVivo />
+        {ES_DEMO && <BandaDemo />}
+        <PedidoNotificaciones perfil={perfil} />
+        {!mostrarSidebar && (
+          <div style={{ position: "sticky", top: 0, zIndex: 30, background: "var(--h-fondo)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "12px 0 10px", margin: "0 0 6px" }}>
+            <button onClick={irAlInicio} aria-label="Ir al inicio" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
+              <InsigniaADN size={30} />
+              <span style={{ flexShrink: 0, display: "inline-flex" }}><Shield size={30} /></span>
+              <NombreApp chico />
+            </button>
+            <CampanaNotificaciones perfil={perfil} onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
+          </div>
+        )}
+        <div style={{ maxWidth: 1100 }}>
+        <ErrorBoundary key={active} onReset={() => setActive("hoy")}>
+        {active === "hoy" ? (
+          <HoyPage
+            onNavigate={setActive}
+            onIrAConfiguracion={irAConfiguracion}
+            novedadVista={novedadVista}
+            setNovedadVista={setNovedadVista}
+            perfil={perfil}
+          />
+        ) : active === "torneo" ? (
+          <TorneoPage perfil={perfil} />
+        ) : active === "calendario" ? (
+          <CalendarioPage perfil={perfil} />
+        ) : active === "sesion" ? (
+          <SesionPage perfil={perfil} />
+        ) : active === "gimnasio" ? (
+          <GimnasioPage perfil={perfil} />
+        ) : active === "plantel-completo" ? (
+          <PlantelCompletoPage perfil={perfil} />
+        ) : active === "equipos" ? (
+          <EquiposPage perfil={perfil} />
+        ) : active === "disponibilidad" ? (
+          <EstadoPlantelPage perfil={perfil} />
+        ) : active === "cuotas" ? (
+          <CuotasPage perfil={perfil} />
+        ) : active === "evaluaciones" ? (
+          <EvaluacionesPage perfil={perfil} />
+        ) : active === "veo" ? (
+          <VeoPage perfil={perfil} />
+        ) : active === "wellness" ? (
+          <WellnessPage perfil={perfil} />
+        ) : active === "rtp" ? (
+          <EstadoPlantelPage perfil={perfil} />
+        ) : active === "resumenes" ? (
+          <ResumenesPage perfil={perfil} />
+        ) : active === "reportes" ? (
+          <ReportesPage perfil={perfil} />
+        ) : active === "videoteca" ? (
+          <VideotecaPage perfil={perfil} />
+        ) : active === "feedback-adn" ? (
+          <FeedbackPage perfil={perfil} />
+        ) : active === CONFIG_ITEM.key ? (
+          <ConfiguracionPage
+            temaPref={temaPref}
+            setTemaPref={setTemaPref}
+            tabInicial={configTabInicial}
+            perfil={perfil}
+          />
+        ) : (
+          <Placeholder label={activeLabel} />
+        )}
+        </ErrorBoundary>
+        </div>
+      </div>
+
+      {!mostrarSidebar && (
+        <nav
+          aria-label="Secciones"
+          style={{
+            position: "fixed", bottom: 0, left: 0, right: 0, background: "var(--h-panel)", borderTop: "1px solid var(--h-borde)",
+            padding: "6px 4px calc(6px + env(safe-area-inset-bottom))", display: "grid", gridTemplateColumns: "repeat(5, 1fr)", zIndex: 40,
+            // Se esconde al bajar y vuelve al subir (o al llegar arriba de todo).
+            transform: barraVisible ? "translateY(0)" : "translateY(110%)", transition: "transform .22s ease",
+          }}
+        >
+          {[...BOTTOM_NAV_ITEMS, { key: "__mas", label: "Menú", icono: "mas" }].map((item) => {
+            const activo = item.key === "__mas" ? masAbierto : active === item.key;
+            return (
+              <button
+                key={item.key}
+                onClick={() => (item.key === "__mas" ? setMasAbierto(true) : setActive(item.key))}
+                aria-current={activo ? "page" : undefined}
+                style={{
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "transparent", border: "none",
+                  cursor: "pointer", color: activo ? "var(--h-club-tinta)" : "var(--h-sub)", fontSize: 11, fontWeight: activo ? 700 : 500,
+                  fontFamily: "var(--h-texto-fuente)", minHeight: 48, padding: "4px 0",
+                }}
+              >
+                <Icono nombre={item.icono} size={22} />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+      )}
+
+      {masAbierto && (
+        <MasMenu
+          active={active}
+          perfil={perfil}
+          onClose={() => setMasAbierto(false)}
+          onSelect={(key) => {
+            setActive(key);
+            setMasAbierto(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function luminancia(hex) {
+  const lum = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  return 0.2126 * lum(parseInt(hex.slice(1, 3), 16)) + 0.7152 * lum(parseInt(hex.slice(3, 5), 16)) + 0.0722 * lum(parseInt(hex.slice(5, 7), 16));
+}
+
+// El color del club como texto sobre fondo claro: si es muy claro (amarillo, celeste…) se oscurece
+// lo justo para que se lea. Los fondos de color usan el color tal cual, con texto oscuro o blanco.
+function tonoLegible(hex) {
+  let r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+  const lum = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  let i = 0;
+  while (0.2126 * lum(r) + 0.7152 * lum(g) + 0.0722 * lum(b) > 0.12 && i < 30) {
+    r = Math.round(r * 0.9); g = Math.round(g * 0.9); b = Math.round(b * 0.9); i++;
+  }
+  return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
+const cardStyle = {
+  background: "var(--h-panel)",
+  border: "1px solid var(--h-borde)",
+  borderRadius: 14,
+  boxShadow: "var(--h-sombra)",
+};
+
+const tagStyle = {
+  fontSize: 11,
+  padding: "3px 8px",
+  borderRadius: 5,
+  background: "var(--h-panel2)",
+  color: "var(--h-texto2)",
+};
+
+const pillButton = {
+  padding: "8px 16px",
+  borderRadius: 999,
+  fontSize: 13,
+  fontFamily: "var(--h-texto-fuente)",
+  fontWeight: 500,
+  cursor: "pointer",
+};
+
+const labelStyle = {
+  display: "block",
+  fontSize: 12,
+  color: "var(--h-sub)",
+  marginTop: 14,
+  marginBottom: 6,
+};
+
+const inputStyle = {
+  width: "100%",
+  boxSizing: "border-box",
+  background: "var(--h-campo)",
+  border: "1px solid var(--h-borde2)",
+  borderRadius: 6,
+  padding: "10px 12px",
+  color: "var(--h-texto)",
+  fontSize: 14,
+  fontFamily: "var(--h-texto-fuente)",
+  outline: "none",
+};
+
+const buttonStyle = {
+  width: "100%",
+  marginTop: 22,
+  padding: "11px 0",
+  background: "var(--h-acento)",
+  border: "none",
+  borderRadius: 6,
+  color: "var(--h-panel)",
+  fontFamily: "var(--h-titulo)",
+  fontWeight: 600,
+  fontSize: 14,
+  letterSpacing: 0.5,
+  cursor: "pointer",
+};

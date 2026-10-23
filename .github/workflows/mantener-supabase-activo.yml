@@ -1,0 +1,31 @@
+# Supabase pausa los proyectos gratuitos después de unos días sin consultas.
+# Este flujo hace una consulta liviana a cada base todos los días para que nunca se pausen.
+# Las claves son las públicas (las mismas que usan las apps en el navegador).
+name: Mantener Supabase activo
+
+on:
+  schedule:
+    - cron: "17 9 * * *" # todos los días, 06:17 de Argentina
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Panel de ADN
+        if: always()
+        run: |
+          # Cualquier respuesta de la base (aunque sea "sin permiso") cuenta como actividad.
+          code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 60 \
+            "https://jjbpkdthnokfkivifpkr.supabase.co/rest/v1/planes?select=codigo&limit=1" \
+            -H "apikey: sb_publishable_rKocUz3tE3obSdQhwmh9XA_qralPW_1" || echo 000)
+          echo "Panel ADN: HTTP $code"
+          [ "$code" -ge 200 ] && [ "$code" -lt 500 ]
+      - name: App de Obras
+        if: always()
+        run: |
+          code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 60 \
+            "https://xnyleewcwrriodkaklqo.supabase.co/rest/v1/clubes?select=id&limit=1" \
+            -H "apikey: sb_publishable_AXWyRi8sy_ZoSA7oTkHRUQ_YrqASf5a" || echo 000)
+          echo "App Obras: HTTP $code"
+          [ "$code" -ge 200 ] && [ "$code" -lt 500 ]

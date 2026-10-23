@@ -1,0 +1,38 @@
+# Baja una imagen pública (por ejemplo, un escudo del bucket "escudos" de Supabase) y la guarda en
+# la rama "recursos", para usarla en piezas gráficas (videos, flyers). Se corre a mano.
+name: Traer recurso
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "URL pública de la imagen"
+        required: true
+      nombre:
+        description: "Nombre del archivo a guardar (por ejemplo escudo-berazategui.png)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  traer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bajar y guardar en la rama recursos
+        env:
+          URL: ${{ inputs.url }}
+          NOMBRE: ${{ inputs.nombre }}
+        run: |
+          case "$URL" in https://xnyleewcwrriodkaklqo.supabase.co/storage/v1/object/public/*) ;; *) echo "::error::Solo se aceptan imágenes públicas de la base de Obras"; exit 1;; esac
+          case "$NOMBRE" in *[!a-zA-Z0-9._-]*|"") echo "::error::Nombre inválido"; exit 1;; esac
+          curl -sSf --max-time 60 "$URL" -o "/tmp/$NOMBRE"
+          git config user.name "adn-recursos"
+          git config user.email "adn-recursos@users.noreply.github.com"
+          git fetch origin recursos && git checkout recursos || git checkout --orphan recursos
+          git rm -rq --cached . 2>/dev/null || true
+          mkdir -p recursos && cp "/tmp/$NOMBRE" "recursos/$NOMBRE"
+          git add "recursos/$NOMBRE"
+          git commit -qm "Recurso: $NOMBRE" || echo "sin cambios"
+          git push -q origin recursos

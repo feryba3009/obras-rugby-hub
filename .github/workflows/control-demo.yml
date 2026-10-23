@@ -1,0 +1,94 @@
+# Pruebas de la app: se compila la versión demo (datos de ejemplo, sin tocar ninguna base real) y un
+# navegador automático hace los recorridos más usados (wellness, convocatoria, ficha, equipo, partido
+# en vivo...) y recorre todas las pantallas. Si algo falla, GitHub manda el mail de "Run failed".
+# Las capturas quedan en la rama "recursos" (demo-capturas y pruebas-capturas).
+name: Pruebas de la app
+on:
+  push:
+    branches: [main, demo]
+    paths: ["obras-rugby-hub-project/**", ".github/workflows/control-demo.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: pruebas-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: obras-rugby-hub-project
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - name: Compilar demo
+        run: npm run build
+        env:
+          VITE_DEMO: "1"
+          VITE_CLUB_SLUG: berazategui
+          VITE_SUPABASE_URL: https://demo.invalid
+          VITE_SUPABASE_ANON_KEY: demo
+      - run: npm install --no-save --no-audit --no-fund playwright@1.48.2 && npx playwright install --with-deps chromium
+      - name: Levantar la app
+        run: |
+          (npx vite preview --port 4173 --strictPort > /tmp/preview.log 2>&1 &)
+          for i in $(seq 1 30); do curl -sf http://localhost:4173 >/dev/null && break; sleep 1; done
+      - name: Recorridos más usados
+        id: recorridos
+        continue-on-error: true
+        run: node scripts/pruebas-recorridos.mjs http://localhost:4173
+      - name: Recorrer todas las pantallas
+        id: pantallas
+        continue-on-error: true
+        run: node scripts/prueba-demo.mjs http://localhost:4173
+      - name: Alta de cuenta (versión real, con la base simulada)
+        id: registro
+        continue-on-error: true
+        run: |
+          VITE_SUPABASE_URL=https://prueba.invalid VITE_SUPABASE_ANON_KEY=prueba VITE_CLUB_SLUG=obras npx vite build --outDir dist-registro
+          (npx vite preview --outDir dist-registro --port 4174 --strictPort > /tmp/preview-registro.log 2>&1 &)
+          for i in $(seq 1 30); do curl -sf http://localhost:4174 >/dev/null && break; sleep 1; done
+          node scripts/pruebas-registro.mjs http://localhost:4174
+      - name: Demo genérica (club inventado)
+        id: generica
+        continue-on-error: true
+        env:
+          VITE_DEMO: "1"
+          VITE_DEMO_CLUB: generico
+          VITE_CLUB_SLUG: demo
+          VITE_SUPABASE_URL: https://demo.invalid
+          VITE_SUPABASE_ANON_KEY: demo
+        run: |
+          mv capturas-demo capturas-demo-bera 2>/dev/null || true
+          npm run build
+          node scripts/prueba-demo.mjs http://localhost:4173
+          if grep -q "Berazategui" dist/index.html; then echo "::error::La demo genérica dice Berazategui"; exit 1; fi
+          mv capturas-demo capturas-generica && mv capturas-demo-bera capturas-demo
+      - name: Guardar capturas en la rama recursos
+        if: always()
+        run: |
+          mkdir -p /tmp/cap/demo /tmp/cap/pruebas
+          cp -r capturas-demo/. /tmp/cap/demo/ 2>/dev/null || true
+          cp -r capturas-pruebas/. /tmp/cap/pruebas/ 2>/dev/null || true
+          mkdir -p /tmp/cap/generica && cp -r capturas-generica/. /tmp/cap/generica/ 2>/dev/null || true
+          cd ..
+          git config user.name "adn-recursos"
+          git config user.email "adn-recursos@users.noreply.github.com"
+          for intento in 1 2 3; do
+            git fetch -q origin recursos && git checkout -qf -B recursos origin/recursos || git checkout -q --orphan recursos
+            git rm -rq --cached . 2>/dev/null || true
+            rm -rf demo-capturas pruebas-capturas generica-capturas && mkdir -p demo-capturas pruebas-capturas generica-capturas
+            cp -r /tmp/cap/demo/. demo-capturas/ ; cp -r /tmp/cap/pruebas/. pruebas-capturas/ ; cp -r /tmp/cap/generica/. generica-capturas/
+            touch pruebas-capturas/.keep
+            git add demo-capturas pruebas-capturas generica-capturas
+            git commit -qm "Capturas de las pruebas" || { echo "sin cambios"; break; }
+            git push -q origin recursos && break
+            sleep 3
+          done
+      - name: Resultado
+        if: steps.recorridos.outcome == 'failure' || steps.pantallas.outcome == 'failure' || steps.generica.outcome == 'failure' || steps.registro.outcome == 'failure'
+        run: exit 1
