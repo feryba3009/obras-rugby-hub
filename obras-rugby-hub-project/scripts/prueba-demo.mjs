@@ -25,9 +25,15 @@ async function recorrer(rol, boton, pantallas, viewport) {
     try {
       const entendido = p.getByRole("button", { name: "Entendido" }).first();
       if (await entendido.isVisible().catch(() => false)) { await entendido.click(); await p.waitForTimeout(300); }
-      const porEtiqueta = p.locator(`[aria-label="${nombre}"]:visible`).first();
-      if (await porEtiqueta.count()) await porEtiqueta.click({ timeout: 6000 });
-      else await p.getByText(nombre, { exact: true }).first().click({ timeout: 6000 });
+      // El menú va por áreas: si la sección no está a la vista, primero se abre su área.
+      const seccion = p.locator(`button[aria-label="${nombre}"]:not([data-secciones]):visible`).first();
+      if (!(await seccion.count())) {
+        const area = p.locator(`[data-secciones*="|${nombre}|"]:visible`).first();
+        if (!(await area.count())) throw new Error("sin área");
+        await area.click({ timeout: 6000 });
+        await p.waitForTimeout(600);
+      }
+      if (await seccion.count()) await seccion.click({ timeout: 6000 });
       await p.waitForTimeout(1800);
     } catch (e) { fallas.push(`[${rol}] No pude abrir "${nombre}"`); }
     const t = await p.locator("body").innerText().catch(() => "");
@@ -43,7 +49,7 @@ try {
   await recorrer("staff", "Entrar como entrenador",
     ["Inicio", "Wellness", "Gimnasio", "Agenda", "Práctica del día", "Plantel", "Estado del plantel", "Tests físicos", "Torneo", "Equipo del partido", "Videos del rival", "Estadísticas", "Análisis de video", "Resúmenes", "Ajustes"], escritorio);
   await recorrer("jugador", "Entrar como jugador", ["Inicio", "Wellness", "Gimnasio", "Agenda", "Torneo"], escritorio);
-  await recorrer("celular", "Entrar como entrenador", ["Inicio"], { width: 390, height: 844 });
+  await recorrer("celular", "Entrar como entrenador", ["Inicio", "Práctica del día", "Equipo del partido", "Ajustes"], { width: 390, height: 844 });
 } catch (e) { fallas.push(`La prueba no pudo terminar: ${e?.message || e}`); }
 await navegador.close();
 

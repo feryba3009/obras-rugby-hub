@@ -50,52 +50,45 @@ const FONTS = `
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600&display=swap');
 `;
 
-// Menú de la app, agrupado por función: entrenamiento, jugadores, partido y análisis.
 // Cada sección tiene su ícono de línea (sin emojis). Un grupo sin nombre va sin título.
+// Menú por momentos de la semana: cada área agrupa sus secciones. "jugador" es el nombre que ve el
+// plantel (el staff ve "label"); "corto" es el que entra en la franja del celular.
 const NAV = [
+  { area: "hoy", label: "Hoy", corto: "Hoy", icono: "inicio", items: [{ key: "hoy", label: "Inicio", icono: "inicio" }] },
   {
-    group: "",
-    items: [
-      { key: "hoy", label: "Inicio", icono: "inicio" },
-      { key: "wellness", label: "Wellness", icono: "wellness" },
-      { key: "gimnasio", label: "Gimnasio", icono: "gimnasio" },
-    ],
-  },
-  {
-    group: "Entrenamiento",
+    area: "semana", label: "La semana", jugador: "Mi semana", corto: "Semana", icono: "calendario",
     items: [
       { key: "calendario", label: "Agenda", icono: "calendario" },
       { key: "sesion", label: "Práctica del día", icono: "sesion" },
+      { key: "gimnasio", label: "Gimnasio", icono: "gimnasio" },
+      { key: "wellness", label: "Wellness", icono: "wellness" },
     ],
   },
   {
-    group: "Jugadores",
+    area: "partido", label: "El partido", corto: "Partido", icono: "equipos",
+    items: [
+      { key: "equipos", label: "Equipo del partido", icono: "equipos" },
+      { key: "torneo", label: "Torneo", icono: "torneo" },
+      { key: "videoteca", label: "Videos del rival", icono: "videoteca" },
+      { key: "veo", label: "Análisis de video", icono: "analisis" },
+    ],
+  },
+  {
+    area: "plantel", label: "El plantel", corto: "Plantel", icono: "plantel",
     items: [
       { key: "plantel-completo", label: "Plantel", icono: "plantel" },
       { key: "disponibilidad", label: "Estado del plantel", icono: "disponibilidad" },
       { key: "evaluaciones", label: "Tests físicos", icono: "evaluaciones" },
-      { key: "cuotas", label: "Cuotas", icono: "cuota", roles: ["Cuerpo técnico", "Manager"] },
-    ],
-  },
-  {
-    group: "Partido",
-    items: [
-      { key: "torneo", label: "Torneo", icono: "torneo" },
-      { key: "equipos", label: "Equipo del partido", icono: "equipos" },
-      { key: "videoteca", label: "Videos del rival", icono: "videoteca" },
-    ],
-  },
-  {
-    group: "Rendimiento",
-    items: [
       { key: "reportes", label: "Estadísticas", icono: "reportes" },
-      { key: "veo", label: "Análisis de video", icono: "analisis" },
       { key: "resumenes", label: "Resúmenes", icono: "resumen" },
     ],
   },
   {
-    group: "ADN",
-    items: [{ key: "feedback-adn", label: "Ideas para ADN", icono: "feedback" }],
+    area: "club", label: "El club", corto: "Club", icono: "feedback",
+    items: [
+      { key: "cuotas", label: "Cuotas", icono: "cuota", roles: ["Cuerpo técnico", "Manager"] },
+      { key: "feedback-adn", label: "Ideas para ADN", icono: "feedback" },
+    ],
   },
 ];
 
@@ -11522,83 +11515,95 @@ function useIsMobile() {
   return isMobile;
 }
 
-const BOTTOM_NAV_ITEMS = [
-  { key: "hoy", label: "Inicio", icono: "inicio" },
-  { key: "wellness", label: "Wellness", icono: "wellness" },
-  { key: "gimnasio", label: "Gimnasio", icono: "gimnasio" },
-  { key: "equipos", label: "Partido", icono: "equipos" },
-];
+// Barra de arriba (compu y celular): marca, áreas de la semana y, debajo, las secciones del área.
+function BarraSuperior({ isMobile, areas, areaActiva, active, esJugador, onArea, onSeccion, onInicio, campana, ajustes }) {
+  const nombreArea = (g) => (isMobile ? g.corto : (esJugador && g.jugador) || g.label);
+  const secciones = areaActiva && areaActiva.items.length > 1 ? areaActiva.items : null;
+  const filaSecciones = React.useRef(null);
+  useEffect(() => {
+    const el = filaSecciones.current?.querySelector('[aria-current="page"]');
+    if (el) el.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [active]);
 
-// Botón de una sección del menú (lateral o del panel "Más").
-function BotonNav({ item, activo, onClick, grande, compacto }) {
-  return (
-    <button
-      className="h-nav-btn"
-      onClick={onClick}
-      aria-current={activo ? "page" : undefined}
-      aria-label={item.label}
-      title={compacto ? item.label : undefined}
-      style={{
-        display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", whiteSpace: "nowrap", overflow: "hidden",
-        padding: grande ? "11px 12px" : "9px 14px", borderRadius: 10, border: "none", marginBottom: 2,
-        fontSize: grande ? 15 : 14, fontFamily: "var(--h-texto-fuente)", fontWeight: activo ? 600 : 500, cursor: "pointer",
-        background: activo ? "var(--h-club)" : "transparent",
-        color: activo ? "var(--h-club-txt)" : "var(--h-texto2)",
-      }}
-    >
-      <Icono nombre={item.icono} size={grande ? 20 : 20} />
-      <span style={{ opacity: compacto ? 0 : 1, transition: "opacity .15s" }}>{item.label}</span>
-    </button>
-  );
-}
+  const botonArea = (g) => {
+    const activa = areaActiva?.area === g.area;
+    return (
+      <button
+        key={g.area}
+        onClick={() => onArea(g)}
+        aria-label={(esJugador && g.jugador) || g.label}
+        aria-pressed={activa}
+        data-secciones={"|" + g.items.map((i) => i.label).join("|") + "|"}
+        style={isMobile ? {
+          flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "7px 2px 6px",
+          border: "none", borderRadius: 12, cursor: "pointer", fontSize: 11.5, fontWeight: activa ? 800 : 600, letterSpacing: 0.1,
+          background: activa ? "var(--h-club)" : "transparent", color: activa ? "var(--h-club-txt)" : "var(--h-texto2)",
+          transition: "background .15s",
+        } : {
+          display: "flex", alignItems: "center", gap: 8, padding: "9px 16px", border: "none", borderRadius: 999, cursor: "pointer",
+          fontSize: 15, fontWeight: activa ? 700 : 600, whiteSpace: "nowrap",
+          background: activa ? "var(--h-club)" : "transparent", color: activa ? "var(--h-club-txt)" : "var(--h-texto2)",
+          transition: "background .15s",
+        }}
+      >
+        <Icono nombre={g.icono} size={isMobile ? 19 : 18} />
+        {nombreArea(g)}
+      </button>
+    );
+  };
 
-function TituloGrupo({ children }) {
   return (
-    <div style={{ fontFamily: "var(--h-titulo)", fontSize: 14, fontWeight: 800, color: "var(--h-texto)", padding: "0 10px 4px" }}>
-      {children}
-    </div>
+    <header style={{ position: "sticky", top: 0, zIndex: 50, background: "var(--h-panel)", borderBottom: "1px solid var(--h-borde)" }}>
+      <div style={{ maxWidth: 1164, margin: "0 auto", padding: isMobile ? "10px 14px 8px" : "12px 32px", display: "flex", alignItems: "center", gap: 16 }}>
+        <button onClick={onInicio} aria-label="Ir al inicio" title="Ir al inicio"
+          style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", flexShrink: isMobile ? 1 : 0 }}>
+          <InsigniaADN size={isMobile ? 30 : 34} />
+          <span style={{ flexShrink: 0, display: "inline-flex" }}><Shield size={isMobile ? 28 : 30} /></span>
+          <NombreApp chico={isMobile} />
+        </button>
+        {!isMobile && (
+          <nav aria-label="Áreas" style={{ display: "flex", gap: 4, flex: 1, justifyContent: "center", minWidth: 0 }}>
+            {areas.map(botonArea)}
+          </nav>
+        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: isMobile ? "auto" : 0, flexShrink: 0 }}>
+          {campana}
+          {ajustes}
+        </div>
+      </div>
+      {isMobile && (
+        <nav aria-label="Áreas" style={{ display: "flex", gap: 4, padding: "0 10px 8px" }}>
+          {areas.map(botonArea)}
+        </nav>
+      )}
+      {secciones && (
+        <nav ref={filaSecciones} aria-label={`Secciones de ${areaActiva.label}`}
+          style={{ display: "flex", justifyContent: isMobile ? "flex-start" : "center", gap: isMobile ? 18 : 26, overflowX: "auto", scrollbarWidth: "none",
+            padding: isMobile ? "0 16px" : "0 32px", borderTop: "1px solid var(--h-borde)", background: "var(--h-panel2)" }}>
+          {secciones.map((i) => {
+            const activo = active === i.key;
+            return (
+              <button key={i.key} onClick={() => onSeccion(i.key)} aria-current={activo ? "page" : undefined} aria-label={i.label}
+                style={{
+                  flexShrink: 0, padding: "11px 0 9px", border: "none", background: "transparent", cursor: "pointer", whiteSpace: "nowrap",
+                  fontSize: 14, fontWeight: activo ? 700 : 500, color: activo ? "var(--h-texto)" : "var(--h-sub)",
+                  borderBottom: `3px solid ${activo ? "var(--h-club)" : "transparent"}`,
+                }}>
+                {i.label}
+              </button>
+            );
+          })}
+        </nav>
+      )}
+    </header>
   );
 }
 
 function FirmaADN() {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 10px 4px", fontSize: 12, color: "var(--h-sub)" }}>
-      <InsigniaADN size={18} />
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "28px 0 6px", fontSize: 12, color: "var(--h-sub2)" }}>
+      <InsigniaADN size={16} />
       Hecho por ADN Sports
-    </div>
-  );
-}
-
-function MasMenu({ onSelect, onClose, active, perfil }) {
-  return (
-    <div
-      style={{ position: "fixed", inset: 0, background: "rgba(14,22,32,0.45)", zIndex: 100, display: "flex", alignItems: "flex-end" }}
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: "var(--h-panel)", borderTop: "1px solid var(--h-borde)", borderRadius: "18px 18px 0 0",
-          width: "100%", maxHeight: "82vh", overflowY: "auto", padding: "16px 16px 24px",
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <span style={{ fontSize: 22, color: "var(--h-texto)", fontWeight: 800, fontFamily: "var(--h-titulo)", flex: 1 }}>Menú</span>
-          <BotonAjustes activo={active === CONFIG_ITEM.key} onClick={() => onSelect(CONFIG_ITEM.key)} />
-          <button onClick={onClose} aria-label="Cerrar" style={{ background: "transparent", border: "none", color: "var(--h-sub)", fontSize: 24, cursor: "pointer", minWidth: 44, minHeight: 44 }}>
-            ×
-          </button>
-        </div>
-        {NAV.map((g) => (
-          <div key={g.group || "inicio"} style={{ marginBottom: 14 }}>
-            {g.group && <TituloGrupo>{g.group}</TituloGrupo>}
-            {itemsVisibles(g.items, perfil).map((item) => (
-              <BotonNav key={item.key} item={item} grande activo={active === item.key} onClick={() => onSelect(item.key)} />
-            ))}
-          </div>
-        ))}
-        <FirmaADN />
-      </div>
     </div>
   );
 }
@@ -11688,7 +11693,7 @@ function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfi
   const [pos, setPos] = useState(null);
   function alternar() {
     if (!abierto && botonRef.current) {
-      // El panel se ubica fijo en la pantalla, así no lo corta el menú lateral.
+      // El panel se ubica fijo en la pantalla, así no lo corta la barra de arriba.
       const r = botonRef.current.getBoundingClientRect();
       const ancho = Math.min(360, window.innerWidth - 24);
       const left = align === "left" ? Math.max(12, Math.min(r.left, window.innerWidth - ancho - 12)) : Math.max(12, r.right - ancho);
@@ -11774,7 +11779,6 @@ function AppClub({ perfil }) {
   const club = useClub();
   const [active, setActive] = useState("hoy");
   const [configTabInicial, setConfigTabInicial] = useState(null);
-  const [masAbierto, setMasAbierto] = useState(false);
   const [temaPref, setTemaPrefEstado] = useState(() => {
     try { return (localStorage.getItem("adn-tema")) === "oscuro" ? "Oscuro" : "Claro"; } catch (e) { return "Claro"; }
   });
@@ -11803,36 +11807,8 @@ function AppClub({ perfil }) {
     raiz.setProperty("--h-club-oscuro", tonoLegible(c));
   }, [club?.color_primario]);
 
-  // Menú lateral (compu): plegado en íconos y se despliega al pasar el mouse.
-  const RIEL = 76;
-  const [menuAbierto, setMenuAbierto] = useState(false);
-  const timerMenu = React.useRef(null);
-  function abrirMenu() { clearTimeout(timerMenu.current); timerMenu.current = setTimeout(() => setMenuAbierto(true), 80); }
-  function cerrarMenu() { clearTimeout(timerMenu.current); timerMenu.current = setTimeout(() => setMenuAbierto(false), 180); }
-
-  // Celular: la barra de abajo se esconde al bajar y aparece al subir. La cabecera (logos) queda fija.
-  const [barraVisible, setBarraVisible] = useState(true);
-  useEffect(() => {
-    let ultimo = 0;
-    function alScrollear(e) {
-      const el = e?.target && e.target !== document ? e.target : document.scrollingElement || document.documentElement;
-      const y = el.scrollTop || window.scrollY || 0;
-      const dif = y - ultimo;
-      if (y < 40) setBarraVisible(true);
-      else if (dif > 6) setBarraVisible(false);
-      else if (dif < -6) setBarraVisible(true);
-      if (Math.abs(dif) > 6 || y < 40) ultimo = y;
-    }
-    window.addEventListener("scroll", alScrollear, { passive: true });
-    const main = document.querySelector(".main-content");
-    main?.addEventListener("scroll", alScrollear, { passive: true });
-    return () => { window.removeEventListener("scroll", alScrollear); main?.removeEventListener("scroll", alScrollear); };
-  }, []);
-  useEffect(() => { setBarraVisible(true); }, [active]);
-
   // Tocar el logo de ADN vuelve al inicio (y arriba de todo).
   function irAlInicio() {
-    setMasAbierto(false);
     setActive("hoy");
     try { window.scrollTo({ top: 0, behavior: "smooth" }); document.querySelector(".main-content")?.scrollTo({ top: 0 }); } catch (e) { /* nada */ }
   }
@@ -11840,82 +11816,36 @@ function AppClub({ perfil }) {
     setConfigTabInicial(tabKey);
     setActive(CONFIG_ITEM.key);
   }
-  // Compu: menú al costado. Celular: barra abajo.
-  const mostrarSidebar = !isMobile;
+  const esJugador = perfil?.rol === "Jugador";
+  const areas = NAV.map((g) => ({ ...g, items: itemsVisibles(g.items, perfil) })).filter((g) => g.items.length);
+  const areaActiva = areas.find((g) => g.items.some((i) => i.key === active)) || null;
+  // Al tocar un área se abre la última sección que se miró en ella (o la primera).
+  const ultimaDeArea = React.useRef({});
+  useEffect(() => { if (areaActiva) ultimaDeArea.current[areaActiva.area] = active; }, [active]);
+  function abrirArea(g) {
+    const recordada = ultimaDeArea.current[g.area];
+    setActive(g.items.some((i) => i.key === recordada) ? recordada : g.items[0].key);
+    try { window.scrollTo({ top: 0 }); } catch (e) { /* nada */ }
+  }
   const activeLabel =
     NAV.flatMap((g) => g.items).find((i) => i.key === active)?.label ||
     (active === CONFIG_ITEM.key ? CONFIG_ITEM.label : undefined);
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "var(--h-fondo)", fontFamily: "var(--h-texto-fuente)", color: "var(--h-texto)" }}>
+    <div style={{ minHeight: "100vh", background: "var(--h-fondo)", fontFamily: "var(--h-texto-fuente)", color: "var(--h-texto)" }}>
       <style>{RESPONSIVE_CSS}</style>
 
-      {mostrarSidebar && (
-        // Menú lateral plegado: logo de ADN, escudo del club e íconos. Al acercar el mouse se despliega
-        // por encima del contenido (sin moverlo) con los nombres de cada sección.
-        <div style={{ width: RIEL, flexShrink: 0, position: "sticky", top: 0, height: "100vh", zIndex: 60 }}>
-          <nav
-            aria-label="Menú principal"
-            onMouseEnter={abrirMenu}
-            onMouseLeave={cerrarMenu}
-            onFocus={abrirMenu}
-            onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) cerrarMenu(); }}
-            style={{
-              position: "absolute", top: 0, left: 0, height: "100vh", width: menuAbierto ? 248 : RIEL,
-              transition: "width .18s ease, box-shadow .18s ease", overflowX: "hidden", overflowY: "auto", scrollbarWidth: menuAbierto ? "thin" : "none",
-              background: "var(--h-panel)", borderRight: "1px solid var(--h-borde)", boxSizing: "border-box",
-              padding: "16px 14px", display: "flex", flexDirection: "column",
-              boxShadow: menuAbierto ? "8px 0 28px rgba(14,22,32,0.18)" : "none",
-            }}
-          >
-            <button onClick={() => { irAlInicio(); setMenuAbierto(false); }} aria-label="Ir al inicio" title="Ir al inicio"
-              style={{ display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", padding: "0 6px", cursor: "pointer", textAlign: "left", width: "100%", minHeight: 40 }}>
-              <InsigniaADN size={36} />
-              <span style={{ opacity: menuAbierto ? 1 : 0, transition: "opacity .15s", whiteSpace: "nowrap", minWidth: 0, overflow: "hidden" }}><NombreApp /></span>
-            </button>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 9px 0" }}>
-              <span style={{ flexShrink: 0, display: "inline-flex" }}><Shield size={30} /></span>
-              <span style={{ opacity: menuAbierto ? 1 : 0, transition: "opacity .15s", fontSize: 13, color: "var(--h-sub)", whiteSpace: "nowrap" }}>{club?.nombre || "Tu club"}</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: menuAbierto ? "row" : "column", alignItems: menuAbierto ? "center" : "flex-start", gap: 6, padding: "12px 6px 14px", borderBottom: "1px solid var(--h-borde)", marginBottom: 12 }}>
-              <CampanaNotificaciones perfil={perfil} align="left" onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
-              <BotonAjustes activo={active === CONFIG_ITEM.key} onClick={() => { setActive(CONFIG_ITEM.key); setMenuAbierto(false); }} />
-            </div>
+      <BarraSuperior
+        isMobile={isMobile} areas={areas} areaActiva={areaActiva} active={active} esJugador={esJugador}
+        onArea={abrirArea} onSeccion={setActive} onInicio={irAlInicio}
+        campana={<CampanaNotificaciones perfil={perfil} onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />}
+        ajustes={<BotonAjustes activo={active === CONFIG_ITEM.key} onClick={() => setActive(CONFIG_ITEM.key)} />}
+      />
 
-            {NAV.map((g, gi) => (
-              <div key={g.group || "inicio"} style={{ marginBottom: 10 }}>
-                {g.group && (
-                  menuAbierto
-                    ? <TituloGrupo>{g.group}</TituloGrupo>
-                    : gi > 0 && <div aria-hidden style={{ height: 1, background: "var(--h-borde)", margin: "4px 10px 8px" }} />
-                )}
-                {itemsVisibles(g.items, perfil).map((item) => (
-                  <BotonNav key={item.key} item={item} compacto={!menuAbierto} activo={active === item.key} onClick={() => { setActive(item.key); setMenuAbierto(false); }} />
-                ))}
-              </div>
-            ))}
-
-            <div style={{ marginTop: "auto", opacity: menuAbierto ? 1 : 0, transition: "opacity .15s", whiteSpace: "nowrap" }}>
-              <FirmaADN />
-            </div>
-          </nav>
-        </div>
-      )}
-
-      <div className="main-content" style={{ flex: 1, minWidth: 0, padding: mostrarSidebar ? "28px 32px" : "0 14px 92px", ...(mostrarSidebar ? { overflow: "auto" } : { overflowX: "clip" }) }}>
+      <div className="main-content" style={{ width: "100%", boxSizing: "border-box", maxWidth: 1164, margin: "0 auto", padding: isMobile ? "14px 14px 40px" : "26px 32px 48px" }}>
         <SubidorPartidosVivo />
         {ES_DEMO && <BandaDemo />}
         <PedidoNotificaciones perfil={perfil} />
-        {!mostrarSidebar && (
-          <div style={{ position: "sticky", top: 0, zIndex: 30, background: "var(--h-fondo)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "12px 0 10px", margin: "0 0 6px" }}>
-            <button onClick={irAlInicio} aria-label="Ir al inicio" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
-              <InsigniaADN size={30} />
-              <span style={{ flexShrink: 0, display: "inline-flex" }}><Shield size={30} /></span>
-              <NombreApp chico />
-            </button>
-            <CampanaNotificaciones perfil={perfil} onNavigate={setActive} onIrAConfiguracion={irAConfiguracion} />
-          </div>
-        )}
         <div style={{ maxWidth: 1100 }}>
         <ErrorBoundary key={active} onReset={() => setActive("hoy")}>
         {active === "hoy" ? (
@@ -11970,50 +11900,9 @@ function AppClub({ perfil }) {
         )}
         </ErrorBoundary>
         </div>
+        <FirmaADN />
       </div>
 
-      {!mostrarSidebar && (
-        <nav
-          aria-label="Secciones"
-          style={{
-            position: "fixed", bottom: 0, left: 0, right: 0, background: "var(--h-panel)", borderTop: "1px solid var(--h-borde)",
-            padding: "6px 4px calc(6px + env(safe-area-inset-bottom))", display: "grid", gridTemplateColumns: "repeat(5, 1fr)", zIndex: 40,
-            // Se esconde al bajar y vuelve al subir (o al llegar arriba de todo).
-            transform: barraVisible ? "translateY(0)" : "translateY(110%)", transition: "transform .22s ease",
-          }}
-        >
-          {[...BOTTOM_NAV_ITEMS, { key: "__mas", label: "Menú", icono: "mas" }].map((item) => {
-            const activo = item.key === "__mas" ? masAbierto : active === item.key;
-            return (
-              <button
-                key={item.key}
-                onClick={() => (item.key === "__mas" ? setMasAbierto(true) : setActive(item.key))}
-                aria-current={activo ? "page" : undefined}
-                style={{
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "transparent", border: "none",
-                  cursor: "pointer", color: activo ? "var(--h-club-tinta)" : "var(--h-sub)", fontSize: 11, fontWeight: activo ? 700 : 500,
-                  fontFamily: "var(--h-texto-fuente)", minHeight: 48, padding: "4px 0",
-                }}
-              >
-                <Icono nombre={item.icono} size={22} />
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
-      )}
-
-      {masAbierto && (
-        <MasMenu
-          active={active}
-          perfil={perfil}
-          onClose={() => setMasAbierto(false)}
-          onSelect={(key) => {
-            setActive(key);
-            setMasAbierto(false);
-          }}
-        />
-      )}
     </div>
   );
 }

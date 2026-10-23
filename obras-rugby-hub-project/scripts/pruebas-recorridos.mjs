@@ -24,10 +24,18 @@ async function cerrarAvisos(p) {
     if (!cerro) return;
   }
 }
+// El menú va por áreas (Hoy, La semana, El partido...): si la sección no está a la vista, se abre su área.
+async function abrirSeccion(p, nombre) {
+  const seccion = p.locator(`button[aria-label="${nombre}"]:not([data-secciones]):visible`).first();
+  if (!(await seccion.count())) {
+    await p.locator(`[data-secciones*="|${nombre}|"]:visible`).first().click({ timeout: 8000 });
+    await p.waitForTimeout(600);
+  }
+  if (await seccion.count()) await seccion.click({ timeout: 8000 });
+}
 async function ir(p, nombre) {
   await cerrarAvisos(p);
-  await p.locator(`[aria-label="${nombre}"]:visible`).first().click({ timeout: 8000 });
-  await p.mouse.move(900, 450); // que el menú lateral se vuelva a cerrar
+  await abrirSeccion(p, nombre);
   await p.waitForTimeout(1200);
   await cerrarAvisos(p);
 }

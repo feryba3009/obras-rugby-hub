@@ -17,19 +17,19 @@ try {
 
   await pagina.goto(url, { waitUntil: "networkidle", timeout: 60000 });
   // La app primero carga los datos del club; esperamos a que aparezca la pantalla de ingreso.
-  await pagina.getByText("Crear cuenta").first().waitFor({ timeout: 30000 }).catch(() => {});
+  await pagina.getByText("Creá tu cuenta").first().waitFor({ timeout: 30000 }).catch(() => {});
   texto = await pagina.locator("body").innerText({ timeout: 30000 });
-  for (const esperado of ["Ingresar", "Crear cuenta"]) {
+  for (const esperado of ["Ingresar", "Creá tu cuenta"]) {
     if (!texto.includes(esperado)) fallas.push(`No aparece "${esperado}" en la pantalla de ingreso.`);
   }
   if (/Algo salió mal|Something went wrong/i.test(texto)) fallas.push("La app mostró la pantalla de error.");
 
   if (!fallas.length) {
     // El formulario de registro también tiene que abrir.
-    await pagina.getByRole("button", { name: "Crear cuenta" }).first().click({ timeout: 10000 });
+    await pagina.getByRole("button", { name: /Creá tu cuenta/ }).first().click({ timeout: 10000 });
     await pagina.waitForTimeout(800);
     const registro = await pagina.locator("body").innerText();
-    if (!registro.includes("Crear mi cuenta")) fallas.push("No abre el formulario de registro.");
+    if (!registro.includes("Crear la cuenta")) fallas.push("No abre el formulario de registro.");
   }
 } catch (e) {
   fallas.push(`La prueba no pudo terminar: ${e?.message || e}`);
