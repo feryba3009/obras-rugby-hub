@@ -92,7 +92,7 @@ POSTS["01-presentacion"] = [
           "Staff, entrenadores y preparadores. Los martes y jueves a la noche, al costado de la cancha.", 2, T),
     texto("El problema", 'Nos cansamos de <span class="n">las planillas.</span>',
           "Grupos de WhatsApp, un Excel que nadie actualiza y la lista de asistencia en papel. Todo en lugares distintos.", 3, T),
-    texto("La solución", 'Armamos <span class="n">un Hub.</span>',
+    texto("La solución", 'Armamos <span class="n">la app.</span>',
           "Toda la información del club resumida en una app, al alcance de la mano: plantel, wellness, partidos, GPS y video.", 4, T, 180),
     placa(f"""
     <div class="c" style="gap:44px">

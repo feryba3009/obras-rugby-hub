@@ -85,13 +85,13 @@ POSTS["01-presentacion"] = [
           <div style="font:600 60px BC;letter-spacing:.32em">SPORTS</div>
         </div>
       </div>
-      <div style="font:500 42px B;color:{SUB}">El Hub de tu club, hecho por gente de rugby.</div>
+      <div style="font:500 42px B;color:{SUB}">La app de tu club, hecha por gente de rugby.</div>
     </div>""", 1, T),
     texto("Quiénes somos", 'Somos gente <span class="n">de rugby.</span>',
           "Staff, entrenadores y preparadores. Los martes y jueves a la noche, al costado de la cancha.", 2, T),
     texto("El problema", 'Nos cansamos de <span class="n">las planillas.</span>',
           "Grupos de WhatsApp, un Excel que nadie actualiza y la lista de asistencia en papel. Todo en lugares distintos.", 3, T),
-    texto("La solución", 'Armamos <span class="n">el Hub.</span>',
+    texto("La solución", 'Armamos <span class="n">la app.</span>',
           "Plantel, wellness, partidos, GPS y video de los partidos en un solo lugar, desde el celular.", 4, T, 150),
     placa(f"""
     <div style="position:absolute;left:84px;right:84px;top:170px;display:flex;flex-direction:column;gap:44px">
