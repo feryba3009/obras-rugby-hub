@@ -210,6 +210,61 @@ await prueba("Práctica: grupos A y B con el lugar del grupo", "staff", async (p
   afirmar(!/Grupo 1|Grupo 2/.test(t), "Quedan los grupos numerados");
 });
 
+await prueba("Jugador: Mi ficha con su evolución y destrezas", "jugador", async (p) => {
+  await ir(p, "Mi ficha");
+  await verTexto(p, "Cómo venís y todo lo tuyo en un lugar.");
+  await verTexto(p, /Mejoraste \d+ de \d+|Primer test/);
+  await p.getByRole("tab", { name: "Destrezas" }).click();
+  await verTexto(p, "Toma de decisiones");
+  const nav = await p.locator("header, nav").allInnerTexts();
+  afirmar(!nav.join(" ").includes("Estado del plantel"), "El jugador ve secciones del staff en el menú");
+});
+
+await prueba("Entrenador evalúa destrezas de un jugador", "staff", async (p) => {
+  await ir(p, "Destrezas");
+  await p.getByRole("button", { name: "Destrezas de Bruno Acosta" }).click();
+  await p.getByRole("button", { name: "Evaluar ataque" }).click();
+  for (const d of ["Pase", "Recepción", "Carrera con pelota", "Contacto y descarga", "Juego con el pie", "Toma de decisiones"]) {
+    await p.getByRole("radio", { name: `${d}: 4` }).click();
+  }
+  await p.getByPlaceholder("Comentario para el jugador (opcional)").fill("Prueba automática");
+  await p.getByRole("button", { name: "Guardar evaluación" }).click();
+  await p.waitForTimeout(1500);
+  const db = await leerBase(p);
+  const hoy = new Date().toLocaleDateString("sv-SE", { timeZone: TZ });
+  const filas = db.destrezas_evaluacion.filter((x) => x.fecha === hoy && x.area === "ataque");
+  afirmar(filas.length === 6 && filas.every((x) => x.nota === 4), `No se guardó la evaluación (quedaron ${filas.length})`);
+});
+
+await prueba("Jugador manda una idea y le llega al manager", "jugador", async (p) => {
+  await ir(p, "Ideas para la app");
+  await p.locator("#adn-feedback-msg").fill("Idea de prueba automática");
+  await p.getByRole("button", { name: "Enviar", exact: true }).click();
+  await verTexto(p, "Le llegó al manager del club");
+  const db = await leerBase(p);
+  const f = db.adn_feedback.find((x) => x.mensaje === "Idea de prueba automática");
+  afirmar(f && f.origen === "jugador" && f.para_adn === false, `La idea no quedó para el manager: ${JSON.stringify(f)}`);
+});
+
+await prueba("Manager reenvía una idea del plantel a ADN", "staff", async (p) => {
+  await ir(p, "Ideas para ADN");
+  await verTexto(p, /Ideas del plantel/);
+  await p.getByRole("button", { name: "Mandar a ADN" }).first().click();
+  await p.waitForTimeout(1200);
+  const db = await leerBase(p);
+  afirmar(db.adn_feedback.some((x) => x.origen === "jugador" && x.para_adn === true), "No quedó reenviada a ADN");
+});
+
+await prueba("La barra de arriba se desvanece al bajar y vuelve al subir", "staff", async (p) => {
+  await ir(p, "Estado del plantel");
+  const sub = p.locator('nav[aria-label^="Secciones de"]').first();
+  await p.mouse.wheel(0, 1200); await p.waitForTimeout(600);
+  const oculto = await sub.evaluate((el) => getComputedStyle(el.parentElement).opacity);
+  await p.mouse.wheel(0, -400); await p.waitForTimeout(600);
+  const visible = await sub.evaluate((el) => getComputedStyle(el.parentElement).opacity);
+  afirmar(oculto === "0" && visible === "1", `No se desvanece (al bajar ${oculto}, al subir ${visible})`);
+});
+
 await prueba("Cambiar de entrenador a jugador", "staff", async (p) => {
   await p.getByRole("button", { name: "Ver como jugador" }).click();
   await p.waitForTimeout(3000);

@@ -262,6 +262,25 @@ export function generarDatos() {
     });
   });
 
+  // Destrezas (función a medida de Berazategui): tres evaluaciones en el año, con mejoras.
+  const DESTREZAS = { ataque: ["Pase", "Recepción", "Carrera con pelota", "Contacto y descarga", "Juego con el pie", "Toma de decisiones"],
+    defensa: ["Tackle", "Línea defensiva", "Lucha por la pelota", "Comunicación", "Cobertura y recuperación"] };
+  const COMENTARIOS = { ataque: ["Mejoró mucho el pase a la izquierda. Seguir trabajando la descarga en el contacto.", "Buena lectura del espacio; tiene que pedir más la pelota."],
+    defensa: ["Tacklea bien, falta subir más rápido en la línea.", "Muy buena actitud en la lucha por la pelota; cuidar los penales en el ruck."] };
+  db.destrezas_evaluacion = [];
+  db.jugadores.slice(0, 30).forEach((j, k) => {
+    for (const area of ["ataque", "defensa"]) {
+      const base = Object.fromEntries(DESTREZAS[area].map((d) => [d, entre(1, 3)]));
+      [["2026-03-20", 0], ["2026-06-18", 1], ["2026-09-24", 2]].forEach(([fecha, n]) => {
+        DESTREZAS[area].forEach((d, i) => {
+          const nota = Math.max(1, Math.min(5, base[d] + (n >= 1 && (i + k) % 2 === 0 ? 1 : 0) + (n === 2 && (i + k) % 3 === 0 ? 1 : 0)));
+          db.destrezas_evaluacion.push({ id: `de-${k}-${area}-${n}-${i}`, club_id, jugador_id: j.id, fecha, area, destreza: d, nota,
+            comentario: n === 2 && i === 0 ? COMENTARIOS[area][k % 2] : null, evaluador_id: "perf-staff", created_at: ahora });
+        });
+      });
+    }
+  });
+
   // Jugador del partido del último partido (votación cerrada).
   db.votos_partido = conCuenta.slice(0, 24).map((jid, k) => ({ id: `vt-${k}`, club_id, partido_id: "par-cat-sup-10",
     votante: `demo-auth-${k + 1}`, jugador_id: k % 3 === 0 ? "jug-9" : k % 3 === 1 ? "jug-12" : "jug-9", created_at: ahora }));
@@ -276,6 +295,12 @@ export function generarDatos() {
     { id: "n-2", tipo: "mvp_ganador", mensaje: "🏆 Jugador del partido (Superior): Bruno Acosta. ¡Felicitaciones!", roles_destino: ["Jugador", "Cuerpo técnico", "Manager", "Cuerpo médico"], creado_por: null, created_at: new Date(Date.now() - 26 * 3600000).toISOString(), club_id, jugadores_destino: null, perfiles_destino: null },
     { id: "n-3", tipo: "lesion_etapa", mensaje: "Kevin Ortiz: posible alta deportiva en unos días (la puso kinesio).", roles_destino: ["Cuerpo técnico", "Manager"], creado_por: null, created_at: new Date(Date.now() - 30 * 3600000).toISOString(), club_id, jugadores_destino: null, perfiles_destino: null },
     { id: "n-4", tipo: "resultado_cargado", mensaje: `Resultado cargado: ${generico ? "Demo" : "Berazategui"} 26-18.`, roles_destino: null, creado_por: null, created_at: new Date(Date.now() - 40 * 3600000).toISOString(), club_id, jugadores_destino: null, perfiles_destino: null },
+  ];
+
+  // Ideas que mandaron jugadores y esperan al manager.
+  db.adn_feedback = [
+    { id: "fb-1", club_id, perfil_id: "perf-3", autor: NOMBRES[3], tipo: "Mejora", mensaje: "Estaría bueno ver en el celular el video de mis jugadas del partido.", estado: "Recibido", respuesta: null, origen: "jugador", para_adn: false, archivado: false, created_at: new Date(Date.now() - 20 * 3600000).toISOString(), updated_at: ahora },
+    { id: "fb-2", club_id, perfil_id: "perf-7", autor: NOMBRES[7], tipo: "Error", mensaje: "El wellness no me dejó cargar el domingo a la noche.", estado: "Recibido", respuesta: null, origen: "jugador", para_adn: false, archivado: false, created_at: new Date(Date.now() - 50 * 3600000).toISOString(), updated_at: ahora },
   ];
 
   // Tablas que la demo usa vacías.

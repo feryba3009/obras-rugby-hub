@@ -21,7 +21,11 @@ async function recorrer(rol, boton, pantallas, viewport) {
   await p.getByText(boton).first().click().catch(() => {});
   await p.waitForTimeout(2500);
   let i = 1;
-  for (const nombre of pantallas) {
+  for (const item of pantallas) {
+    // "Nombre?" = sección que solo tienen algunos clubes (si no está, se saltea).
+    const opcional = item.endsWith("?");
+    const nombre = opcional ? item.slice(0, -1) : item;
+    if (opcional && !(await p.locator(`[data-secciones*="|${nombre}|"]`).count())) continue;
     try {
       const entendido = p.getByRole("button", { name: "Entendido" }).first();
       if (await entendido.isVisible().catch(() => false)) { await entendido.click(); await p.waitForTimeout(300); }
@@ -47,8 +51,8 @@ async function recorrer(rol, boton, pantallas, viewport) {
 try {
   const escritorio = { width: 1280, height: 860 };
   await recorrer("staff", "Entrar como entrenador",
-    ["Inicio", "Wellness", "Gimnasio", "Agenda", "Práctica del día", "Plantel", "Estado del plantel", "Tests físicos", "Torneo", "Equipo del partido", "Videos del rival", "Estadísticas", "Análisis de video", "Resúmenes", "Ajustes"], escritorio);
-  await recorrer("jugador", "Entrar como jugador", ["Inicio", "Wellness", "Gimnasio", "Agenda", "Torneo"], escritorio);
+    ["Inicio", "Wellness", "Gimnasio", "Agenda", "Práctica del día", "Plantel", "Estado del plantel", "Tests físicos", "Destrezas?", "Torneo", "Equipo del partido", "Videos del rival", "Estadísticas", "Análisis de video", "Resúmenes", "Ideas para ADN", "Ajustes"], escritorio);
+  await recorrer("jugador", "Entrar como jugador", ["Inicio", "Wellness", "Gimnasio", "Agenda", "Torneo", "Mi ficha", "Ideas para la app"], escritorio);
   await recorrer("celular", "Entrar como entrenador", ["Inicio", "Práctica del día", "Equipo del partido", "Ajustes"], { width: 390, height: 844 });
 } catch (e) { fallas.push(`La prueba no pudo terminar: ${e?.message || e}`); }
 await navegador.close();

@@ -3,6 +3,7 @@ import { supabase, mantenerSesion, setMantenerSesion } from "./adn/supabaseClien
 import { CLUB_SLUG, useClub, iniciales, clubActual } from "./adn/club";
 import VideotecaPage, { extraerYoutubeId } from "./adn/VideotecaPage";
 import FeedbackPage from "./adn/FeedbackPage";
+import { tieneDestrezas, DestrezasPage, DestrezasJugador } from "./adn/Destrezas";
 
 // Conexión a Supabase. Vive en src/adn/supabaseClient.js; se re-exporta
 // acá para que el resto del código lo siga importando como antes.
@@ -73,27 +74,32 @@ const NAV = [
     ],
   },
   {
-    area: "plantel", label: "El plantel", corto: "Plantel", icono: "plantel",
+    area: "plantel", label: "El plantel", jugador: "Mi ficha", corto: "Plantel", cortoJugador: "Mi ficha", icono: "plantel",
     items: [
+      { key: "mi-ficha", label: "Mi ficha", icono: "plantel", soloJugador: true },
       { key: "plantel-completo", label: "Plantel", icono: "plantel" },
-      { key: "disponibilidad", label: "Estado del plantel", icono: "disponibilidad" },
-      { key: "evaluaciones", label: "Tests físicos", icono: "evaluaciones" },
-      { key: "reportes", label: "Estadísticas", icono: "reportes" },
-      { key: "resumenes", label: "Resúmenes", icono: "resumen" },
+      { key: "disponibilidad", label: "Estado del plantel", icono: "disponibilidad", soloStaff: true },
+      { key: "evaluaciones", label: "Tests físicos", icono: "evaluaciones", soloStaff: true },
+      { key: "destrezas", label: "Destrezas", icono: "evaluaciones", soloStaff: true, funcion: "destrezas" },
+      { key: "reportes", label: "Estadísticas", icono: "reportes", soloStaff: true },
+      { key: "resumenes", label: "Resúmenes", icono: "resumen", soloStaff: true },
     ],
   },
   {
     area: "club", label: "El club", corto: "Club", icono: "feedback",
     items: [
       { key: "cuotas", label: "Cuotas", icono: "cuota", roles: ["Cuerpo técnico", "Manager"] },
-      { key: "feedback-adn", label: "Ideas para ADN", icono: "feedback" },
+      { key: "feedback-adn", label: "Ideas para ADN", jugador: "Ideas para la app", icono: "feedback" },
     ],
   },
 ];
 
 // Ítems del menú que ve este perfil (algunos son solo para ciertos roles).
 // Las cuotas son propias de Obras: no aparecen en la demo.
-const itemsVisibles = (items, perfil) => items.filter((it) => (!it.roles || it.roles.includes(perfil?.rol)) && !(ES_DEMO && it.key === "cuotas"));
+const itemsVisibles = (items, perfil) => items.filter((it) =>
+  (!it.roles || it.roles.includes(perfil?.rol)) && !(ES_DEMO && it.key === "cuotas")
+  && !(it.soloJugador && perfil?.rol !== "Jugador") && !(it.soloStaff && perfil?.rol === "Jugador")
+  && !(it.funcion === "destrezas" && !tieneDestrezas()));
 
 const CONFIG_ITEM = { key: "configuracion", label: "Ajustes", icono: "configuracion" };
 
@@ -3630,7 +3636,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
     jugador.peso ? `${jugador.peso} kg` : null,
   ].filter(Boolean);
   const previoTest = EVALUACIONES_ANTERIORES[jugador.id] || null;
-  const TABS_FICHA = [["puestos", "Puestos"], ["rendimiento", "Rendimiento"], ["salud", "Salud"], ["fisico", "Tests físicos"]];
+  const TABS_FICHA = [["puestos", "Puestos"], ["rendimiento", "Rendimiento"], ...(tieneDestrezas() ? [["destrezas", "Destrezas"]] : []), ["salud", "Salud"], ["fisico", "Tests físicos"]];
 
   return (
     <div>
@@ -3696,12 +3702,14 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
         <div style={{ ...cardStyle, padding: "18px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <span style={{ fontSize: 15, fontWeight: 700, color: "var(--h-texto)" }}>Dónde puede jugar</span>
-            <button
-              onClick={() => setEditPos((v) => !v)}
-              style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontSize: 12.5, cursor: "pointer", padding: 0 }}
-            >
-              {editPos ? "Listo" : "Editar"}
-            </button>
+            {puedeGestionar(perfil) && (
+              <button
+                onClick={() => setEditPos((v) => !v)}
+                style={{ background: "transparent", border: "none", color: "var(--h-acento)", fontSize: 12.5, cursor: "pointer", padding: 0 }}
+              >
+                {editPos ? "Listo" : "Editar"}
+              </button>
+            )}
           </div>
           <div style={{ fontSize: 13, color: "var(--h-texto)", marginBottom: 6 }}>
             Su puesto: <span style={{ color: "var(--h-sub)" }}>{jugador.posicionIdeal}</span>
@@ -3746,6 +3754,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
       )}
 
       {tab === "rendimiento" && <RendimientoJugador jugador={jugador} />}
+      {tab === "destrezas" && <DestrezasJugador jugadorId={jugador.dbId} nombre={jugador.id} />}
 
       {tab === "salud" && (
         <div style={{ ...cardStyle, padding: "18px" }}>
@@ -3988,6 +3997,116 @@ function ThOrden({ f, k, children, style }) {
       onClick={() => { if (activo) f.setInvertido(!f.invertido); else { f.setOrden(k); f.setInvertido(false); } }}>
       {children}{activo ? (f.invertido ? " ▴" : " ▾") : ""}
     </th>
+  );
+}
+
+// "Mi ficha": lo que ve el jugador de sí mismo. Arriba, cómo viene (destrezas, físico, partidos y
+// prácticas) comparado con antes; abajo, su ficha completa con cada pestaña.
+function MiFichaPage({ perfil, onIrAConfiguracion }) {
+  const [, refrescar] = useState(0);
+  const jugador = POOL.find((j) => j.dbId === perfil?.jugador_id);
+  // Sus antecedentes médicos los puede cargar y borrar él mismo.
+  function addHistorial(texto) {
+    jugador.historial = [...(jugador.historial || []), texto];
+    refrescar((n) => n + 1);
+    supabase.from("historial_medico").insert({ jugador_id: jugador.dbId, descripcion: texto }).then(({ error }) => error && console.error("Error guardando historial", error));
+  }
+  function removeHistorial(index) {
+    const texto = jugador.historial?.[index];
+    jugador.historial = (jugador.historial || []).filter((_, i) => i !== index);
+    refrescar((n) => n + 1);
+    if (texto) supabase.from("historial_medico").delete().eq("jugador_id", jugador.dbId).eq("descripcion", texto).then(({ error }) => error && console.error("Error borrando historial", error));
+  }
+  const [partidos, setPartidos] = useState(null);
+  const [destrezas, setDestrezas] = useState(null);
+  const [asistencia, setAsistencia] = useState(null);
+  useEffect(() => {
+    if (!jugador?.dbId) return;
+    let vivo = true;
+    supabase.from("analisis_individual_partido").select("*").eq("jugador_id", jugador.dbId).then(({ data }) => vivo && setPartidos(data || []));
+    if (tieneDestrezas()) supabase.from("destrezas_evaluacion").select("fecha, area, destreza, nota").eq("jugador_id", jugador.dbId).then(({ data }) => vivo && setDestrezas(data || []));
+    asistenciasJugador(jugador.dbId).then((r) => vivo && setAsistencia(r));
+    return () => { vivo = false; };
+  }, [jugador?.dbId]);
+
+  if (!jugador) {
+    return (
+      <div style={{ ...cardStyle, padding: 20, maxWidth: 560, fontSize: 14, color: "var(--h-sub)", lineHeight: 1.5 }}>
+        Tu cuenta todavía no está unida a un jugador del plantel. Avisale al staff para que lo arregle.
+      </div>
+    );
+  }
+
+  const uno = (n) => n.toFixed(1).replace(".", ",");
+  const tarjetas = [];
+  // Destrezas: promedio de cada área en la primera y en la última evaluación.
+  if (tieneDestrezas() && destrezas && destrezas.length) {
+    const fechas = [...new Set(destrezas.map((d) => d.fecha))].sort();
+    const prom = (area, fecha) => { const xs = destrezas.filter((d) => d.area === area && d.fecha === fecha).map((d) => d.nota); return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; };
+    const ultimaDe = (area) => [...fechas].reverse().find((f) => prom(area, f) != null);
+    const primeraDe = (area) => fechas.find((f) => prom(area, f) != null);
+    const partes = ["ataque", "defensa"].map((a) => {
+      const u = ultimaDe(a), p = primeraDe(a);
+      if (!u) return null;
+      const ahora = prom(a, u), antes = p !== u ? prom(a, p) : null;
+      return { a: a === "ataque" ? "Ataque" : "Defensa", ahora, dif: antes == null ? null : ahora - antes };
+    }).filter(Boolean);
+    tarjetas.push({ t: "Destrezas", v: partes.map((x) => `${x.a} ${uno(x.ahora)}`).join(" · "),
+      d: partes.some((x) => x.dif) ? partes.filter((x) => x.dif).map((x) => `${x.a} ${x.dif > 0 ? "+" : ""}${uno(x.dif)}`).join(", ") + " desde la primera evaluación" : "De 1 a 5" , sube: partes.some((x) => x.dif > 0) });
+  }
+  // Físico: cuántos tests mejoró respecto del anterior.
+  const ult = EVALUACIONES_REALES[jugador.id], ant = EVALUACIONES_ANTERIORES[jugador.id];
+  if (ult) {
+    const claves = Object.keys(METRICAS_RANGOS).filter((k) => typeof ult[k] === "number" && typeof ant?.[k] === "number");
+    const mejoro = claves.filter((k) => ult[k] > ant[k]).length;
+    tarjetas.push({ t: "Físico", v: ant ? `Mejoraste ${mejoro} de ${claves.length}` : "Primer test",
+      d: ant ? `tests desde el ${ant.fecha}` : `Medido el ${ult.fecha}`, sube: mejoro > claves.length / 2 });
+  }
+  // Partidos analizados.
+  if (partidos && partidos.length) {
+    const n = (r, k) => r[k] || 0;
+    const tk = partidos.reduce((a, r) => a + n(r, "tackle_hecho") + n(r, "tackle_positivo") + n(r, "tackle_errado"), 0);
+    const err = partidos.reduce((a, r) => a + n(r, "tackle_errado"), 0);
+    const qb = partidos.reduce((a, r) => a + n(r, "quiebre_con_try") + n(r, "quiebre_sin_try"), 0);
+    tarjetas.push({ t: "Partidos", v: `${uno(tk / partidos.length)} tackles por partido`,
+      d: `${partidos.length} ${partidos.length === 1 ? "partido analizado" : "partidos analizados"}${tk ? ` · ${Math.round(((tk - err) / tk) * 100)}% efectivos` : ""}${qb ? ` · ${qb} quiebres` : ""}` });
+  }
+  if (asistencia && asistencia.total) {
+    tarjetas.push({ t: "Prácticas", v: `${Math.round((asistencia.presentes / asistencia.total) * 100)}% de asistencia`, d: `Viniste a ${asistencia.presentes} de ${asistencia.total} en ${TEMPORADA_ACTIVA}` });
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+        <div>
+          <div style={{ fontFamily: "var(--h-titulo)", fontSize: 34, fontWeight: 800, color: "var(--h-texto)", lineHeight: 1.05 }}>Mi ficha</div>
+          <div style={{ fontSize: 13.5, color: "var(--h-sub)", marginTop: 2 }}>Cómo venís y todo lo tuyo en un lugar.</div>
+        </div>
+        <button onClick={() => onIrAConfiguracion?.("datos")} style={{ ...pillButton, background: "transparent", border: "1px solid var(--h-borde2)", color: "var(--h-texto2)" }}>
+          Editar mis datos
+        </button>
+      </div>
+      {tarjetas.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginBottom: 18 }}>
+          {tarjetas.map((x) => (
+            <div key={x.t} style={{ ...cardStyle, padding: "14px 16px", borderTop: `3px solid ${x.sube ? "var(--h-ok)" : "var(--h-club)"}` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-sub)", textTransform: "uppercase", letterSpacing: 0.6 }}>{x.t}</div>
+              <div style={{ fontFamily: "var(--h-titulo)", fontSize: 21, fontWeight: 800, color: "var(--h-texto)", marginTop: 4, lineHeight: 1.15 }}>{x.v}</div>
+              <div style={{ fontSize: 12.5, color: x.sube ? "var(--h-ok)" : "var(--h-sub)", marginTop: 3 }}>{x.d}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <FichaJugador
+        jugador={jugador}
+        onVolver={null}
+        onUpdateCampo={() => {}}
+        onAddHistorial={addHistorial}
+        onRemoveHistorial={removeHistorial}
+        ocultarVolver
+        perfil={perfil}
+      />
+    </div>
   );
 }
 
@@ -8919,6 +9038,9 @@ function PanelPerfil({ perfil }) {
   const [nacimiento, setNacimiento] = useState(perfil?.fecha_nacimiento || "");
   const [email, setEmail] = useState(perfil?.email || "");
   const staffPerfil = esStaff(perfil);
+  const yo = perfil?.jugador_id ? POOL.find((j) => j.dbId === perfil.jugador_id) : null;
+  const [altura, setAltura] = useState(yo?.altura ? String(yo.altura) : "");
+  const [peso, setPeso] = useState(yo?.peso ? String(yo.peso) : "");
   const [avatarUrl, setAvatarUrl] = useState(perfil?.avatar_url || null);
   const [subiendo, setSubiendo] = useState(false);
   const [msg, setMsg] = useState("");
@@ -8940,8 +9062,14 @@ function PanelPerfil({ perfil }) {
     if (!perfil) return;
     const cambios = { nombre, fecha_nacimiento: nacimiento || null, ...(staffPerfil ? { rol } : {}) };
     const { error } = await supabase.from("profiles").update(cambios).eq("id", perfil.id);
-    if (!error && perfil.jugador_id && nacimiento) {
-      await supabase.from("jugadores").update({ fecha_nacimiento: nacimiento }).eq("id", perfil.jugador_id);
+    if (!error && perfil.jugador_id) {
+      const alturaOk = numeroRegistro(altura, 120, 230, true), pesoOk = numeroRegistro(peso, 35, 200, false);
+      if (alturaOk === null || pesoOk === null) { setMsg("Revisá la altura (en cm) y el peso (en kg)."); return; }
+      const cambiosJug = { ...(nacimiento ? { fecha_nacimiento: nacimiento } : {}), ...(alturaOk ? { altura_cm: Number(alturaOk) } : {}), ...(pesoOk ? { peso_kg: Number(pesoOk) } : {}) };
+      if (Object.keys(cambiosJug).length) {
+        await supabase.from("jugadores").update(cambiosJug).eq("id", perfil.jugador_id);
+        if (yo) { if (cambiosJug.altura_cm) yo.altura = cambiosJug.altura_cm; if (cambiosJug.peso_kg) yo.peso = cambiosJug.peso_kg; if (nacimiento) yo.nacimiento = nacimiento; }
+      }
     }
     if (!error) Object.assign(perfil, cambios);
     setMsg(error ? "No se pudo guardar." : "Guardado.");
@@ -8984,6 +9112,19 @@ function PanelPerfil({ perfil }) {
 
       <label style={labelStyle}>Fecha de nacimiento</label>
       <input type="date" style={inputStyle} value={nacimiento} onChange={(e) => setNacimiento(e.target.value)} max={new Date().toLocaleDateString("sv-SE")} min="1940-01-01" />
+
+      {yo && (
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <label style={labelStyle}>Altura (cm)</label>
+            <input style={inputStyle} inputMode="decimal" value={altura} onChange={(e) => setAltura(e.target.value)} placeholder="182" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={labelStyle}>Peso (kg)</label>
+            <input style={inputStyle} inputMode="decimal" value={peso} onChange={(e) => setPeso(e.target.value)} placeholder="88" />
+          </div>
+        </div>
+      )}
 
       <label style={labelStyle}>Qué hacés en el club</label>
       {staffPerfil ? (
@@ -11515,7 +11656,39 @@ function useIsMobile() {
 }
 
 // Barra de arriba (compu y celular): marca, áreas de la semana y, debajo, las secciones del área.
+// Al bajar, la parte de las áreas y secciones se desvanece (queda la marca arriba); al subir, vuelve.
+function useVisibleAlSubir(reinicio) {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    let ultimo = window.scrollY || 0;
+    function alScrollear() {
+      const y = window.scrollY || 0;
+      const dif = y - ultimo;
+      if (y < 60) setVisible(true);
+      else if (dif > 8) setVisible(false);
+      else if (dif < -8) setVisible(true);
+      if (Math.abs(dif) > 8 || y < 60) ultimo = y;
+    }
+    window.addEventListener("scroll", alScrollear, { passive: true });
+    return () => window.removeEventListener("scroll", alScrollear);
+  }, []);
+  useEffect(() => { setVisible(true); }, [reinicio]);
+  return visible;
+}
+
 function BarraSuperior({ isMobile, areas, areaActiva, active, esJugador, onArea, onSeccion, onInicio, campana, ajustes }) {
+  const visible = useVisibleAlSubir(active);
+  const marcaRef = React.useRef(null);
+  const [altoMarca, setAltoMarca] = useState(isMobile ? 52 : 62);
+  useEffect(() => {
+    const el = marcaRef.current;
+    if (!el) return;
+    const medir = () => setAltoMarca(el.offsetHeight);
+    medir();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(medir) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [isMobile]);
   const nombreArea = (g) => (isMobile ? g.corto : (esJugador && g.jugador) || g.label);
   const secciones = areaActiva && areaActiva.items.length > 1 ? areaActiva.items : null;
   const filaSecciones = React.useRef(null);
@@ -11551,8 +11724,10 @@ function BarraSuperior({ isMobile, areas, areaActiva, active, esJugador, onArea,
     );
   };
 
+  const hayAbajo = isMobile || secciones;
   return (
-    <header style={{ position: "sticky", top: 0, zIndex: 50, background: "var(--h-panel)", borderBottom: "1px solid var(--h-borde)" }}>
+    <>
+    <header ref={marcaRef} style={{ position: "sticky", top: 0, zIndex: 51, background: "var(--h-panel)", borderBottom: hayAbajo && visible ? "none" : "1px solid var(--h-borde)" }}>
       <div style={{ maxWidth: 1164, margin: "0 auto", padding: isMobile ? "10px 14px 8px" : "12px 32px", display: "flex", alignItems: "center", gap: 16 }}>
         <button onClick={onInicio} aria-label="Ir al inicio" title="Ir al inicio"
           style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", flexShrink: isMobile ? 1 : 0 }}>
@@ -11570,6 +11745,13 @@ function BarraSuperior({ isMobile, areas, areaActiva, active, esJugador, onArea,
           {ajustes}
         </div>
       </div>
+    </header>
+    {hayAbajo && (
+    <div aria-hidden={!visible} style={{
+      position: "sticky", top: altoMarca, zIndex: 50, background: "var(--h-panel)", borderBottom: "1px solid var(--h-borde)",
+      transform: visible ? "translateY(0)" : "translateY(-100%)", opacity: visible ? 1 : 0, pointerEvents: visible ? "auto" : "none",
+      transition: "transform .25s ease, opacity .25s ease",
+    }}>
       {isMobile && (
         <nav aria-label="Áreas" style={{ display: "flex", gap: 4, padding: "0 10px 8px" }}>
           {areas.map(botonArea)}
@@ -11594,7 +11776,9 @@ function BarraSuperior({ isMobile, areas, areaActiva, active, esJugador, onArea,
           })}
         </nav>
       )}
-    </header>
+    </div>
+    )}
+    </>
   );
 }
 
@@ -11642,6 +11826,9 @@ const NOTI_DESTINO = {
   votar_mvp: "hoy",
   mvp_ganador: "hoy",
   rpe_cargar: "hoy",
+  destrezas: "mi-ficha",
+  idea_plantel: "feedback-adn",
+  adn_feedback: "feedback-adn",
 };
 
 function CampanaNotificaciones({ perfil, align = "right", onNavigate, onIrAConfiguracion }) {
@@ -11816,7 +12003,11 @@ function AppClub({ perfil }) {
     setActive(CONFIG_ITEM.key);
   }
   const esJugador = perfil?.rol === "Jugador";
-  const areas = NAV.map((g) => ({ ...g, items: itemsVisibles(g.items, perfil) })).filter((g) => g.items.length);
+  const areas = NAV.map((g) => ({
+    ...g,
+    corto: esJugador && g.cortoJugador ? g.cortoJugador : g.corto,
+    items: itemsVisibles(g.items, perfil).map((i) => (esJugador && i.jugador ? { ...i, label: i.jugador } : i)),
+  })).filter((g) => g.items.length);
   const areaActiva = areas.find((g) => g.items.some((i) => i.key === active)) || null;
   // Al tocar un área se abre la última sección que se miró en ella (o la primera).
   const ultimaDeArea = React.useRef({});
@@ -11885,6 +12076,10 @@ function AppClub({ perfil }) {
           <ReportesPage perfil={perfil} />
         ) : active === "videoteca" ? (
           <VideotecaPage perfil={perfil} />
+        ) : active === "mi-ficha" ? (
+          <MiFichaPage perfil={perfil} onIrAConfiguracion={irAConfiguracion} />
+        ) : active === "destrezas" ? (
+          <DestrezasPage perfil={perfil} jugadores={[...POOL].sort((a, b) => a.id.localeCompare(b.id))} />
         ) : active === "feedback-adn" ? (
           <FeedbackPage perfil={perfil} />
         ) : active === CONFIG_ITEM.key ? (
