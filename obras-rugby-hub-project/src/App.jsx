@@ -3,7 +3,7 @@ import { supabase, mantenerSesion, setMantenerSesion } from "./adn/supabaseClien
 import { CLUB_SLUG, useClub, iniciales, clubActual } from "./adn/club";
 import VideotecaPage, { extraerYoutubeId } from "./adn/VideotecaPage";
 import FeedbackPage from "./adn/FeedbackPage";
-import { tieneDestrezas, DestrezasPage, DestrezasJugador } from "./adn/Destrezas";
+import { tieneDestrezas, DestrezasPage, DestrezasJugador, historialDestrezas, resumenDestrezas } from "./adn/Destrezas";
 
 // Conexión a Supabase. Vive en src/adn/supabaseClient.js; se re-exporta
 // acá para que el resto del código lo siga importando como antes.
@@ -3754,7 +3754,7 @@ function FichaJugador({ jugador, onVolver, onUpdateCampo, onAddHistorial, onRemo
       )}
 
       {tab === "rendimiento" && <RendimientoJugador jugador={jugador} />}
-      {tab === "destrezas" && <DestrezasJugador jugadorId={jugador.dbId} nombre={jugador.id} />}
+      {tab === "destrezas" && <DestrezasJugador jugadorId={jugador.dbId} nombre={jugador.id} puesto={jugador.posicionIdeal} />}
 
       {tab === "salud" && (
         <div style={{ ...cardStyle, padding: "18px" }}>
@@ -4024,7 +4024,7 @@ function MiFichaPage({ perfil, onIrAConfiguracion }) {
     if (!jugador?.dbId) return;
     let vivo = true;
     supabase.from("analisis_individual_partido").select("*").eq("jugador_id", jugador.dbId).then(({ data }) => vivo && setPartidos(data || []));
-    if (tieneDestrezas()) supabase.from("destrezas_evaluacion").select("fecha, area, destreza, nota").eq("jugador_id", jugador.dbId).then(({ data }) => vivo && setDestrezas(data || []));
+    if (tieneDestrezas()) supabase.from("destrezas_evaluacion").select("fecha, area, destreza, etapa, nota, comentario").eq("jugador_id", jugador.dbId).then(({ data }) => vivo && setDestrezas(data || []));
     asistenciasJugador(jugador.dbId).then((r) => vivo && setAsistencia(r));
     return () => { vivo = false; };
   }, [jugador?.dbId]);
@@ -4039,20 +4039,14 @@ function MiFichaPage({ perfil, onIrAConfiguracion }) {
 
   const uno = (n) => n.toFixed(1).replace(".", ",");
   const tarjetas = [];
-  // Destrezas: promedio de cada área en la primera y en la última evaluación.
+  // Destrezas: promedio de las generales (pase y recepción, tackle, duelo, breakdown) ahora y en la primera evaluación.
   if (tieneDestrezas() && destrezas && destrezas.length) {
-    const fechas = [...new Set(destrezas.map((d) => d.fecha))].sort();
-    const prom = (area, fecha) => { const xs = destrezas.filter((d) => d.area === area && d.fecha === fecha).map((d) => d.nota); return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; };
-    const ultimaDe = (area) => [...fechas].reverse().find((f) => prom(area, f) != null);
-    const primeraDe = (area) => fechas.find((f) => prom(area, f) != null);
-    const partes = ["ataque", "defensa"].map((a) => {
-      const u = ultimaDe(a), p = primeraDe(a);
-      if (!u) return null;
-      const ahora = prom(a, u), antes = p !== u ? prom(a, p) : null;
-      return { a: a === "ataque" ? "Ataque" : "Defensa", ahora, dif: antes == null ? null : ahora - antes };
-    }).filter(Boolean);
-    tarjetas.push({ t: "Destrezas", v: partes.map((x) => `${x.a} ${uno(x.ahora)}`).join(" · "),
-      d: partes.some((x) => x.dif) ? partes.filter((x) => x.dif).map((x) => `${x.a} ${x.dif > 0 ? "+" : ""}${uno(x.dif)}`).join(", ") + " desde la primera evaluación" : "De 1 a 5" , sube: partes.some((x) => x.dif > 0) });
+    const r = resumenDestrezas(historialDestrezas(destrezas));
+    if (r.ahora != null) {
+      const dif = r.antes != null ? r.ahora - r.antes : null;
+      tarjetas.push({ t: "Destrezas", v: `${uno(r.ahora)} de 5`,
+        d: dif != null && Math.abs(dif) >= 0.05 ? `${dif > 0 ? "+" : ""}${uno(dif)} desde la primera evaluación` : "Promedio de las destrezas generales", sube: dif > 0 });
+    }
   }
   // Físico: cuántos tests mejoró respecto del anterior.
   const ult = EVALUACIONES_REALES[jugador.id], ant = EVALUACIONES_ANTERIORES[jugador.id];

@@ -215,7 +215,8 @@ await prueba("Jugador: Mi ficha con su evolución y destrezas", "jugador", async
   await verTexto(p, "Cómo venís y todo lo tuyo en un lugar.");
   await verTexto(p, /Mejoraste \d+ de \d+|Primer test/);
   await p.getByRole("tab", { name: "Destrezas" }).click();
-  await verTexto(p, "Toma de decisiones");
+  await verTexto(p, "Breakdown");
+  await verTexto(p, "Terminación");
   const nav = await p.locator("header, nav").allInnerTexts();
   afirmar(!nav.join(" ").includes("Estado del plantel"), "El jugador ve secciones del staff en el menú");
 });
@@ -223,17 +224,16 @@ await prueba("Jugador: Mi ficha con su evolución y destrezas", "jugador", async
 await prueba("Entrenador evalúa destrezas de un jugador", "staff", async (p) => {
   await ir(p, "Destrezas");
   await p.getByRole("button", { name: "Destrezas de Bruno Acosta" }).click();
-  await p.getByRole("button", { name: "Evaluar ataque" }).click();
-  for (const d of ["Pase", "Recepción", "Carrera con pelota", "Contacto y descarga", "Juego con el pie", "Toma de decisiones"]) {
-    await p.getByRole("radio", { name: `${d}: 4` }).click();
-  }
-  await p.getByPlaceholder("Comentario para el jugador (opcional)").fill("Prueba automática");
+  await p.getByRole("button", { name: "Evaluar", exact: true }).click();
+  await p.getByRole("button", { name: "Tackle", exact: true }).click();
+  for (const etapa of ["Preparación", "Ejecución", "Terminación"]) await p.getByRole("radio", { name: `Tackle · ${etapa}: 4` }).click();
+  await p.getByPlaceholder("Comentario sobre tackle (opcional)").fill("Prueba automática");
   await p.getByRole("button", { name: "Guardar evaluación" }).click();
   await p.waitForTimeout(1500);
   const db = await leerBase(p);
   const hoy = new Date().toLocaleDateString("sv-SE", { timeZone: TZ });
-  const filas = db.destrezas_evaluacion.filter((x) => x.fecha === hoy && x.area === "ataque");
-  afirmar(filas.length === 6 && filas.every((x) => x.nota === 4), `No se guardó la evaluación (quedaron ${filas.length})`);
+  const filas = db.destrezas_evaluacion.filter((x) => x.fecha === hoy && x.destreza === "Tackle");
+  afirmar(filas.length === 3 && filas.every((x) => x.nota === 4) && new Set(filas.map((x) => x.etapa)).size === 3, `No se guardó la evaluación (quedaron ${filas.length})`);
 });
 
 await prueba("Jugador manda una idea y le llega al manager", "jugador", async (p) => {

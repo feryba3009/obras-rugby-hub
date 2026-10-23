@@ -262,23 +262,28 @@ export function generarDatos() {
     });
   });
 
-  // Destrezas (función a medida de Berazategui): tres evaluaciones en el año, con mejoras.
-  const DESTREZAS = { ataque: ["Pase", "Recepción", "Carrera con pelota", "Contacto y descarga", "Juego con el pie", "Toma de decisiones"],
-    defensa: ["Tackle", "Línea defensiva", "Lucha por la pelota", "Comunicación", "Cobertura y recuperación"] };
-  const COMENTARIOS = { ataque: ["Mejoró mucho el pase a la izquierda. Seguir trabajando la descarga en el contacto.", "Buena lectura del espacio; tiene que pedir más la pelota."],
-    defensa: ["Tacklea bien, falta subir más rápido en la línea.", "Muy buena actitud en la lucha por la pelota; cuidar los penales en el ruck."] };
+  // Destrezas (función a medida de Berazategui): generales y del puesto, cada una en sus 3 etapas,
+  // evaluadas tres veces en el año con mejoras.
+  const ETAPAS_D = ["preparacion", "ejecucion", "terminacion"];
+  const esFw = (p) => /primera|pilar|hooker|segunda|tercera|ala|octavo/i.test(String(p || ""));
+  const COMENT = { "Pase y recepción": "Mejoró la preparación: llega con las manos listas. Falta terminar el pase al pecho del compañero.",
+    Tackle: "Buena entrada y ejecución. Tiene que terminar ganando la pelota o levantándose rápido.",
+    Duelo: "Gana más duelos que antes; seguir trabajando la preparación antes del contacto.",
+    Breakdown: "Llega rápido; la terminación (limpiar o robar) todavía es irregular." };
   db.destrezas_evaluacion = [];
   db.jugadores.slice(0, 30).forEach((j, k) => {
-    for (const area of ["ataque", "defensa"]) {
-      const base = Object.fromEntries(DESTREZAS[area].map((d) => [d, entre(1, 3)]));
+    const lista = [...["Pase y recepción", "Tackle", "Duelo", "Breakdown"].map((d) => [d, "general"]),
+      ...(esFw(j.posicion_ideal) ? ["Scrum", "Line"] : ["Pateo"]).map((d) => [d, "puesto"])];
+    lista.forEach(([d, area], i) => {
+      const base = ETAPAS_D.map(() => entre(1, 3));
       [["2026-03-20", 0], ["2026-06-18", 1], ["2026-09-24", 2]].forEach(([fecha, n]) => {
-        DESTREZAS[area].forEach((d, i) => {
-          const nota = Math.max(1, Math.min(5, base[d] + (n >= 1 && (i + k) % 2 === 0 ? 1 : 0) + (n === 2 && (i + k) % 3 === 0 ? 1 : 0)));
-          db.destrezas_evaluacion.push({ id: `de-${k}-${area}-${n}-${i}`, club_id, jugador_id: j.id, fecha, area, destreza: d, nota,
-            comentario: n === 2 && i === 0 ? COMENTARIOS[area][k % 2] : null, evaluador_id: "perf-staff", created_at: ahora });
+        ETAPAS_D.forEach((etapa, e) => {
+          const nota = Math.max(1, Math.min(5, base[e] + (n >= 1 && (i + k + e) % 2 === 0 ? 1 : 0) + (n === 2 && (i + k + e) % 3 === 0 ? 1 : 0)));
+          db.destrezas_evaluacion.push({ id: `de-${k}-${i}-${n}-${e}`, club_id, jugador_id: j.id, fecha, area, destreza: d, etapa, nota,
+            comentario: n === 2 && COMENT[d] && (k + i) % 3 === 0 ? COMENT[d] : null, evaluador_id: "perf-staff", created_at: ahora });
         });
       });
-    }
+    });
   });
 
   // Jugador del partido del último partido (votación cerrada).
