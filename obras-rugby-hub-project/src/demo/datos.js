@@ -302,6 +302,11 @@ export function generarDatos() {
     { id: "n-4", tipo: "resultado_cargado", mensaje: `Resultado cargado: ${generico ? "Demo" : "Berazategui"} 26-18.`, roles_destino: null, creado_por: null, created_at: new Date(Date.now() - 40 * 3600000).toISOString(), club_id, jugadores_destino: null, perfiles_destino: null },
   ];
 
+  // Aptos médicos de la temporada: la mayoría aprobados, algunos por revisar y el resto sin cargar.
+  db.aptos_medicos = db.jugadores.slice(1, 27).map((j, k) => ({ id: `apto-${k}`, club_id, jugador_id: j.id, temporada: "2026",
+    archivo: `${club_id}/${j.id}/2026-demo.pdf`, fecha_emision: "2026-02-20", estado: k < 21 ? "aprobado" : "cargado", nota: null,
+    cargado_por: "perf-staff", revisado_por: k < 21 ? "perf-staff" : null, created_at: "2026-02-25T12:00:00Z", updated_at: "2026-02-25T12:00:00Z" }));
+
   // Ideas que mandaron jugadores y esperan al manager.
   db.adn_feedback = [
     { id: "fb-1", club_id, perfil_id: "perf-3", autor: NOMBRES[3], tipo: "Mejora", mensaje: "Estaría bueno ver en el celular el video de mis jugadas del partido.", estado: "Recibido", respuesta: null, origen: "jugador", para_adn: false, archivado: false, created_at: new Date(Date.now() - 20 * 3600000).toISOString(), updated_at: ahora },

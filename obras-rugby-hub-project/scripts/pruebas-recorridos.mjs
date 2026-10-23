@@ -265,6 +265,25 @@ await prueba("La barra de arriba se desvanece al bajar y vuelve al subir", "staf
   afirmar(oculto === "0" && visible === "1", `No se desvanece (al bajar ${oculto}, al subir ${visible})`);
 });
 
+await prueba("Jugador sube su apto médico", "jugador", async (p) => {
+  await ir(p, "Mi apto médico");
+  await verTexto(p, "Sin cargar");
+  await p.locator('input[type="file"]').setInputFiles({ name: "apto.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 prueba") });
+  await verTexto(p, "Le llegó al club para revisarlo");
+  const db = await leerBase(p);
+  const a = db.aptos_medicos.find((x) => x.jugador_id === "jug-0");
+  afirmar(a && a.estado === "cargado", `El apto no quedó cargado: ${JSON.stringify(a)}`);
+});
+
+await prueba("Staff aprueba un apto médico", "staff", async (p) => {
+  await ir(p, "Aptos médicos");
+  await verTexto(p, /de \d+<\/b>|aprobados/);
+  await p.getByRole("button", { name: "Aprobar", exact: true }).first().click();
+  await p.waitForTimeout(1200);
+  const db = await leerBase(p);
+  afirmar(db.aptos_medicos.filter((x) => x.estado === "aprobado").length === 22, "No quedó aprobado");
+});
+
 await prueba("Cambiar de entrenador a jugador", "staff", async (p) => {
   await p.getByRole("button", { name: "Ver como jugador" }).click();
   await p.waitForTimeout(3000);

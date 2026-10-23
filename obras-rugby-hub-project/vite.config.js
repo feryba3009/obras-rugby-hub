@@ -24,7 +24,8 @@ function demo() {
         .replace(/<title>[^<]*<\/title>/, g ? "<title>ADN Sports · Demo</title>" : "<title>ADN Berazategui · Demo</title>")
         .replace(/content="ADN Obras"/, g ? 'content="ADN Demo"' : 'content="ADN Bera"')
         .replace("/manifest.json", g ? "/manifest-demo.json" : "/manifest-berazategui.json")
-        .replace("/escudo-icon-192.png", g ? "/adn-icon-192.png" : "/bera-icon-192.png")
+        .replace("/favicon-obras-64.png", g ? "/adn-icon-192.png" : "/favicon-bera-64.png")
+        .replace("/favicon-obras-192.png", g ? "/adn-icon-192.png" : "/favicon-bera-192.png")
         .replace("/escudo-icon-180.png", g ? "/adn-icon-180.png" : "/bera-icon-180.png");
     },
   };

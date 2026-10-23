@@ -244,6 +244,7 @@ export const supabase = {
     from: () => ({
       upload: async (ruta) => ({ data: { path: ruta }, error: null }),
       getPublicUrl: () => ({ data: { publicUrl: VARIANTE === "generico" ? "/logo-adn.svg" : "/escudo-berazategui.png" } }),
+      createSignedUrl: async () => ({ data: { signedUrl: VARIANTE === "generico" ? "/logo-adn.svg" : "/escudo-berazategui.png" }, error: null }),
       remove: async () => ({ data: [], error: null }),
       list: async () => ({ data: [], error: null }),
     }),

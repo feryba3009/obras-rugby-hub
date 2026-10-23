@@ -51,8 +51,8 @@ async function recorrer(rol, boton, pantallas, viewport) {
 try {
   const escritorio = { width: 1280, height: 860 };
   await recorrer("staff", "Entrar como entrenador",
-    ["Inicio", "Wellness", "Gimnasio", "Agenda", "Práctica del día", "Plantel", "Estado del plantel", "Tests físicos", "Destrezas?", "Torneo", "Equipo del partido", "Videos del rival", "Estadísticas", "Análisis de video", "Resúmenes", "Ideas para ADN", "Ajustes"], escritorio);
-  await recorrer("jugador", "Entrar como jugador", ["Inicio", "Wellness", "Gimnasio", "Agenda", "Torneo", "Mi ficha", "Ideas para la app"], escritorio);
+    ["Inicio", "Wellness", "Gimnasio", "Agenda", "Práctica del día", "Plantel", "Estado del plantel", "Tests físicos", "Destrezas?", "Torneo", "Equipo del partido", "Videos del rival", "Estadísticas", "Análisis de video", "Resúmenes", "Aptos médicos", "Ideas para ADN", "Ajustes"], escritorio);
+  await recorrer("jugador", "Entrar como jugador", ["Inicio", "Wellness", "Gimnasio", "Agenda", "Torneo", "Mi ficha", "Mi apto médico", "Ideas para la app"], escritorio);
   await recorrer("celular", "Entrar como entrenador", ["Inicio", "Práctica del día", "Equipo del partido", "Ajustes"], { width: 390, height: 844 });
 } catch (e) { fallas.push(`La prueba no pudo terminar: ${e?.message || e}`); }
 await navegador.close();

@@ -3,6 +3,7 @@ import { supabase, mantenerSesion, setMantenerSesion } from "./adn/supabaseClien
 import { CLUB_SLUG, useClub, iniciales, clubActual } from "./adn/club";
 import VideotecaPage, { extraerYoutubeId } from "./adn/VideotecaPage";
 import FeedbackPage from "./adn/FeedbackPage";
+import AptosMedicosPage from "./adn/AptosMedicos";
 import { tieneDestrezas, DestrezasPage, DestrezasJugador, historialDestrezas, resumenDestrezas } from "./adn/Destrezas";
 
 // Conexión a Supabase. Vive en src/adn/supabaseClient.js; se re-exporta
@@ -88,6 +89,7 @@ const NAV = [
   {
     area: "club", label: "El club", corto: "Club", icono: "feedback",
     items: [
+      { key: "aptos", label: "Aptos médicos", jugador: "Mi apto médico", icono: "disponibilidad" },
       { key: "cuotas", label: "Cuotas", icono: "cuota", roles: ["Cuerpo técnico", "Manager"] },
       { key: "feedback-adn", label: "Ideas para ADN", jugador: "Ideas para la app", icono: "feedback" },
     ],
@@ -11821,6 +11823,8 @@ const NOTI_DESTINO = {
   mvp_ganador: "hoy",
   rpe_cargar: "hoy",
   destrezas: "mi-ficha",
+  apto_medico: "aptos",
+  apto_medico_cargado: "aptos",
   idea_plantel: "feedback-adn",
   adn_feedback: "feedback-adn",
 };
@@ -12070,6 +12074,8 @@ function AppClub({ perfil }) {
           <ReportesPage perfil={perfil} />
         ) : active === "videoteca" ? (
           <VideotecaPage perfil={perfil} />
+        ) : active === "aptos" ? (
+          <AptosMedicosPage perfil={perfil} jugadores={[...POOL].sort((a, b) => a.id.localeCompare(b.id))} temporada={TEMPORADA_ACTIVA} />
         ) : active === "mi-ficha" ? (
           <MiFichaPage perfil={perfil} onIrAConfiguracion={irAConfiguracion} />
         ) : active === "destrezas" ? (
