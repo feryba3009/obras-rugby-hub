@@ -180,6 +180,8 @@ await prueba("Partido en vivo de punta a punta", "staff", async (p) => {
   const db = await leerBase(p);
   const par = db.partidos.find((x) => x.id === "par-cat-int-11");
   afirmar(par && par.goles_favor === 7 && par.goles_contra === 0, `El resultado no se guardó (quedó ${par?.goles_favor}-${par?.goles_contra})`);
+  const m = (db.marcador_vivo || []).find((x) => x.partido_id === "par-cat-int-11");
+  afirmar(m && m.gf === 7 && m.estado === "final", `El marcador en vivo no quedó publicado: ${JSON.stringify(m)}`);
 }, {
   // El partido de Intermedia de la demo pasa a ser hoy, para poder abrir el partido en vivo.
   preparar: () => {
@@ -282,6 +284,22 @@ await prueba("Staff aprueba un apto médico", "staff", async (p) => {
   await p.waitForTimeout(1200);
   const db = await leerBase(p);
   afirmar(db.aptos_medicos.filter((x) => x.estado === "aprobado").length === 22, "No quedó aprobado");
+});
+
+await prueba("Jugador sigue el marcador en vivo y no puede tocarlo", "jugador", async (p) => {
+  await verTexto(p, /EN VIVO/);
+  await verTexto(p, "12 – 5");
+  await verTexto(p, /Try convertido/);
+  const t = await p.locator("body").innerText();
+  afirmar(!t.includes("Abrir el partido en vivo"), "El jugador puede abrir el partido en vivo");
+}, {
+  preparar: () => {
+    const g = JSON.parse(sessionStorage.getItem("adn-demo-db-berazategui"));
+    g.datos.marcador_vivo = [{ partido_id: "par-cat-int-11", club_id: g.datos.clubes[0].id, categoria: "Intermedia", rival: "Rival de prueba", gf: 12, gc: 5,
+      reloj_acumulado: 1200, reloj_inicio: new Date(Date.now() - 60000).toISOString(), estado: "en_juego",
+      incidencias: [{ minuto: "05:10", texto: "Try convertido (7 pts)" }, { minuto: "14:00", texto: "Try sin convertir (5 pts)" }], updated_at: new Date().toISOString() }];
+    sessionStorage.setItem("adn-demo-db-berazategui", JSON.stringify(g));
+  },
 });
 
 await prueba("Cambiar de entrenador a jugador", "staff", async (p) => {

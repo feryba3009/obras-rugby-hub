@@ -315,6 +315,6 @@ export function generarDatos() {
 
   // Tablas que la demo usa vacías.
   for (const t of ["notificaciones_leidas", "plan_gimnasio_club", "sesiones_practica", "grupos_practica", "videos_partido", "partidos_liga",
-    "reportes_video", "push_subscriptions", "adn_feedback", "convocatorias", "avatars", "escudos"]) db[t] = db[t] || [];
+    "reportes_video", "push_subscriptions", "adn_feedback", "convocatorias", "avatars", "escudos", "marcador_vivo"]) db[t] = db[t] || [];
   return db;
 }

@@ -768,6 +768,15 @@ function useConexion() {
   return online;
 }
 
+// Marcador en vivo para todo el club: el staff que lleva el partido lo publica (si hay señal) y los demás
+// lo siguen desde el inicio. Si falla, no pasa nada: el partido sigue guardado en el celular.
+async function publicarMarcador(fila) {
+  try {
+    const { error } = await supabase.from("marcador_vivo").upsert({ ...fila, updated_at: new Date().toISOString() }, { onConflict: "partido_id" });
+    if (error) console.warn("No se pudo publicar el marcador:", error.message);
+  } catch (e) { /* sin señal */ }
+}
+
 function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
   const guardado = React.useMemo(() => leerLocal(CLAVE_VIVO(partido.id), null), [partido.id]);
   const online = useConexion();
@@ -814,6 +823,20 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
     const t = setInterval(() => setTick((x) => x + 1), 500);
     return () => clearInterval(t);
   }, [corriendo]);
+
+  // El marcador, el reloj y las últimas incidencias se publican para que todo el club los siga.
+  const filaMarcador = (estado) => ({
+    partido_id: partido.id, categoria, rival: partido.rival, gf, gc,
+    reloj_acumulado: acumulado, reloj_inicio: inicio ? new Date(inicio).toISOString() : null,
+    estado: estado || (inicio ? "en_juego" : "pausa"),
+    incidencias: incidencias.slice(-15).map((i) => ({ minuto: i.minuto, texto: i.texto })), actualizado_por: perfil?.id || null,
+  });
+  useEffect(() => {
+    if (!inicio && !acumulado && !gf && !gc && !incidencias.length) return; // todavía no arrancó
+    if (!online) return;
+    const t = setTimeout(() => publicarMarcador(filaMarcador()), 800);
+    return () => clearTimeout(t);
+  }, [partido.id, gf, gc, incidencias, acumulado, inicio, online]);
 
   // Todo el partido queda guardado en el celular a cada cambio.
   useEffect(() => {
@@ -929,6 +952,7 @@ function PartidoVivoPage({ partido, categoria, perfil, onSalir }) {
     };
 
     const pendiente = { partidoId: partido.id, gf, gc, informe, categoria, rival: partido.rival, perfilId: perfil?.id, at: Date.now() };
+    publicarMarcador({ ...filaMarcador("final"), reloj_acumulado: segundos, reloj_inicio: null });
     // Primero queda en la cola del celular: si no hay señal, no se pierde nada.
     const cola = leerLocal(CLAVE_PENDIENTES_VIVO, []).filter((x) => x.partidoId !== partido.id);
     escribirLocal(CLAVE_PENDIENTES_VIVO, [...cola, pendiente]);
@@ -9990,6 +10014,69 @@ function TuSemana({ perfil, onNavigate }) {
   );
 }
 
+// Lo que ve todo el club mientras se juega: resultado, reloj e incidencias, actualizado solo.
+function MarcadorEnVivo() {
+  const [filas, setFilas] = useState([]);
+  const [abierto, setAbierto] = useState(null);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    const cargar = () => {
+      const desde = new Date(Date.now() - 4 * 3600 * 1000).toISOString();
+      supabase.from("marcador_vivo").select("*").gte("updated_at", desde).order("updated_at", { ascending: false })
+        .then(({ data }) => { if (vivo) setFilas((data || []).filter((f) => f.estado !== "final" || Date.now() - new Date(f.updated_at).getTime() < 3 * 3600 * 1000)); });
+    };
+    cargar();
+    const a = setInterval(cargar, 10000);
+    const b = setInterval(() => setTick((x) => x + 1), 1000);
+    return () => { vivo = false; clearInterval(a); clearInterval(b); };
+  }, []);
+  if (!filas.length) return null;
+  return (
+    <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
+      {filas.map((f) => {
+        const seg = f.reloj_acumulado + (f.reloj_inicio && f.estado === "en_juego" ? Math.max(0, Math.floor((Date.now() - new Date(f.reloj_inicio).getTime()) / 1000)) : 0);
+        const final = f.estado === "final";
+        const inc = [...(f.incidencias || [])].reverse();
+        const verTodo = abierto === f.partido_id;
+        return (
+          <div key={f.partido_id} role="region" aria-label={`Marcador en vivo ${f.categoria || ""}`} style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
+            <div style={{ background: final ? "var(--h-texto)" : "var(--h-club)", color: final ? "var(--h-fondo)" : "var(--h-club-txt)", padding: "14px 18px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12.5, fontWeight: 800, letterSpacing: 0.6 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  {!final && <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#E5484D", boxShadow: "0 0 0 3px rgba(229,72,77,.3)" }} />}
+                  {final ? "FINAL" : "EN VIVO"} · {(f.categoria || "").toUpperCase()}
+                </span>
+                <span style={{ fontFamily: "var(--h-titulo)", fontSize: 18 }}>{final ? "" : f.estado === "pausa" ? `${formatoReloj(seg)} · en pausa` : formatoReloj(seg)}</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 12, marginTop: 8 }}>
+                <span style={{ fontSize: 16, fontWeight: 700, textAlign: "right" }}>{nombreNuestro()}</span>
+                <span style={{ fontFamily: "var(--h-titulo)", fontSize: 40, fontWeight: 800, lineHeight: 1 }}>{f.gf} – {f.gc}</span>
+                <span style={{ fontSize: 16, fontWeight: 700 }}>{f.rival}</span>
+              </div>
+            </div>
+            {inc.length > 0 && (
+              <div style={{ padding: "8px 18px 12px" }}>
+                {(verTodo ? inc : inc.slice(0, 3)).map((i, k) => (
+                  <div key={k} style={{ display: "flex", gap: 10, padding: "6px 0", borderTop: k ? "1px solid var(--h-borde)" : "none", fontSize: 13.5 }}>
+                    <span style={{ minWidth: 42, color: "var(--h-sub)", fontWeight: 700 }}>{i.minuto}</span>
+                    <span style={{ color: "var(--h-texto)" }}>{sinEmojis(i.texto)}</span>
+                  </div>
+                ))}
+                {inc.length > 3 && (
+                  <button onClick={() => setAbierto(verTodo ? null : f.partido_id)} style={{ background: "none", border: "none", color: "var(--h-acento)", fontWeight: 700, cursor: "pointer", padding: "6px 0 0", fontSize: 13 }}>
+                    {verTodo ? "Ver menos" : `Ver todo el partido (${inc.length})`}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista, perfil }) {
   const esCelular = useIsMobile();
   // El aviso de "Activá las notificaciones" solo aparece si este celular/compu todavía no las tiene
@@ -10180,6 +10267,7 @@ function HoyPage({ onNavigate, onIrAConfiguracion, novedadVista, setNovedadVista
 
   return (
     <div>
+      <MarcadorEnVivo />
       {puedeGestionar(perfil) && intermediaHoy && <TarjetaEnVivo categoria="Intermedia" partido={intermediaHoy} bloqueada={false} />}
       {puedeGestionar(perfil) && superiorHoy && <TarjetaEnVivo categoria="Superior" partido={superiorHoy} bloqueada={!intermediaTerminada} />}
 
