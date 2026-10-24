@@ -8476,18 +8476,27 @@ const hoyISO_AR = () => new Date().toLocaleDateString("en-CA", { timeZone: "Amer
 function SelectorVoto({ partido, perfil, onElegir, onCerrar }) {
   const [busca, setBusca] = useState("");
   const [elegido, setElegido] = useState(null);
+  // Solo se vota a los que jugaron: la formación que quedó guardada en el partido al cargar el resultado.
+  // Si ese partido no tiene la formación guardada, se muestra la formación de la categoría y después el resto.
   const [convocados, setConvocados] = useState([]);
+  const [soloJugaron, setSoloJugaron] = useState(false);
   useEffect(() => {
-    const catId = CATEGORIA_IDS[partido.categoria];
-    if (!catId) return;
-    supabase.from("lineup_slots").select("jugador_id, numero").eq("categoria_id", catId).not("jugador_id", "is", null)
-      .then(({ data }) => setConvocados((data || []).sort((a, b) => a.numero - b.numero).map((x) => x.jugador_id)));
+    let vivo = true;
+    (async () => {
+      const { data: pt } = await supabase.from("partidos").select("jugaron").eq("id", partido.id).maybeSingle();
+      if (pt?.jugaron?.length) { if (vivo) { setConvocados(pt.jugaron); setSoloJugaron(true); } return; }
+      const catId = CATEGORIA_IDS[partido.categoria];
+      if (!catId) return;
+      const { data } = await supabase.from("lineup_slots").select("jugador_id, numero").eq("categoria_id", catId).not("jugador_id", "is", null);
+      if (vivo) setConvocados((data || []).sort((a, b) => a.numero - b.numero).map((x) => x.jugador_id));
+    })();
+    return () => { vivo = false; };
   }, [partido.id]);
   const yo = perfil?.jugador_id;
   const todos = POOL.filter((j) => j.dbId && j.dbId !== yo);
   const filtro = (j) => !busca || j.id.toLowerCase().includes(busca.toLowerCase());
   const deLaFormacion = convocados.map((id) => todos.find((j) => j.dbId === id)).filter(Boolean).filter(filtro);
-  const resto = todos.filter((j) => !convocados.includes(j.dbId)).filter(filtro);
+  const resto = soloJugaron ? [] : todos.filter((j) => !convocados.includes(j.dbId)).filter(filtro);
   const fila = (j) => (
     <button key={j.dbId} onClick={() => setElegido(j)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 4px", background: "none", border: "none", borderTop: "1px solid var(--h-borde)", cursor: "pointer", textAlign: "left" }}>
       <AvatarPlaceholder size={34} foto={j.foto} />
@@ -8512,9 +8521,9 @@ function SelectorVoto({ partido, perfil, onElegir, onCerrar }) {
           <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar jugador…" aria-label="Buscar jugador" style={{ ...inputStyle, marginTop: 0, marginBottom: 10 }} />
           {deLaFormacion.length > 0 && (
             <>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-sub)", margin: "6px 0 2px" }}>De la formación</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-sub)", margin: "6px 0 2px" }}>{soloJugaron ? "Los que jugaron" : "De la formación"}</div>
               {deLaFormacion.map(fila)}
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-sub)", margin: "16px 0 2px" }}>Resto del plantel</div>
+              {resto.length > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: "var(--h-sub)", margin: "16px 0 2px" }}>Resto del plantel</div>}
             </>
           )}
           {resto.map(fila)}
@@ -8577,7 +8586,7 @@ function JugadorDelPartido({ perfil }) {
     setMsg("");
     const fila = { partido_id: p.id, jugador_id: jugador.dbId, votante: perfil.auth_user_id };
     const { error } = await supabase.from("votos_partido").insert(fila);
-    if (error) { setMsg(error.code === "23505" ? "Ya votaste en este partido." : "No se pudo guardar el voto (la votación puede estar cerrada)."); cargar(); return; }
+    if (error) { setMsg(error.code === "23505" ? "Ya votaste en este partido." : /jugaron/.test(error.message || "") ? "Solo se puede votar a los que jugaron el partido." : "No se pudo guardar el voto (la votación puede estar cerrada)."); cargar(); return; }
     cargar();
   }
 

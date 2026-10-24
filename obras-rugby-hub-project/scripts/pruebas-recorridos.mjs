@@ -302,6 +302,25 @@ await prueba("Jugador sigue el marcador en vivo y no puede tocarlo", "jugador", 
   },
 });
 
+await prueba("Votación del jugador del partido: solo los que jugaron", "jugador", async (p) => {
+  await p.getByRole("button", { name: "Votar", exact: true }).first().click();
+  await verTexto(p, "Los que jugaron");
+  const t = await p.locator('[role="dialog"]').innerText();
+  afirmar(!t.includes("Resto del plantel"), "Aparece el resto del plantel para votar");
+  const db = await leerBase(p);
+  const jugaron = db.partidos.find((x) => x.id === "par-cat-sup-10").jugaron;
+  const fuera = db.jugadores.find((j) => !jugaron.includes(j.id) && j.id !== "jug-0");
+  afirmar(!t.includes(fuera.nombre), `Aparece para votar ${fuera.nombre}, que no jugó`);
+}, {
+  preparar: () => {
+    const g = JSON.parse(sessionStorage.getItem("adn-demo-db-berazategui"));
+    const pt = g.datos.partidos.find((x) => x.id === "par-cat-sup-10");
+    pt.votacion_abre_at = new Date(Date.now() - 3600000).toISOString();
+    g.datos.votos_partido = g.datos.votos_partido.filter((v) => v.partido_id !== "par-cat-sup-10");
+    sessionStorage.setItem("adn-demo-db-berazategui", JSON.stringify(g));
+  },
+});
+
 await prueba("Cambiar de entrenador a jugador", "staff", async (p) => {
   await p.getByRole("button", { name: "Ver como jugador" }).click();
   await p.waitForTimeout(3000);

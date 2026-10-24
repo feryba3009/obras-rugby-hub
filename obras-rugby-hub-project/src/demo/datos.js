@@ -286,6 +286,12 @@ export function generarDatos() {
     });
   });
 
+  // Quiénes jugaron cada partido ya jugado (para la votación del jugador del partido).
+  for (const pt of db.partidos) {
+    if (pt.goles_favor == null) continue;
+    pt.jugaron = db.lineup_slots.filter((s) => s.categoria_id === pt.categoria_id && s.jugador_id).map((s) => s.jugador_id);
+  }
+
   // Jugador del partido del último partido (votación cerrada).
   db.votos_partido = conCuenta.slice(0, 24).map((jid, k) => ({ id: `vt-${k}`, club_id, partido_id: "par-cat-sup-10",
     votante: `demo-auth-${k + 1}`, jugador_id: k % 3 === 0 ? "jug-9" : k % 3 === 1 ? "jug-12" : "jug-9", created_at: ahora }));
